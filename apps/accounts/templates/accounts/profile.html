@@ -1,0 +1,71 @@
+{% extends "core/dashboard_base.html" %}
+{% load form_tags %}
+{% block dashboard_title %}Профіль користувача{% endblock %}
+{% block dashboard_heading %}Мій профіль{% endblock %}
+
+{% block dashboard_content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-8">
+    <div class="card border-0 shadow-sm rounded-4">
+      <div class="card-body p-4">
+        <div class="d-flex align-items-center mb-4">
+          <img src="/static/img/avatar-default.png" class="rounded-circle border me-3" width="72" height="72" alt="avatar">
+          <div>
+            <h2 class="h5 fw-semibold mb-0">{{ request.user.email }}</h2>
+            {% if is_manager %}
+              <span class="badge bg-warning text-dark">Manager</span>
+            {% else %}
+              <span class="badge bg-light text-dark">Customer</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <form method="post" enctype="multipart/form-data" novalidate>
+          {% csrf_token %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Email</label>
+            <input type="email" class="form-control form-control-lg" value="{{ request.user.email }}" disabled>
+          </div>
+
+          {% if request.user.customerprofile %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Телефон</label>
+            <input type="text" name="phone" class="form-control form-control-lg" 
+                   value="{{ request.user.customerprofile.phone|default:'' }}">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Організація</label>
+            <input type="text" class="form-control form-control-lg" 
+                   value="{{ request.user.customerprofile.organization.name|default:'—' }}" disabled>
+          </div>
+          {% endif %}
+
+          <div class="d-grid mt-4">
+            <button type="submit" class="btn btn-primary btn-lg">
+              <i class="bi bi-save me-2"></i>Зберегти зміни
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block head_extra %}
+  {{ block.super }}
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+{% endblock %}
+
+{% block body_extra %}
+  {{ block.super }}
+  <script>
+    // EN: Auto fade flash messages; UA: Автоматичне згасання повідомлень
+    setTimeout(() => {
+      document.querySelectorAll('.alert').forEach(el => {
+        new bootstrap.Alert(el).close();
+      });
+    }, 4000);
+  </script>
+{% endblock %}

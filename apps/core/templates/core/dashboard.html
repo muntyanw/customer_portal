@@ -1,0 +1,12 @@
+{% extends 'core/base.html' %}
+{% block title %}Кабінет{% endblock %}
+{% block content %}
+  <h1>Вітаємо, {{ request.user.email }}</h1>
+
+  <div class="grid">
+    <a href="{% url 'orders:list' %}">
+      {% if is_manager %}Усі замовлення{% else %}Мої замовлення{% endif %}
+    </a>
+    <a href="{% url 'accounts:profile' %}">Профіль</a>
+  </div>
+{% endblock %}

@@ -1,0 +1,8 @@
+{% extends 'core/base.html' %}
+{% block content %}
+<h2>Редагувати замовлення #{{ order.id }}</h2>
+<form method="post" enctype="multipart/form-data">{% csrf_token %}
+  {{ form.as_p }}
+  <button type="submit">Зберегти</button>
+</form>
+{% endblock %}

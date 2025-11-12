@@ -1,0 +1,29 @@
+[project]
+name = "customer-portal"
+version = "0.1.0"
+description = "Django Customer Portal"
+requires-python = ">=3.12"
+dependencies = [
+  "Django>=5.0",
+  "psycopg[binary]>=3.1",
+  "django-environ>=0.11",
+  "djangorestframework>=3.15",
+  "djangorestframework-simplejwt>=5.3",
+  "django-filter>=24.3",
+  "Pillow>=10.0",
+  "celery>=5.4",
+  "redis>=5.0",
+  "django-redis>=5.4",
+  "python-slugify>=8.0",
+]
+
+[build-system]
+requires = ["setuptools>=74", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["apps*", "config*"]
+exclude = ["compose*", "tests*", "scripts*"]
+
+[tool.setuptools.package-data]
+"apps" = ["**/templates/**/*.html", "**/static/**", "**/migrations/*.py"]

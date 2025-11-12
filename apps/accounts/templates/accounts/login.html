@@ -1,0 +1,41 @@
+{% extends "core/base.html" %}
+{% load form_tags %}
+{% block title %}Вхід — Портал{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-center min-vh-100 bg-light">
+  <div class="col-11 col-sm-8 col-md-6 col-lg-4">
+    <div class="card shadow-lg border-0 rounded-4">
+      <div class="card-body p-4">
+        <div class="text-center mb-4">
+          <img src="/static/img/logo.svg" alt="logo" width="64" height="64" class="mb-2">
+          <h1 class="h4 fw-semibold mb-0">Вхід до порталу</h1>
+          <p class="text-muted small mb-0">Авторизуйтеся, щоб продовжити</p>
+        </div>
+
+        <form method="post" novalidate>
+          {% csrf_token %}
+          <div class="mb-3">
+            {{ form.email.label_tag }}
+            {{ form.email|add_class:"form-control form-control-lg" }}
+          </div>
+          <div class="mb-3">
+            {{ form.password.label_tag }}
+            {{ form.password|add_class:"form-control form-control-lg" }}
+          </div>
+
+          <div class="d-grid mt-4">
+            <button type="submit" class="btn btn-primary btn-lg">Увійти</button>
+          </div>
+        </form>
+
+        <hr class="my-4">
+        <p class="text-center small mb-0">
+          Немає акаунту?
+          <a href="{% url 'accounts:register' %}" class="fw-semibold">Зареєструватися</a>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

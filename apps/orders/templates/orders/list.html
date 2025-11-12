@@ -1,0 +1,40 @@
+{% extends "core/dashboard_base.html" %}
+{% block dashboard_title %}Мої замовлення{% endblock %}
+{% block dashboard_heading %}Мої замовлення{% endblock %}
+
+{% block dashboard_content %}
+  {% if orders %}
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Назва</th>
+            <th>Статус</th>
+            <th>Створено</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for o in orders %}
+          <tr>
+            <td class="text-muted">#{{ o.id }}</td>
+            <td class="fw-semibold">{{ o.title }}</td>
+            <td><span class="badge text-bg-secondary">{{ o.get_status_display }}</span></td>
+            <td>{{ o.created_at|date:"d.m.Y H:i" }}</td>
+            <td class="text-end">
+              <a class="btn btn-outline-primary btn-sm" href="{% url 'orders:detail' o.id %}">Відкрити</a>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="text-center py-5">
+      <div class="display-6">😶</div>
+      <p class="mt-3 text-muted">Немає замовлень</p>
+      <a class="btn btn-success" href="{% url 'orders:create' %}">Створити замовлення</a>
+    </div>
+  {% endif %}
+{% endblock %}

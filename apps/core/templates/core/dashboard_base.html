@@ -1,0 +1,96 @@
+{% extends "core/base.html" %}
+{% block title %}{% block dashboard_title %}Кабінет{% endblock %}{% endblock %}
+
+{% block head_extra %}
+  {{ block.super }}
+  <style>
+    /* EN: Sidebar styles; UA: стилі для сайдбару */
+    .sidebar {
+      width: 260px;
+      min-height: calc(100vh - 56px); /* minus navbar height */
+    }
+    .sidebar .nav-link {
+      border-radius: .375rem;
+    }
+    .sidebar .nav-link.active {
+      background: rgba(255,255,255,.2);
+      color: #fff;
+      font-weight: 600;
+    }
+    @media (max-width: 991.98px) {
+      .sidebar {
+        width: 100%;
+        min-height: auto;
+      }
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <!-- Sidebar -->
+  <aside class="col-12 col-lg-3">
+    <div class="sidebar bg-primary text-white rounded-3 p-3 shadow-sm">
+      <div class="d-flex align-items-center mb-3">
+        <img src="/static/img/avatar-default.png" width="40" height="40" class="rounded-circle me-2" alt="avatar">
+        <div>
+          <div class="fw-bold">{{ request.user.email }}</div>
+          {% if is_manager %}
+            <span class="badge bg-warning text-dark">Manager</span>
+          {% else %}
+            <span class="badge bg-light text-dark">Customer</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <nav class="nav flex-column">
+        <a class="nav-link text-white {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}"
+           href="{% url 'core:dashboard' %}">
+          <i class="bi bi-speedometer2 me-2"></i>Огляд
+        </a>
+        <a class="nav-link text-white {% if request.resolver_match.app_name == 'orders' %}active{% endif %}"
+           href="{% url 'orders:list' %}">
+          <i class="bi bi-bag-check me-2"></i>Замовлення
+        </a>
+        <a class="nav-link text-white {% if request.resolver_match.url_name == 'profile' %}active{% endif %}"
+           href="{% url 'accounts:profile' %}">
+          <i class="bi bi-person-circle me-2"></i>Профіль
+        </a>
+        {% if is_manager %}
+          <a class="nav-link text-white" href="/admin/">
+            <i class="bi bi-shield-lock me-2"></i>Адмінка
+          </a>
+        {% endif %}
+      </nav>
+
+      <hr class="border-white-50">
+      <div class="small">
+        <div class="opacity-75">Організація:</div>
+        <div class="fw-semibold">
+          {% if request.organization %}{{ request.organization.name }}{% else %}—{% endif %}
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <section class="col-12 col-lg-9">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <h1 class="h4 m-0">{% block dashboard_heading %}Кабінет{% endblock %}</h1>
+      <div>
+        <a href="{% url 'orders:create' %}" class="btn btn-success btn-sm">
+          <i class="bi bi-plus-lg me-1"></i>Нове замовлення
+        </a>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-body">
+        {% block dashboard_content %}
+        <!-- EN: Child templates put content here; UA: Вміст сторінки кабінету -->
+        {% endblock %}
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
