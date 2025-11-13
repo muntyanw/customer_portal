@@ -1,12 +1,7 @@
-{% extends 'core/base.html' %}
-{% block title %}Кабінет{% endblock %}
-{% block content %}
-  <h1>Вітаємо, {{ request.user.email }}</h1>
+{% extends "core/dashboard_base.html" %}
+{% block dashboard_title %}Кабінет{% endblock %}
+{% block dashboard_heading %}Кабінет{% endblock %}
 
-  <div class="grid">
-    <a href="{% url 'orders:list' %}">
-      {% if is_manager %}Усі замовлення{% else %}Мої замовлення{% endif %}
-    </a>
-    <a href="{% url 'accounts:profile' %}">Профіль</a>
-  </div>
+{% block dashboard_content %}
+ <h1>Вітаємо, {{ request.user.email }}</h1>
 {% endblock %}

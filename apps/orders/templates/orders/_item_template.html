@@ -1,0 +1,91 @@
+<template id="item-template">
+  <div class="card item-card border-0 shadow-sm rounded-4" data-index="${i}">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+                <div class="fw-semibold">
+                    Позиція <span class="pos-index">{index}</span>
+                    <img src="/static/media/load.gif" alt="load" class="load_gif" style="display: none;">
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-danger remove-row" aria-label="Видалити позицію">
+                <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            <div class="row g-3">
+
+                <div class="col-12 col-md-2">
+                    <label class="form-label"><strong>Система</strong></label>
+                    <select name="system_sheet" class="form-select system-sheet">
+                        <!-- перший крок — лиш «Фальши» -->
+                        <option value="Фальши">Фальши</option>
+                    </select>
+                    <br/>
+                    <label class="form-label"><strong>Колір рами</strong></label>
+                    <select name="table_section" class="form-select table-section"></select>
+                </div>
+
+                <div class="col-12 col-md-2">
+                    <label class="form-label"><strong>Тканина</strong></label>
+                    <select name="fabric_name" class="form-select fabric" disabled>
+                        <option value="">Спочатку оберіть колір…</option>
+                    </select>
+                    <br/>
+                    <label class="form-label"><strong>Габаритна висота, мм</strong></label>
+                    <input type="number" min="0" name="height_gabarit_mm" class="form-control h-mm" placeholder="введіть мм" disabled>
+                    
+                </div>
+
+                <div class="col-12 col-md-2">
+                    <label class="form-label"><strong>Ширина по тканині, мм</strong></label>
+                    <input type="number" min="0" name="width_fabric_mm"
+                            class="form-control w-mm" placeholder="введіть мм" disabled>
+                    <br/>
+                    <label class="form-label"><strong>Кількість</strong></label>
+                    <input type="number" name="quantity" class="form-control qty" min="1" step="1" value="1" disabled>
+                   
+                </div>
+
+                <div class="col-12 col-md-2">
+                    <div class="form-check mt-2">
+                        <br/>
+                        <input class="form-check-input gabarit-width-flag" type="checkbox"
+                            name="gabarit_width_flag" id="gw_${i}" disabled>
+                        <label class="form-check-label" for="gw_${i}"><strong>Габаритна ширина (+4мм)</strong></label>
+                    </div>
+
+                     <div class="controls-inline">
+                        <div class="form-check">
+                            <br/>
+                            <input class="form-check-input magnets" type="checkbox"
+                                    name="magnets_fixation" id="mg_${i}" disabled>
+                            <label class="form-check-label" for="mg_${i}"><strong>Фіксація магнітами</strong></label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-12 col-md-4">
+                    <br/>
+                    <div class="price-box border rounded-3 p-3">
+                    <div class="kv"><span>База</span><span class="base">0.00</span></div>
+                    <div class="kv"><span>Допис висоти</span><span class="surcharge">0.00</span></div>
+                    <div class="kv"><span>Магніти</span><span class="magnets-price">0.00</span></div>
+                    <hr class="my-2">
+                    <div class="sum">
+                        <span>Цина позиціі</span>
+                        <span class="subtotal">0.00</span>
+                        <img src="/static/media/load.gif" alt="load" class="load_gif" style="display: none;">
+                    </div>
+
+                    <input type="hidden" name="base_price_eur"       class="base-input">
+                    <input type="hidden" name="surcharge_height_eur" class="surcharge-input">
+                    <input type="hidden" name="magnets_price_eur"    class="magnets-input">
+                    <input type="hidden" name="subtotal_eur"         class="subtotal-input">
+                    <input type="hidden" name="roll_height_info"     class="roll-info-input">
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+  </div>
+</template>

@@ -1,6 +1,17 @@
-{% extends "core/dashboard_base.html" %}
-{% block dashboard_title %}Мої замовлення{% endblock %}
-{% block dashboard_heading %}Мої замовлення{% endblock %}
+{% extends 'core/dashboard_base.html' %}
+{% block dashboard_title %}
+  Мої замовлення
+{% endblock %}
+{% block dashboard_heading %}
+  <div class="container-fluid">
+    <div class="row">
+      <div class="col-8">Мої замовлення</div>
+      <div class="col-4 text-end">
+        <a href="{% url 'orders:builder' %}" class="btn btn-success btn-sm"><i class="bi bi-plus-lg me-1"></i>Нове замовлення</a>
+      </div>
+    </div>
+  </div>
+{% endblock %}
 
 {% block dashboard_content %}
   {% if orders %}
@@ -16,17 +27,19 @@
           </tr>
         </thead>
         <tbody>
-        {% for o in orders %}
-          <tr>
-            <td class="text-muted">#{{ o.id }}</td>
-            <td class="fw-semibold">{{ o.title }}</td>
-            <td><span class="badge text-bg-secondary">{{ o.get_status_display }}</span></td>
-            <td>{{ o.created_at|date:"d.m.Y H:i" }}</td>
-            <td class="text-end">
-              <a class="btn btn-outline-primary btn-sm" href="{% url 'orders:detail' o.id %}">Відкрити</a>
-            </td>
-          </tr>
-        {% endfor %}
+          {% for o in orders %}
+            <tr>
+              <td class="text-muted">#{{ o.id }}</td>
+              <td class="fw-semibold">{{ o.title }}</td>
+              <td>
+                <span class="badge text-bg-secondary">{{ o.get_status_display }}</span>
+              </td>
+              <td>{{ o.created_at|date:'d.m.Y H:i' }}</td>
+              <td class="text-end">
+                <a class="btn btn-outline-primary btn-sm" href="{% url 'orders:detail' o.id %}">Відкрити</a>
+              </td>
+            </tr>
+          {% endfor %}
         </tbody>
       </table>
     </div>
@@ -34,7 +47,7 @@
     <div class="text-center py-5">
       <div class="display-6">😶</div>
       <p class="mt-3 text-muted">Немає замовлень</p>
-      <a class="btn btn-success" href="{% url 'orders:create' %}">Створити замовлення</a>
+      <a class="btn btn-success" href="{% url 'orders:builder' %}">Створити замовлення</a>
     </div>
   {% endif %}
 {% endblock %}

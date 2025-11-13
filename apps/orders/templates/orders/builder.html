@@ -1,0 +1,392 @@
+{% extends "core/dashboard_base.html" %}
+{% block dashboard_title %}Нове замовлення{% endblock %}
+{% block dashboard_heading %}Конструктор замовлення{% endblock %}
+
+{% block head_extra %}
+  {{ block.super }}
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    .order-total-bar{
+      position: sticky; bottom: 0; z-index: 1030;
+      background: var(--bs-body-bg); border-top: 1px solid var(--bs-border-color);
+    }
+    .item-card .price-box .kv{
+      display:flex; justify-content:space-between; gap:.75rem;
+      font-size:.9rem; color:var(--bs-secondary-color);
+    }
+    .item-card .price-box .sum{
+      display:flex; justify-content:space-between; gap:.75rem;
+      font-weight:600; font-size:1.05rem;
+    }
+    @media (min-width: 992px){
+      .item-card .controls-inline{ display:flex; gap:.75rem; }
+    }
+  </style>
+{% endblock %}
+
+{% block dashboard_content %}
+<form method="post" id="orderForm" novalidate>{% csrf_token %}
+  <div class="mb-3">
+    <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
+      <div class="fw-semibold" style="display: none;">Джерело прайсу</div>
+      <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="small">Відкрити прайс</a>
+    </div>
+    <input type="url" class="form-control" id="priceUrl" name="price_url"
+           value="{{ PRICE_SHEET_URL }}" required style="display: none;">
+  </div>
+
+  <!-- Контейнер для карточек позиций -->
+  <div id="itemsContainer" class="d-flex flex-column gap-3"></div>
+
+  <div class="d-grid mt-2">
+    <button type="button" class="btn btn-outline-primary" id="addRow">
+      <i class="bi bi-plus-lg me-1"></i> Додати позицію
+    </button>
+  </div>
+
+  <!-- Итог по заказу (липкая панель на мобиле) -->
+  <div class="order-total-bar mt-3 p-3 rounded-3 shadow-sm">
+    <div class="d-flex justify-content-between align-items-center">
+      <div class="fw-semibold">Разом по замовленню, €</div>
+      <div id="orderTotal" class="fs-5 fw-bold">0.00</div>
+    </div>
+  </div>
+
+  <div class="d-grid mt-3">
+    <button type="submit" class="btn btn-success btn-lg">Зберегти замовлення</button>
+  </div>
+</form>
+
+{% include "orders/_item_template.html" %}
+{% endblock %}
+
+{% block body_extra %}
+  {{ block.super }}
+  <script>
+    // ---------- Helpers ----------
+    function money(x){ return (Math.round(parseFloat(x||0)*100)/100).toFixed(2); }
+
+    // CSRF: беремо з <meta name="csrf-token"> або з cookie 'csrftoken'
+    function getCsrf(){
+      const m = document.querySelector('meta[name="csrf-token"]');
+      if (m && m.content) return m.content;
+      // fallback: cookie
+      const match = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/);
+      return match ? decodeURIComponent(match[1]) : "";
+    }
+
+    // Нежный тост, если в проекте нет window.showToast
+    if (!window.showToast) {
+      window.showToast = (msg, type="info")=>{
+        const div = document.createElement('div');
+        div.className = `alert alert-${type} position-fixed top-0 start-50 translate-middle-x mt-3 shadow`;
+        div.style.zIndex = 2000;
+        div.textContent = msg;
+        document.body.appendChild(div);
+        setTimeout(()=>div.remove(), 2500);
+      };
+    }
+
+    function itemTemplate(data) {
+      const tpl = document.getElementById("item-template");
+      const node = tpl.content.cloneNode(true);
+      // подстановка значений
+      $(node).find(".pos-index").text(data + 1);
+      $(node).find("[data-index]").attr("data-index", data);
+      $(node).find("strong").text(data.title);
+      $(node).find(".badge").text(data.price);
+      $(node).find(".text-muted").text(data.subtitle);
+      return node; // DocumentFragment
+    }
+
+    // usage:
+    // $("#container")[0].append(itemTemplate({index: i, title: "...", price: "...", subtitle: "..."}));
+
+
+    // ---------- State / кеш ----------
+    const $container = $("#itemsContainer");
+    const priceUrlInput = $("#priceUrl");
+    let sectionsCache = null; // тільки перелік секцій
+    const fabricsCache = new Map(); // ключ: назва секції -> {fabrics, width_bands, ...}
+
+    // ---------- API ----------
+    async function loadSections(){
+      const url = priceUrlInput.val();
+      const resp = await fetch(`/api/v1/pricing/sections-first?url=${encodeURIComponent(url)}`);
+      if(!resp.ok) throw new Error("Cannot load sections");
+      const data = await resp.json();
+      sectionsCache = data.sections || [];
+      return sectionsCache;
+    }
+
+    async function loadFabricsForSection(sectionTitle){
+      const url = priceUrlInput.val();
+      const key = sectionTitle;
+      if(fabricsCache.has(key)) return fabricsCache.get(key);
+      const resp = await fetch(`/api/v1/pricing/fabrics-first-section?url=${encodeURIComponent(url)}&section=${encodeURIComponent(sectionTitle)}`);
+      if(!resp.ok) throw new Error("Cannot load fabrics for section");
+      const data = await resp.json();
+      fabricsCache.set(key, data);
+      return data;
+    }
+
+    async function previewPrice({url, fabric, h, w, magnets}){
+      $(".load_gif").show();
+      const resp = await fetch("/api/v1/pricing/preview-first", {
+        method: "POST",
+        headers: {"Content-Type":"application/json", "X-CSRFToken": getCsrf()},
+        body: JSON.stringify({ url, fabric_name: fabric, width_mm: w, gabarit_height_mm: h, magnets })
+      });
+      if(!resp.ok){
+        const err = await resp.json().catch(()=>({detail:"Error"}));
+        throw new Error(err.detail || "Помилка розрахунку");
+      }
+      $(".load_gif").hide();
+      return resp.json();
+    }
+
+    function setCardBlockedUntilSection($card, blocked){
+      $card.find(".fabric").prop("disabled", blocked);
+      $card.find(".h-mm, .w-mm, .gabarit-width-flag, .magnets, .qty").prop("disabled", blocked);
+      $card.find(".need-section-hint").toggle(blocked);
+    }
+
+    function setLoadingFabrics($card, isLoading){
+      const $fab = $card.find(".fabric");
+      if(isLoading){
+        $fab.html('<option>Завантаження тканин…</option>').prop("disabled", true);
+      }
+    }
+    function fillSections($card){
+      const $sec = $card.find(".table-section");
+      $sec.empty();
+
+      // Плейсхолдер по умолчанию (ничего не выбрано)
+      $sec.append('<option value="" selected disabled>— Оберіть секцію —</option>');
+
+      // Реальные секции
+      (sectionsCache || []).forEach(s => {
+        const t = s.title || "Колір";
+        $sec.append(new Option(t, t));
+      });
+
+      // Оставляем карточку заблокированной до выбора секции
+      setCardBlockedUntilSection($card, true);
+    }
+
+    async function fillFabricsForCard($card, preselectFabric){
+      const sectionTitle = $card.find(".table-section").val();
+      if(!sectionTitle){ setCardBlockedUntilSection($card, true); return; }
+      setLoadingFabrics($card, true);
+      try{
+        const data = await loadFabricsForSection(sectionTitle);
+        const $fab = $card.find(".fabric");
+        $fab.empty();
+        (data.fabrics || []).forEach(f => $fab.append(new Option(f.name, f.name)));
+        // предустановить тканину, если передали
+        if(preselectFabric){
+          $fab.val(preselectFabric);
+          if($fab.val() === null) {
+            // если тканини с таким именем нема — оставим первую
+          }
+        }
+        $fab.prop("disabled", false);
+        setCardBlockedUntilSection($card, false);
+      }catch(e){
+        setCardBlockedUntilSection($card, true);
+        window.showToast("Не вдалося завантажити тканини для секції", "danger");
+      }finally{
+        setLoadingFabrics($card, false);
+      }
+    }
+
+    function readCardValues($card){
+      return {
+        system:  $card.find(".system-sheet").val() || "",
+        section: $card.find(".table-section").val() || "",
+        fabric:  $card.find(".fabric").val() || "",
+        h:       $card.find(".h-mm").val() || "",
+        w:       $card.find(".w-mm").val() || "",
+        qty:     $card.find(".qty").val() || "1",
+        gw:      $card.find(".gabarit-width-flag").is(":checked"),
+        mg:      $card.find(".magnets").is(":checked"),
+        frame:   $card.find(".frame-color").val?.() || ""   // опционально
+      };
+    }
+
+    function recalcOrderTotal(){
+      let sum = 0;
+      $container.find(".item-card").each(function(){
+        const st = parseFloat($(this).find(".subtotal").text() || "0");
+        sum += isNaN(st) ? 0 : st;
+      });
+      $("#orderTotal").text(money(sum));
+    }
+
+    async function previewCard($card){
+      const url = priceUrlInput.val();
+      const fabric = $card.find(".fabric").val();
+      const h = parseInt($card.find(".h-mm").val() || "0", 10);
+      const w = parseInt($card.find(".w-mm").val() || "0", 10);
+      const magnets = $card.find(".magnets").is(":checked");
+      const qty = Math.max(1, parseInt($card.find(".qty").val() || "1", 10));
+
+      if(!fabric || !h || !w){ return; }
+
+      try{
+        const data = await previewPrice({url, fabric, h, w, magnets});
+        // backend возвращает цены за 1 шт.
+        const base1 = Number(data.base_price_eur || 0);
+        const sur1  = Number(data.surcharge_height_eur || 0);
+        const mag1  = Number(data.magnets_price_eur || 0);
+        const sub1  = Number(data.subtotal_eur || 0);
+
+        // умножаем на qty
+        const base = base1 * qty;
+        const sur  = sur1  * qty;
+        const mag  = mag1  * qty;
+        const sub  = sub1  * qty;
+
+        $card.find(".base").text(money(base));
+        $card.find(".surcharge").text(money(sur));
+        $card.find(".magnets-price").text(money(mag));
+        $card.find(".subtotal").text(money(sub));
+
+        $card.find(".base-input").val(money(base));
+        $card.find(".surcharge-input").val(money(sur));
+        $card.find(".magnets-input").val(money(mag));
+        $card.find(".subtotal-input").val(money(sub));
+
+        const rollInfo = (data.fabric_params && data.fabric_params.roll_height_mm) ? data.fabric_params.roll_height_mm : "";
+        $card.find(".roll-info-input").val(rollInfo);
+
+        recalcOrderTotal();
+      }catch(err){
+        window.showToast(err.message || "Помилка розрахунку", "danger");
+      }
+    }
+
+    $("#addRow").on("click", async function(){
+      // 1) прочитать предыдущую карточку (если есть)
+      const $prev = $container.find(".item-card").last();
+      const prevVals = $prev.length ? readCardValues($prev) : null;
+
+      // 2) создать новую карточку
+      const idx = $container.children().length;
+      $container.append(itemTemplate(idx));
+      const $card = $container.find(".item-card").last();
+
+      // изначально заблокировано
+      setCardBlockedUntilSection($card, true);
+
+      // 3) загрузить (или взять из кеша) список секций и наполнить селект
+      if(!sectionsCache){
+        try { await loadSections(); }
+        catch(e){ window.showToast("Не вдалося завантажити секції прайса", "danger"); return; }
+      }
+      fillSections($card);
+
+      // 4) если есть prev — скопировать значения
+      if(prevVals){
+        // Система (вкладка)
+        if(prevVals.system){ $card.find(".system-sheet").val(prevVals.system); }
+
+        // Секція
+        if(prevVals.section){
+          $card.find(".table-section").val(prevVals.section);
+          // ткани подтягиваем для выбранной секции и сразу ставим ту же тканину
+          await fillFabricsForCard($card, prevVals.fabric);
+          // теперь поля уже разблокированы — можно выставить остальное
+          if(prevVals.h)   $card.find(".h-mm").val(prevVals.h);
+          if(prevVals.w)   $card.find(".w-mm").val(prevVals.w);
+          if(prevVals.qty) $card.find(".qty").val(prevVals.qty);
+
+          $card.find(".gabarit-width-flag").prop("checked", !!prevVals.gw);
+          $card.find(".magnets").prop("checked", !!prevVals.mg);
+
+          // опционально: Колір рами (если есть такой select/input с классом .frame-color)
+          if(prevVals.frame && $card.find(".frame-color").length){
+            $card.find(".frame-color").val(prevVals.frame);
+          }
+
+          // если есть все параметры — сразу посчитаем превью
+          previewCard($card);
+        } else {
+          // секция ещё не выбрана — оставляем карточку заблокированной, ждём выбора
+          setCardBlockedUntilSection($card, true);
+        }
+      }
+    });
+
+
+
+
+    $container.on("click", ".remove-row", function(){
+      $(this).closest(".item-card").remove();
+      recalcOrderTotal();
+    });
+
+    $container.on("change", ".table-section", async function(){
+      const $card = $(this).closest(".item-card");
+      setCardBlockedUntilSection($card, true);
+      $card.find(".base,.surcharge,.magnets-price,.subtotal").text("0.00");
+      await fillFabricsForCard($card); // внутри по успешной загрузке снимаем блокировку
+    });
+
+
+    $container.on("change keyup", ".fabric, .h-mm, .w-mm, .magnets", function(){
+      previewCard($(this).closest(".item-card"));
+    });
+
+    // Валідація перед сабмітом: секція і тканина обов'язкові
+    $("#orderForm").on("submit", function(e){
+      let ok = true;
+      $container.find(".item-card").each(function(){
+        const $c = $(this);
+        const sec = $c.find(".table-section").val();
+        const fab = $c.find(".fabric").val();
+        if(!sec || !fab){
+          ok = false;
+          if(!sec) $c.find(".table-section").addClass("is-invalid");
+          if(!fab) $c.find(".fabric").addClass("is-invalid");
+        }else{
+          $c.find(".table-section,.fabric").removeClass("is-invalid");
+        }
+      });
+      if(!ok){
+        e.preventDefault();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        window.showToast("Оберіть колір та тканину для кожної позиції", "warning");
+      }
+    });
+
+    // ---------- Ініціалізація ----------
+    (async function(){
+      try{
+        await loadSections();
+        $("#addRow").trigger("click");
+      }catch(e){
+        window.showToast("Не вдалося завантажити секції прайса", "danger");
+      }
+    })();
+
+    $container.on("change", ".system-sheet", async function(){
+      const $card = $(this).closest(".item-card");
+      // очистить секции/ткани и заблокировать поля
+      $card.find(".table-section").empty().append('<option value="" selected disabled>— Оберіть секцію —</option>');
+      $card.find(".fabric").empty().append('<option value="">Спочатку оберіть секцію…</option>');
+      setCardBlockedUntilSection($card, true);
+
+      // при необходимости можно перезагрузить sectionsCache под другую вкладку
+      // (сейчас работаем только с першою — «Фальши»)
+    });
+
+    $container.on("change keyup", ".qty", function(){
+      const v = parseInt(this.value || "1", 10);
+      if (isNaN(v) || v < 1) this.value = 1;
+      previewCard($(this).closest(".item-card"));
+    });
+
+
+  </script>
+{% endblock %}
