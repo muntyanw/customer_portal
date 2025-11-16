@@ -6,6 +6,79 @@ env = environ.Env(DJANGO_DEBUG=(bool, False))
 # Read .env if present
 environ.Env.read_env(BASE_DIR / ".env")
 
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+
+    "formatters": {
+        "standard": {
+            "format": "[{asctime}] {levelname} {name}: {message}",
+            "style": "{",
+        },
+        "simple": {
+            "format": "{levelname}: {message}",
+            "style": "{",
+        },
+    },
+
+    "handlers": {
+        # ========== console ==========
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+        },
+
+        # ========== main file log ==========
+        "file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": LOG_DIR / "project.log",
+            "maxBytes": 5 * 1024 * 1024,  # 5 MB
+            "backupCount": 5,
+            "encoding": "utf-8",
+            "formatter": "standard",
+        },
+
+        # ========== Google Sheets logs ==========
+        "sheets": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": LOG_DIR / "sheets.log",
+            "maxBytes": 5 * 1024 * 1024,
+            "backupCount": 3,
+            "encoding": "utf-8",
+            "formatter": "standard",
+        },
+    },
+
+    "loggers": {
+        # Django internal logs
+        "django": {
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": True,
+        },
+        # Requests coming to DRF API
+        "django.request": {
+            "handlers": ["file"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+        # Google Sheets integration logs
+        "sheets": {
+            "handlers": ["sheets", "console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        # your project (any module)
+        "app": {
+            "handlers": ["file", "console"],
+            "level": "INFO",
+        },
+    },
+}
+
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
 SECRET_KEY = env("DJANGO_SECRET_KEY", default="change-me")
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["*"])
@@ -102,6 +175,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",  # после sessions
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "apps.middleware.request_logging.RequestLoggingMiddleware",
 ]
 
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
@@ -116,5 +190,9 @@ ROOT_URLCONF = "config.urls"
 # Точки входа WSGI/ASGI (полезно и для dev)
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
+
+GOOGLE_SERVICE_ACCOUNT_FILE = BASE_DIR / "config" / "google-service-account.json"
+FABRIC_COLORS_SHEET_ID = "1Dsr-7LdyjchAttYgvv8dmvByausJqw3NrlGX8wTwF7o"
+FABRIC_COLORS_SHEET_NAME = "Тканини до ролет"
 
 

@@ -1,21 +1,55 @@
 # -*- coding: utf-8 -*-
-# EN: Google Sheets helpers (public sheet -> download XLSX, parse first sheet, price preview)
-# UA: Хелпери для Google Sheets (публічний доступ -> XLSX, парсинг першої вкладки, прев'ю ціни)
+# EN: Google Sheets helpers (public sheet -> download XLSX, parse sheets, price preview)
+# UA: Хелпери для Google Sheets (публічний доступ -> XLSX, парсинг вкладок, прев'ю ціни)
+
 from __future__ import annotations
-import io, os, re, json, time, requests, hashlib
+
+import io
+import os
+import re
+import json
+import time
+import hashlib
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Dict, Tuple, Optional
+
+import requests
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from django.conf import settings
 
+import logging
+logger = logging.getLogger("sheets")
+
+#logger.debug("Downloading sheet %s", google_sheet_url)
+#logger.info("Loaded workbook for sheet %s", sheet_name)
+#ogger.warning("Fallback: header row not found exactly in %s", section_title)
+#logger.error("Google Sheets error: %s", e, exc_info=True)
+
+
 Q = Decimal
-CACHE_TTL_SECONDS = 300  # 5 минут; можно увеличить/уменьшить
-CACHE_DIR = getattr(settings, "SHEETS_CACHE_DIR", os.path.join(settings.BASE_DIR, "tmp", "sheets_cache"))
+CACHE_TTL_SECONDS = 300  # 5 min; can be changed
+
+CACHE_DIR = getattr(
+    settings,
+    "SHEETS_CACHE_DIR",
+    os.path.join(settings.BASE_DIR, "tmp", "sheets_cache"),
+)
 os.makedirs(CACHE_DIR, exist_ok=True)
+
+
+def _norm_title(s: Optional[str]) -> str:
+    """
+    EN: Normalize title for comparison.
+    UA: Нормалізує заголовок для порівняння.
+    """
+    return (s or "").strip().lower()
+
+# ---------- money / cache helpers ----------
 
 def round_money(x: Decimal) -> Decimal:
     return x.quantize(Q("0.01"), rounding=ROUND_HALF_UP)
+
 
 def _xlsx_export_url(google_sheet_url: str) -> str:
     m = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", google_sheet_url)
@@ -24,11 +58,13 @@ def _xlsx_export_url(google_sheet_url: str) -> str:
     sheet_id = m.group(1)
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
 
+
 def _cache_keys(google_sheet_url: str):
     key = hashlib.sha256(google_sheet_url.encode("utf-8")).hexdigest()
     xlsx_path = os.path.join(CACHE_DIR, f"{key}.xlsx")
     meta_path = os.path.join(CACHE_DIR, f"{key}.json")
     return xlsx_path, meta_path
+
 
 def _read_meta(meta_path: str) -> dict:
     if not os.path.exists(meta_path):
@@ -36,18 +72,22 @@ def _read_meta(meta_path: str) -> dict:
     try:
         with open(meta_path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except Exception as e:
+        logger.error("_cache_keys failed: %s", e, exc_info=True)
         return {}
-    
+
+
 def _write_meta(meta_path: str, data: dict):
     tmp = meta_path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f)
     os.replace(tmp, meta_path)
 
+
 def _download_workbook(google_sheet_url: str, force_refresh: bool = False):
     """
-    Download XLSX with ETag/TTL cache.
+    EN: Download XLSX with ETag/TTL cache.
+    UA: Завантажує XLSX з кешем за ETag/TTL.
     """
     url = _xlsx_export_url(google_sheet_url)
     xlsx_path, meta_path = _cache_keys(google_sheet_url)
@@ -55,8 +95,12 @@ def _download_workbook(google_sheet_url: str, force_refresh: bool = False):
     etag = meta.get("etag")
     ts = meta.get("ts", 0)
 
-    # TTL: если есть свежий файл — читаем локально без сети
-    if not force_refresh and os.path.exists(xlsx_path) and time.time() - ts < CACHE_TTL_SECONDS:
+    # TTL: if file is fresh - use local copy
+    if (
+        not force_refresh
+        and os.path.exists(xlsx_path)
+        and time.time() - ts < CACHE_TTL_SECONDS
+    ):
         with open(xlsx_path, "rb") as f:
             return load_workbook(io.BytesIO(f.read()), data_only=True)
 
@@ -66,7 +110,6 @@ def _download_workbook(google_sheet_url: str, force_refresh: bool = False):
 
     resp = requests.get(url, timeout=30, headers=headers)
     if resp.status_code == 304 and os.path.exists(xlsx_path):
-        # контент не менялся — обновим ts и используем кеш
         meta["ts"] = time.time()
         _write_meta(meta_path, meta)
         with open(xlsx_path, "rb") as f:
@@ -74,11 +117,9 @@ def _download_workbook(google_sheet_url: str, force_refresh: bool = False):
 
     resp.raise_for_status()
     content = resp.content
-    # сохранить xlsx
     with open(xlsx_path, "wb") as f:
         f.write(content)
 
-    # сохранить etag + ts, если есть
     new_etag = resp.headers.get("ETag")
     meta = {"etag": new_etag, "ts": time.time()}
     _write_meta(meta_path, meta)
@@ -86,92 +127,28 @@ def _download_workbook(google_sheet_url: str, force_refresh: bool = False):
     return load_workbook(io.BytesIO(content), data_only=True)
 
 
+# ---------- public: list sheet titles ----------
+
 def list_sheet_titles(google_sheet_url: str, *, force_refresh: bool = False) -> List[str]:
+    """
+    EN: Return list of sheet names (tabs).
+    UA: Повертає список назв вкладок.
+    """
     wb = _download_workbook(google_sheet_url, force_refresh=force_refresh)
     return wb.sheetnames
 
-def _merged_cell_spans(ws: Worksheet):
-    for rng in ws.merged_cells.ranges:
-        yield (rng.min_row, rng.min_col, rng.max_row, rng.max_col)
 
-def find_sections_by_headers(
+# ---------- helpers for parsing ----------
+
+def _row_values(
     ws: Worksheet,
-    title_prefix: str,
-    *,
-    min_merged_width: int = 12,
-    search_cols: int = 6,
-    case_insensitive: bool = True,
-) -> List[Dict]:
-    """
-    UA: Пошук секцій універсально:
-      1) як об'єднані заголовки у одному рядку (ширина >= min_merged_width)
-      2) як текстові заголовки, що ПОЧИНАЮТЬСЯ з title_prefix (у перших search_cols колонках)
-    Повертає: [{"title": str, "row": int, "col": int}...]
-
-    :param ws: аркуш Excel (openpyxl)
-    :param title_prefix: префікс заголовка (наприклад, "Фальш")
-    :param min_merged_width: мінімальна кількість злитих комірок у рядку для визнання заголовком
-    :param search_cols: скільки перших колонок сканувати для текстових заголовків
-    :param case_insensitive: порівнювати префікс без урахування регістру
-    """
-    def _norm(s: Optional[str]) -> str:
-        s = (s or "").strip()
-        return s.lower() if case_insensitive else s
-
-    pfx = _norm(title_prefix)
-    sections: List[Dict] = []
-    seen = set()  # для дедупликации: (row, col, title_norm)
-
-    # --- (1) merged headers у один рядок ---
-    for rng in ws.merged_cells.ranges:
-        if rng.min_row == rng.max_row:
-            width = rng.max_col - rng.min_col + 1
-            if width >= min_merged_width:
-                v = ws.cell(row=rng.min_row, column=rng.min_col).value
-                if isinstance(v, str) and v.strip():
-                    v_norm = _norm(v)
-                    # must start with prefix
-                    if not pfx or v_norm.startswith(pfx):
-                        key = (rng.min_row, rng.min_col, v_norm)
-                        if key not in seen:
-                            seen.add(key)
-                            sections.append({
-                                "title": v.strip(),
-                                "row": rng.min_row,
-                                "col": rng.min_col,
-                            })
-
-    # --- (2) fallback: текстові заголовки без merge ---
-    # перебираємо рядки і перші search_cols колонок; беремо ті, що ПОЧИНАЮТЬСЯ з префіксу
-    max_r = ws.max_row or 0
-    for r in range(1, max_r + 1):
-        for c in range(1, max(1, search_cols) + 1):
-            v = ws.cell(row=r, column=c).value
-            if not isinstance(v, str):
-                continue
-            if not v.strip():
-                continue
-            v_norm = _norm(v)
-            if pfx and not v_norm.startswith(pfx):
-                continue
-            key = (r, c, v_norm)
-            if key in seen:
-                continue
-            seen.add(key)
-            sections.append({
-                "title": v.strip(),
-                "row": r,
-                "col": c,
-            })
-
-    # впорядкуємо за позицією зверху-вниз, зліва-направо
-    sections.sort(key=lambda x: (x["row"], x["col"]))
-    return sections
-
-def _row_values(ws: Worksheet, row: int, start_col: int = 1, end_col: Optional[int] = None):
+    row: int,
+    start_col: int = 1,
+    end_col: Optional[int] = None,
+) -> List[Optional[str]]:
     if end_col is None:
         end_col = ws.max_column
-    vals = []
+    vals: List[Optional[str]] = []
     for c in range(start_col, end_col + 1):
         v = ws.cell(row=row, column=c).value
         if v is None or isinstance(v, str):
@@ -180,91 +157,22 @@ def _row_values(ws: Worksheet, row: int, start_col: int = 1, end_col: Optional[i
             vals.append(str(v))
     return vals
 
+
 def _to_decimal(x) -> Optional[Decimal]:
     if x is None:
         return None
     s = str(x).strip().replace(",", ".")
     try:
         return Q(s)
-    except Exception:
+    except Exception as e:
+        logger.error("_to_decimal failed: %s", e, exc_info=True)
         return None
 
-def parse_first_sheet_price(google_sheet_url: str, force_refresh: bool = False) -> Dict:
-    wb = _download_workbook(google_sheet_url, force_refresh=force_refresh)
-    ws = wb[wb.sheetnames[0]]
-
-    sections = find_sections_by_headers(
-        ws,
-        title_prefix="Фальш",      # ← важливо: секції починаються з цього префікса
-        min_merged_width=12,
-        search_cols=6,
-        case_insensitive=True,
-    )
-
-    # locate header row by keywords
-    header_row = None
-    for r in range(1, min(ws.max_row, 250)):
-        row = _row_values(ws, r)
-        joined = " ".join([x or "" for x in row])
-        if "Тканина" in joined and "Висота рулону" in joined and "Габаритна висота до" in joined:
-            header_row = r
-            break
-    if not header_row:
-        raise RuntimeError("Header row not found on first sheet")
-
-    header_vals = _row_values(ws, header_row)
-    # find index of "Ширина готового виробу"
-    try:
-        width_hdr_idx = header_vals.index(next(v for v in header_vals if v and "Ширина" in v))
-    except StopIteration:
-        width_hdr_idx = 3  # fallback
-    width_row = header_row + 1
-    width_bands = [v for v in _row_values(ws, width_row)[width_hdr_idx + 1 - 1:] if v]
-
-    # magnets price — search above header
-    magnets_price = Q("0.00")
-    for r in range(max(1, header_row - 8), header_row + 1):
-        j = " ".join([x or "" for x in _row_values(ws, r)]).lower()
-        if "магніт" in j:
-            for cell in _row_values(ws, r):
-                d = _to_decimal(cell)
-                if d is not None:
-                    magnets_price = d
-                    break
-            break
-
-    fabrics = []
-    r = width_row + 1
-    while r <= ws.max_row:
-        vals = _row_values(ws, r)
-        if not any(vals):
-            break
-        name = (vals[0] or "").strip()
-        if not name:
-            r += 1
-            continue
-        roll_h = _to_decimal(vals[1])
-        gabarit_limit = _to_decimal(vals[2])
-        price_cells = vals[width_hdr_idx + 1 - 1:]
-        prices = [(_to_decimal(pc) if _to_decimal(pc) is not None else None) for pc in price_cells]
-        fabrics.append({
-            "name": name,
-            "roll_height_mm": int(roll_h) if roll_h is not None else None,
-            "gabarit_limit_mm": int(gabarit_limit) if gabarit_limit is not None else None,
-            "prices_by_band": prices,  # same order as width_bands
-        })
-        r += 1
-
-    return {
-        "sections": sections,
-        "width_bands": width_bands,
-        "fabrics": fabrics,
-        "magnets_price_eur": magnets_price,
-    }
 
 def pick_width_band(width_bands: List[str], width_mm: int) -> Optional[int]:
     """
-    UA: Визначаємо індекс смуги ширини за текстом ('До 400мм', '401–450' ...).
+    UA: Визначає індекс смуги ширини за текстом ('До 400мм', '401–450' ...).
+    EN: Chooses band index from textual ranges.
     """
     for i, b in enumerate(width_bands):
         b = str(b).replace(" ", "").replace("мм", "")
@@ -273,7 +181,8 @@ def pick_width_band(width_bands: List[str], width_mm: int) -> Optional[int]:
                 limit = int(re.sub(r"^До", "", b))
                 if width_mm <= limit:
                     return i
-            except Exception:
+            except Exception as e:
+                logger.error("pick_width_band failed: %s", e, exc_info=True)
                 pass
         else:
             m = re.match(r"(\d+)[–-](\d+)", b)
@@ -283,27 +192,241 @@ def pick_width_band(width_bands: List[str], width_mm: int) -> Optional[int]:
                     return i
     return None
 
-def fabric_params_first(google_sheet_url: str, fabric_name: str, *, force_refresh: bool = False):
-    parsed = parse_first_sheet_price(google_sheet_url, force_refresh=force_refresh)
-    f = next((x for x in parsed["fabrics"] if x["name"].lower() == fabric_name.lower()), None)
-    if not f:
-        return None
+
+# ========= UNIVERSAL SECTION PARSER (ANY SHEET) =========
+
+def find_sections_merged(
+    ws: Worksheet,
+    *,
+    min_merged_width: int = 12,
+) -> List[Dict]:
+    """
+    UA: Знаходить секції лише за merged-заголовками в одному рядку.
+    EN: Find sections only by one-line merged headers (width >= min_merged_width).
+    Returns: [{"title": str, "row": int, "col": int}, ...]
+    """
+    sections: List[Dict] = []
+    seen = set()
+
+    for rng in ws.merged_cells.ranges:
+        if rng.min_row == rng.max_row:
+            width = rng.max_col - rng.min_col + 1
+            if width >= min_merged_width:
+                v = ws.cell(row=rng.min_row, column=rng.min_col).value
+                if isinstance(v, str) and v.strip():
+                    key = (rng.min_row, rng.min_col)
+                    if key not in seen:
+                        seen.add(key)
+                        sections.append(
+                            {
+                                "title": v.strip(),
+                                "row": rng.min_row,
+                                "col": rng.min_col,
+                            }
+                        )
+
+    sections.sort(key=lambda x: (x["row"], x["col"]))
+    return sections
+
+
+def parse_sheet_price_section(
+    google_sheet_url: str,
+    sheet_name: str,
+    section_title: str,
+    *,
+    min_merged_width: int = 12,   # оставляем в сигнатуре, но внутри не используем
+    force_refresh: bool = False,
+) -> Dict:
+    """
+    UA: Парсить ТІЛЬКИ вибрану секцію на вказаному листі.
+    EN: Parse ONLY selected section on given sheet.
+
+    Структура як у "Фальш-ролети":
+      - зверху блоку: заголовок "Фальш-ролети, біла система" тощо;
+      - далі кілька пояснювальних рядків;
+      - рядок заголовків з "Тканина", "Висота рулону / тканини", "Габаритна висота ...";
+      - наступний рядок: ширинні смуги;
+      - далі: тканини до пустого рядка або наступного заголовку-секції.
+    """
+    wb = _download_workbook(google_sheet_url, force_refresh=force_refresh)
+    if sheet_name not in wb.sheetnames:
+        raise ValueError(f"Sheet '{sheet_name}' not found in workbook")
+
+    ws = wb[sheet_name]
+
+    # 1) Находим все секции на листе тем же способом, что и API
+    all_sections = find_sections_by_headers(
+        ws,
+        title_prefix="",      # не фильтруем по префиксу
+        min_merged_width=0,   # не используем
+        search_cols=6,
+        case_insensitive=True,
+    )
+
+    # Нормализуем названия
+    wanted_norm = _norm_title(section_title)
+    target = next(
+        (s for s in all_sections if _norm_title(s["title"]) == wanted_norm),
+        None,
+    )
+    if not target:
+        raise ValueError(f"Section '{section_title}' not found on sheet '{sheet_name}'")
+
+    # Определяем границы секции по соседним заголовкам
+    sections_sorted = sorted(all_sections, key=lambda x: (x["row"], x["col"]))
+    idx = sections_sorted.index(target)
+    start_row = target["row"]
+    end_row = (
+        sections_sorted[idx + 1]["row"] - 1
+        if idx + 1 < len(sections_sorted)
+        else ws.max_row
+    )
+
+    # 2) Ищем строку заголовков внутри секции (более гибко)
+    header_row: Optional[int] = None
+    for r in range(start_row, min(end_row, ws.max_row) + 1):
+        vals = _row_values(ws, r)
+        joined = " ".join([x or "" for x in vals]).lower()
+        if "тканина" in joined and "висота" in joined and "габарит" in joined:
+            header_row = r
+            break
+
+    if not header_row:
+        raise RuntimeError(
+            f"Header row not found in section '{section_title}' on sheet '{sheet_name}'"
+        )
+
+    # 3) Определяем колонку начала ширинных смуг
+    header_vals = _row_values(ws, header_row)
+    width_hdr_idx = None
+    for i, v in enumerate(header_vals):
+        if isinstance(v, str) and "ширина" in v.lower():
+            width_hdr_idx = i
+            break
+    if width_hdr_idx is None:
+        # Fallback: после третьей колонки
+        width_hdr_idx = 3
+
+    width_row = header_row + 1
+    width_row_vals = _row_values(ws, width_row)
+    width_bands = [v for v in width_row_vals[width_hdr_idx:] if v]
+
+    # 4) Цена магнітів (ищем в тексті над заголовком)
+    magnets_price = Q("0.00")
+    search_from = max(start_row, header_row - 8)
+    for r in range(search_from, header_row + 1):
+        row_vals = _row_values(ws, r)
+        joined = " ".join([x or "" for x in row_vals]).lower()
+        if "магніт" in joined:
+            for cell in row_vals:
+                d = _to_decimal(cell)
+                if d is not None:
+                    magnets_price = d
+                    break
+            break
+
+    # 5) Список тканей
+    fabrics: List[Dict] = []
+    r = width_row + 1
+    while r <= end_row:
+        vals = _row_values(ws, r)
+
+        # если строка полностью пустая — считаем, что секция закончилась
+        if not any(vals):
+            break
+
+        name = (vals[0] or "").strip() if len(vals) > 0 else ""
+        if not name:
+            r += 1
+            continue
+
+        roll_h = _to_decimal(vals[1]) if len(vals) > 1 else None
+        gabarit_limit = _to_decimal(vals[2]) if len(vals) > 2 else None
+
+        price_cells = vals[width_hdr_idx:]
+        prices = [
+            (_to_decimal(pc) if _to_decimal(pc) is not None else None)
+            for pc in price_cells
+        ]
+
+        fabrics.append(
+            {
+                "name": name,
+                "roll_height_mm": int(roll_h) if roll_h is not None else None,
+                "gabarit_limit_mm": int(gabarit_limit) if gabarit_limit is not None else None,
+                "prices_by_band": prices,
+            }
+        )
+        r += 1
+
     return {
-        "roll_height_mm": f["roll_height_mm"],
-        "gabarit_limit_mm": f["gabarit_limit_mm"]
+        "sheet_name": sheet_name,
+        "section_title": section_title,
+        "width_bands": width_bands,
+        "fabrics": fabrics,
+        "magnets_price_eur": round_money(magnets_price),
+        "section": target,
     }
 
-def price_preview_first(google_sheet_url: str, fabric_name: str, width_mm: int,
-                        gabarit_height_mm: int, magnets: bool, *, force_refresh: bool = False) -> Dict:
-    parsed = parse_first_sheet_price(google_sheet_url, force_refresh=force_refresh)
+# ---------- width conversion hook (future place for system-specific logic) ----------
+
+def _convert_width_for_system(
+    sheet_name: str,
+    width_mm: int,
+    gabarit_width_flag: bool,
+) -> int:
+    """
+    EN: TEMP: width is used as-is. Here later we can plug in system-specific
+        conversions (gabarit width vs fabric width etc.).
+    UA: ПОКИ ЩО: просто повертаємо width_mm без змін.
+    """
+    return width_mm
+
+
+# ---------- price preview for sheet + section ----------
+
+def price_preview_section(
+    google_sheet_url: str,
+    sheet_name: str,
+    section_title: str,
+    fabric_name: str,
+    width_mm: int,
+    gabarit_height_mm: int,
+    gabarit_width_flag: bool,
+    magnets: bool,
+    *,
+    force_refresh: bool = False,
+) -> Dict:
+    """
+    EN: Generic price preview for ANY sheet+section.
+    UA: Універсальний прев’ю для будь-якої вкладки/секції.
+    """
+    parsed = parse_sheet_price_section(
+        google_sheet_url=google_sheet_url,
+        sheet_name=sheet_name,
+        section_title=section_title,
+        min_merged_width=12,
+        force_refresh=force_refresh,
+    )
+
+    width_for_price = _convert_width_for_system(
+        sheet_name=parsed["sheet_name"],
+        width_mm=width_mm,
+        gabarit_width_flag=gabarit_width_flag,
+    )
+
     bands = parsed["width_bands"]
-    idx = pick_width_band(bands, width_mm)
+    idx = pick_width_band(bands, width_for_price)
     if idx is None:
         raise ValueError("Ширина поза діапазонами прайсу")
 
-    fabric = next((f for f in parsed["fabrics"] if f["name"].lower() == fabric_name.lower()), None)
+    fabrics = parsed.get("fabrics") or []
+    fabric = next(
+        (f for f in fabrics if f["name"].lower() == fabric_name.lower()),
+        None,
+    )
     if not fabric:
-        raise ValueError("Тканину не знайдено")
+        raise ValueError("Тканину не знайдено у вибраній секції")
 
     base_cell = fabric["prices_by_band"][idx]
     if base_cell is None:
@@ -316,10 +439,10 @@ def price_preview_first(google_sheet_url: str, fabric_name: str, width_mm: int,
         surcharge = Q("0.00")
     else:
         over = gabarit_height_mm - limit
-        steps = (over + 99) // 100  # кожні 10см, заокруглення до більшого
+        steps = (over + 99) // 100  # кожні 10см, заокруглення догори
         surcharge = round_money(base * Q("0.10") * Q(int(steps)))
 
-    magnets_price = Q(parsed["magnets_price_eur"]) if magnets else Q("0.00")
+    magnets_price = parsed["magnets_price_eur"] if magnets else Q("0.00")
     subtotal = round_money(base + surcharge + magnets_price)
 
     return {
@@ -334,105 +457,90 @@ def price_preview_first(google_sheet_url: str, fabric_name: str, width_mm: int,
     }
 
 
-def parse_first_sheet_price_section(
+def fabric_params_for_sheet_section(
     google_sheet_url: str,
+    sheet_name: str,
     section_title: str,
+    fabric_name: str,
     *,
-    title_prefix: str = "Фальш",
-    min_merged_width: int = 12,
-    search_cols: int = 6,
     force_refresh: bool = False,
-) -> Dict:
+) -> Optional[Dict]:
     """
-    Возвращает структуру ТОЛЬКО для выбранной секции: width_bands, fabrics, magnets_price_eur.
-    Алгоритм:
-      - Находим список секций (merged+prefix).
-      - Выбираем секцию с title == section_title (без учета регистра и лишних пробелов).
-      - В пределах этой секции ниже по строкам ищем локальный header ('Тканина'...'Габаритна висота до'...'Ширина...').
-      - Следующая строка — ширинные полосы (bands).
-      - Затем до пустой строки или до начала следующей секции — ткани/цены.
+    EN: Return basic params for given fabric on given sheet+section.
+    UA: Повертає параметри тканини для вкладки/секції.
     """
-    wb = _download_workbook(google_sheet_url, force_refresh=force_refresh)
-    ws = wb[wb.sheetnames[0]]
-
-    # 1) Все секции
-    sections = find_sections_by_headers(
-        ws,
-        title_prefix=title_prefix,
-        min_merged_width=min_merged_width,
-        search_cols=search_cols,
-        case_insensitive=True,
+    parsed = parse_sheet_price_section(
+        google_sheet_url=google_sheet_url,
+        sheet_name=sheet_name,
+        section_title=section_title,
+        min_merged_width=12,
+        force_refresh=force_refresh,
     )
-    norm = lambda s: (s or "").strip().lower()
-    target = next((s for s in sections if norm(s["title"]) == norm(section_title)), None)
-    if not target:
-        raise ValueError("Секцію не знайдено")
-
-    start_row = target["row"]
-    # граница секции — строка перед следующей секцией или конец листа
-    sections_sorted = sorted(sections, key=lambda x: (x["row"], x["col"]))
-    idx = sections_sorted.index(target)
-    end_row = (sections_sorted[idx+1]["row"] - 1) if idx + 1 < len(sections_sorted) else ws.max_row
-
-    # 2) Внутри блока ищем header-строку
-    header_row = None
-    for r in range(start_row, min(end_row, ws.max_row) + 1):
-        vals = _row_values(ws, r)
-        joined = " ".join([x or "" for x in vals])
-        if "Тканина" in joined and "Висота рулону" in joined and "Габаритна висота до" in joined:
-            header_row = r
-            break
-    if not header_row:
-        raise RuntimeError("Не знайдено заголовок таблиці у секції")
-
-    header_vals = _row_values(ws, header_row)
-    # индекс колонки "Ширина готового виробу..."
-    try:
-        width_hdr_idx = header_vals.index(next(v for v in header_vals if v and "Ширина" in v))
-    except StopIteration:
-        width_hdr_idx = 3  # fallback
-
-    width_row = header_row + 1
-    width_bands = [v for v in _row_values(ws, width_row)[width_hdr_idx + 1 - 1:] if v]
-
-    # 3) Цена магнітів — попробуем найти над хедером секции
-    magnets_price = Q("0.00")
-    for r in range(max(start_row, header_row - 8), header_row + 1):
-        j = " ".join([x or "" for x in _row_values(ws, r)]).lower()
-        if "магніт" in j:
-            for cell in _row_values(ws, r):
-                d = _to_decimal(cell)
-                if d is not None:
-                    magnets_price = d
-                    break
-            break
-
-    # 4) Ткани (только в пределах секции)
-    fabrics = []
-    r = width_row + 1
-    while r <= end_row:
-        vals = _row_values(ws, r)
-        if not any(vals):
-            break  # пустая строка — конец таблицы секции
-        name = (vals[0] or "").strip()
-        if not name:
-            r += 1
-            continue
-        roll_h = _to_decimal(vals[1])
-        gabarit_limit = _to_decimal(vals[2])
-        price_cells = vals[width_hdr_idx + 1 - 1:]
-        prices = [(_to_decimal(pc) if _to_decimal(pc) is not None else None) for pc in price_cells]
-        fabrics.append({
-            "name": name,
-            "roll_height_mm": int(roll_h) if roll_h is not None else None,
-            "gabarit_limit_mm": int(gabarit_limit) if gabarit_limit is not None else None,
-            "prices_by_band": prices,
-        })
-        r += 1
-
+    fabrics = parsed.get("fabrics") or []
+    fabric = next(
+        (f for f in fabrics if f["name"].lower() == fabric_name.lower()),
+        None,
+    )
+    if not fabric:
+        return None
     return {
-        "width_bands": width_bands,
-        "fabrics": fabrics,
-        "magnets_price_eur": round_money(magnets_price),
-        "section": target,
+        "roll_height_mm": fabric["roll_height_mm"],
+        "gabarit_limit_mm": fabric["gabarit_limit_mm"],
     }
+    
+
+def find_sections_by_headers(
+    ws: Worksheet,
+    *,
+    title_prefix: str = "",
+    min_merged_width: int = 0,   # не используем, оставлен для совместимости
+    search_cols: int = 6,
+    case_insensitive: bool = True,
+) -> List[Dict]:
+    """
+    UA: Шукає секції за текстовими заголовками (без прив'язки до merged-ячейок).
+        Використовується для пошуку рядків типу:
+            "Фальш-ролети, біла система"
+            "Фальш-ролети, коричнева система"
+            ...
+    EN: Find sections by textual headers (no dependency on merged cells).
+    Returns: [{"title": str, "row": int, "col": int}, ...]
+    """
+    sections: List[Dict] = []
+
+    prefix_norm = _norm_title(title_prefix)
+    for r in range(1, ws.max_row + 1):
+        for c in range(1, search_cols + 1):
+            v = ws.cell(row=r, column=c).value
+            if not isinstance(v, str):
+                continue
+            raw = v.strip()
+            if not raw:
+                continue
+
+            norm = raw.lower() if case_insensitive else raw
+
+            # Если задан префикс — проверяем startswith
+            if prefix_norm:
+                if not norm.startswith(prefix_norm):
+                    continue
+
+            # Чтобы не цеплять любые строки, фильтруем по слову "система"
+            # (подходит под твой кейс "Фальш-ролети, ... система").
+            if "система" not in norm:
+                continue
+
+            sections.append(
+                {
+                    "title": raw,
+                    "row": r,
+                    "col": c,
+                }
+            )
+            # В строке найден один заголовок — дальше по колонкам этой строки не идём
+            break
+
+    # На всякий случай отсортируем по строке / колонке
+    sections.sort(key=lambda x: (x["row"], x["col"]))
+    return sections
+

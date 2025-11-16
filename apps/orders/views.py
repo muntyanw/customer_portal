@@ -77,20 +77,23 @@ def order_update(request, pk: int):
 
 PRICE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1vjwqhZ0-9SWcN-u8Oa-T6ciNmHfMeHU-c2RTv6axqHs/edit?gid=0#gid=0"
 
+
 @login_required
 @transaction.atomic
 def order_builder(request):
     """
-    UA: Сторінка для складання замовлення: динамічні рядки (OrderItem) + автоперерахунок через API.
-    EN: Order builder page with dynamic rows.
+    UA: Сторінка для складання замовлення: динамічні позиції (OrderItem) + автоперерахунок через API.
+    EN: Order builder page with dynamic rows and live price preview.
     """
     if request.method == "POST":
-        # Create order and its items from POST arrays
+        # 1) створюємо замовлення (тільки customer, title/description можна буде додавати окремо)
         order = Order.objects.create(customer=request.user)
-        # Можна зберегти organization через профіль
+
+        # optional: organization from profile
         profile = getattr(request.user, "customerprofile", None)
         org = getattr(profile, "organization", None)
 
+        # 2) зчитуємо масиви з форми
         rows = zip(
             request.POST.getlist("system_sheet"),
             request.POST.getlist("table_section"),
@@ -105,28 +108,61 @@ def order_builder(request):
             request.POST.getlist("subtotal_eur"),
             request.POST.getlist("roll_height_info"),
             request.POST.getlist("quantity"),
+            request.POST.getlist("control_side"),
+            request.POST.getlist("bottom_fixation"),
+            request.POST.getlist("pvc_plank"),
         )
+
         for row in rows:
-            ss, ts, fab, hg, wf, gw, mg, bp, sc, mp, sub, rollinfo, qty = row
+            (
+                system_sheet,
+                table_section,
+                fabric_name,
+                h_gab,
+                w_fab,
+                gw_flag,
+                mg_flag,
+                base_price,
+                sur_price,
+                mag_price,
+                subtotal,
+                rollinfo,
+                qty,
+                control_side,
+                bottom_fixation,
+                pvc_plank,
+            ) = row
+
             item = OrderItem(
-                order=order, organization=org,
-                system_sheet=ss, table_section=ts, fabric_name=fab,
-                height_gabarit_mm=int(hg or 0),
-                width_fabric_mm=int(wf or 0),
-                gabarit_width_flag=(gw == "on"),
-                magnets_fixation=(mg == "on"),
-                base_price_eur=bp or 0,
-                surcharge_height_eur=sc or 0,
-                magnets_price_eur=mp or 0,
-                subtotal_eur=sub or 0,
+                order=order,
+                organization=org,
+                system_sheet=system_sheet or "",
+                table_section=table_section or "",
+                fabric_name=fabric_name or "",
+                height_gabarit_mm=int(h_gab or 0),
+                width_fabric_mm=int(w_fab or 0),
+                gabarit_width_flag=(gw_flag == "on"),
+                magnets_fixation=(mg_flag == "on"),
+                base_price_eur=base_price or 0,
+                surcharge_height_eur=sur_price or 0,
+                magnets_price_eur=mag_price or 0,
+                subtotal_eur=subtotal or 0,
                 roll_height_info=rollinfo or "",
                 quantity=int(qty or 1),
+                control_side=(control_side or "").strip(),
+                bottom_fixation=(bottom_fixation == "on"),
+                pvc_plank=(pvc_plank == "on"),
             )
             item.save()
 
         messages.success(request, "Замовлення створено.")
         return redirect("orders:list")
 
-    return render(request, "orders/builder.html", {
-        "PRICE_SHEET_URL": PRICE_SHEET_URL
-    })
+    # GET
+    return render(
+        request,
+        "orders/builder.html",
+        {
+            "PRICE_SHEET_URL": PRICE_SHEET_URL,
+        },
+    )

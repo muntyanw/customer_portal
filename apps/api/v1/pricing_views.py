@@ -1,23 +1,31 @@
 # -*- coding: utf-8 -*-
-from typing import List, Dict, Any
+# apps/api/v1/pricing_views.py
+from typing import Any
 
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework import permissions, status
 from rest_framework.response import Response
+from apps.integrations.google_colors import get_fabric_color_codes
 
-# Импортируем функции парсинга
 from apps.integrations.google_sheets import (
     list_sheet_titles,
-    fabric_params_first,
-    price_preview_first,
-    parse_first_sheet_price_section,
+    _download_workbook,
+    parse_sheet_price_section,
+    price_preview_section,
+    fabric_params_for_sheet_section,
     find_sections_by_headers,
-    _download_workbook,  # используем для быстрого доступа к листу
 )
 
+import logging
+logger = logging.getLogger("app")
 
-# --------- Утилита: булевый флаг из query/body ---------
+#logger.info("Order created")
+#logger.warning("Something suspicious")
+#logger.error("Failed to save order", exc_info=True)
+
+
 def _flag(val: Any) -> bool:
+    """EN: Convert value to bool; UA: Перетворення значення на bool."""
     if isinstance(val, bool):
         return val
     if isinstance(val, (int, float)):
@@ -27,14 +35,16 @@ def _flag(val: Any) -> bool:
     return False
 
 
-# ========= СТАРЫЕ (совместимость) =========
+# ========= NEW: work with ALL sheets (= systems) =========
 
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
-def sheets_list(request):
+def systems_list(request):
     """
-    GET /api/v1/pricing/sheets-list?url=...&force_refresh=1
-    Возвращает список названий вкладок (листов) книги.
+    GET /api/v1/pricing/systems-list?url=...&force_refresh=1
+
+    EN: Return list of systems = sheet names.
+    UA: Повертає список систем = назв вкладок прайсу.
     """
     url = request.query_params.get("url")
     if not url:
@@ -43,104 +53,128 @@ def sheets_list(request):
     force = _flag(request.query_params.get("force_refresh"))
     try:
         titles = list_sheet_titles(url, force_refresh=force)
-        return Response({"sheets": titles})
+        return Response({"systems": titles})
     except Exception as e:
+        logger.error("systems_list failed: %s", e, exc_info=True)
         return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
-def fabrics_first(request):
+def system_fabrics(request):
     """
-    GET /api/v1/pricing/fabrics-first?url=...&force_refresh=1
+    GET /api/v1/pricing/system-fabrics?url=...&system=...&section=...?force_refresh=1
 
-    Для совместимости со старым фронтом:
-    - Возвращает список секций первой вкладки (Фальш*)
-    - Плюс "плоский" список тканей первой найденной секции (чтобы не ломать старое поведение).
-      Новый фронт должен использовать:
-        - /pricing/sections-first
-        - /pricing/fabrics-first-section?section=...
+    Режимы:
+      1) Только system:
+         -> вернёт список СЕКЦИЙ-КОЛЬОРІВ системы для указанной вкладки.
+      2) system + section:
+         -> помимо секций вернёт ткани и ширинные полосы выбранной секции.
     """
     url = request.query_params.get("url")
-    if not url:
-        return Response({"detail": "Missing url"}, status=status.HTTP_400_BAD_REQUEST)
+    system = request.query_params.get("system")  # имя вкладки
+    section = request.query_params.get("section")  # заголовок секции (строка "Фальш-ролети, біла система")
+
+    if not url or not system:
+        return Response({"detail": "Missing url or system"}, status=status.HTTP_400_BAD_REQUEST)
 
     force = _flag(request.query_params.get("force_refresh"))
     try:
         wb = _download_workbook(url, force_refresh=force)
-        ws = wb[wb.sheetnames[0]]
+        if system not in wb.sheetnames:
+            return Response({"detail": f"System sheet '{system}' not found"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Секции (логика: merged + начинается с "Фальш")
-        sections = find_sections_by_headers(
+        ws = wb[system]
+
+        # --- 1) Получаем ВСЕ заголовки-системы на листе
+        raw_sections = find_sections_by_headers(
             ws,
-            title_prefix="Фальш",
+            title_prefix="",         # сейчас не фильтруем по префиксу
             min_merged_width=12,
             search_cols=6,
             case_insensitive=True,
         )
+        # Только названия секций для фронта
+        sections = [s["title"] for s in raw_sections]
 
-        # Возьмём ткани из первой секции, если есть (для бэк-компат)
-        fabrics = []
-        if sections:
-            first_section_title = sections[0]["title"]
-            parsed = parse_first_sheet_price_section(
-                url,
-                section_title=first_section_title,
-                title_prefix="Фальш",
-                min_merged_width=12,
-                search_cols=6,
-                force_refresh=force,
-            )
-            fabrics = [{"name": f["name"]} for f in (parsed.get("fabrics") or [])]
+        # Если секция не указана — возвращаем только список секций
+        if not section:
+            return Response({"sections": sections})
+
+        # --- 3) Если секция указана — парсим только эту секцию и возвращаем ткани
+        parsed = parse_sheet_price_section(
+            google_sheet_url=url,
+            sheet_name=system,
+            section_title=section,
+            min_merged_width=12,
+            force_refresh=force,
+        )
+        fabrics = [{"name": f["name"]} for f in (parsed.get("fabrics") or [])]
 
         return Response({
             "sections": sections,
-            "fabrics": fabrics,  # только для совместимости со старым JS
+            "width_bands": parsed.get("width_bands") or [],
+            "fabrics": fabrics,
+            "magnets_price_eur": str(parsed.get("magnets_price_eur", "0.00")),
+            "section": parsed.get("section"),
         })
 
     except Exception as e:
+        logger.error("system_fabrics failed: %s", e, exc_info=True)
         return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 @api_view(["POST"])
 @permission_classes([permissions.IsAuthenticated])
-def preview_first(request):
+def system_preview(request):
     """
-    POST /api/v1/pricing/preview-first
+    POST /api/v1/pricing/system-preview
+
     Body:
       {
         "url": "<GoogleSheetUrl>",
+        "system_sheet": "<sheet name>",
+        "section_title": "<section title>",
         "fabric_name": "<string>",
         "width_mm": <int>,
         "gabarit_height_mm": <int>,
-        "magnets": <bool>,          # optional
-        "force_refresh": <bool>     # optional
+        "gabarit_width_flag": <bool>,   # optional
+        "magnets": <bool>,              # optional
+        "force_refresh": <bool>         # optional
       }
     """
     data = request.data or {}
 
     url = data.get("url")
+    system_sheet = (data.get("system_sheet") or "").strip()
+    section_title = (data.get("section_title") or "").strip()
     fabric_name = (data.get("fabric_name") or "").strip()
     width_mm = data.get("width_mm")
     gabarit_height_mm = data.get("gabarit_height_mm")
+    gabarit_width_flag = _flag(data.get("gabarit_width_flag"))
     magnets = _flag(data.get("magnets"))
 
-    # force_refresh: body или query
-    force = _flag(data.get("force_refresh")) or _flag(request.query_params.get("force_refresh"))
+    force = _flag(data.get("force_refresh")) or _flag(
+        request.query_params.get("force_refresh")
+    )
 
-    # числовая валидация
+    # numeric validation
     try:
         width_mm = int(width_mm)
         gabarit_height_mm = int(gabarit_height_mm)
-    except Exception:
+    except Exception as e:
+        logger.error("system_preview failed: %s", e, exc_info=True)
         return Response(
             {"detail": "width_mm та gabarit_height_mm мають бути цілими числами."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    if not url or not fabric_name:
+    if not url or not system_sheet or not section_title or not fabric_name:
         return Response(
-            {"detail": "Потрібні параметри: url, fabric_name."},
+            {
+                "detail": "Потрібні параметри: url, system_sheet, section_title, fabric_name."
+            },
             status=status.HTTP_400_BAD_REQUEST,
         )
     if width_mm <= 0 or gabarit_height_mm <= 0:
@@ -150,16 +184,22 @@ def preview_first(request):
         )
 
     try:
-        preview = price_preview_first(
+        preview = price_preview_section(
             google_sheet_url=url,
+            sheet_name=system_sheet,
+            section_title=section_title,
             fabric_name=fabric_name,
             width_mm=width_mm,
             gabarit_height_mm=gabarit_height_mm,
+            gabarit_width_flag=gabarit_width_flag,
             magnets=magnets,
             force_refresh=force,
         )
-        params = fabric_params_first(
+
+        params = fabric_params_for_sheet_section(
             google_sheet_url=url,
+            sheet_name=system_sheet,
+            section_title=section_title,
             fabric_name=fabric_name,
             force_refresh=force,
         ) or {}
@@ -170,67 +210,29 @@ def preview_first(request):
     except ValueError as ve:
         return Response({"detail": str(ve)}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
-        return Response({"detail": f"Помилка розрахунку: {e}"}, status=status.HTTP_502_BAD_GATEWAY)
-
-
-# ========= НОВЫЕ (секция → ткани) =========
+        logger.error("system_preview failed: %s", e, exc_info=True)
+        return Response(
+            {"detail": f"Помилка розрахунку: {e}"},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
 
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
-def sections_first(request):
+def fabric_colors(request):
     """
-    GET /api/v1/pricing/sections-first?url=...&force_refresh=1
-    Возвращает секции первой вкладки (по правилу: merged в одну строку И начинается с "Фальш").
-    """
-    url = request.query_params.get("url")
-    if not url:
-        return Response({"detail": "Missing url"}, status=status.HTTP_400_BAD_REQUEST)
+    GET /api/v1/pricing/fabric-colors?fabric=...
 
-    force = _flag(request.query_params.get("force_refresh"))
+    EN: Return list of color codes for fabric.
+    UA: Повертає коди кольорів для вибраної тканини.
+    """
+    fabric = (request.query_params.get("fabric") or "").strip()
+    if not fabric:
+        return Response({"detail": "Missing fabric"}, status=status.HTTP_400_BAD_REQUEST)
+
     try:
-        wb = _download_workbook(url, force_refresh=force)
-        ws = wb[wb.sheetnames[0]]
-
-        sections = find_sections_by_headers(
-            ws,
-            title_prefix="Фальш",
-            min_merged_width=12,
-            search_cols=6,
-            case_insensitive=True,
-        )
-        return Response({"sections": sections})
+        codes = get_fabric_color_codes(fabric)
+        return Response({"fabric": fabric, "color_codes": codes})
     except Exception as e:
-        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        logger.error("fabric_colors failed: %s", e, exc_info=True)
+        return Response({"detail": f"Помилка завантаження кольорів: {e}"}, status=status.HTTP_400_BAD_REQUEST)
 
-
-@api_view(["GET"])
-@permission_classes([permissions.IsAuthenticated])
-def fabrics_first_section(request):
-    """
-    GET /api/v1/pricing/fabrics-first-section?url=...&section=...&force_refresh=1
-    Возвращает ткани и полосы ширин ТОЛЬКО выбранной секции.
-    """
-    url = request.query_params.get("url")
-    section = request.query_params.get("section")
-    if not url or not section:
-        return Response({"detail": "Missing url or section"}, status=status.HTTP_400_BAD_REQUEST)
-
-    force = _flag(request.query_params.get("force_refresh"))
-    try:
-        parsed = parse_first_sheet_price_section(
-            google_sheet_url=url,
-            section_title=section,
-            title_prefix="Фальш",
-            min_merged_width=12,
-            search_cols=6,
-            force_refresh=force,
-        )
-        fabrics = [{"name": f["name"]} for f in (parsed.get("fabrics") or [])]
-        return Response({
-            "width_bands": parsed.get("width_bands") or [],
-            "fabrics": fabrics,
-            "magnets_price_eur": str(parsed.get("magnets_price_eur", "0.00")),
-            "section": parsed.get("section"),
-        })
-    except Exception as e:
-        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
