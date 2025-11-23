@@ -6,14 +6,15 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from apps.integrations.google_colors import get_fabric_color_codes
+from apps.integrations.pricing_config import get_system_cfg
 
 from apps.integrations.google_sheets import (
+    parse_sheet_price_section,
+)
+
+from apps.integrations.google_sheets_core import (
     list_sheet_titles,
     _download_workbook,
-    parse_sheet_price_section,
-    price_preview_section,
-    fabric_params_for_sheet_section,
-    find_sections_by_headers,
 )
 
 import logging
@@ -78,46 +79,15 @@ def system_fabrics(request):
     if not url or not system:
         return Response({"detail": "Missing url or system"}, status=status.HTTP_400_BAD_REQUEST)
 
-    force = _flag(request.query_params.get("force_refresh"))
     try:
-        wb = _download_workbook(url, force_refresh=force)
-        if system not in wb.sheetnames:
-            return Response({"detail": f"System sheet '{system}' not found"}, status=status.HTTP_400_BAD_REQUEST)
-
-        ws = wb[system]
-
-        # --- 1) Получаем ВСЕ заголовки-системы на листе
-        raw_sections = find_sections_by_headers(
-            ws,
-            title_prefix="",         # сейчас не фильтруем по префиксу
-            min_merged_width=12,
-            search_cols=6,
-            case_insensitive=True,
-        )
-        # Только названия секций для фронта
-        sections = [s["title"] for s in raw_sections]
-
-        # Если секция не указана — возвращаем только список секций
-        if not section:
-            return Response({"sections": sections})
-
-        # --- 3) Если секция указана — парсим только эту секцию и возвращаем ткани
+    
         parsed = parse_sheet_price_section(
             google_sheet_url=url,
             sheet_name=system,
             section_title=section,
-            min_merged_width=12,
-            force_refresh=force,
         )
-        fabrics = [{"name": f["name"]} for f in (parsed.get("fabrics") or [])]
 
-        return Response({
-            "sections": sections,
-            "width_bands": parsed.get("width_bands") or [],
-            "fabrics": fabrics,
-            "magnets_price_eur": str(parsed.get("magnets_price_eur", "0.00")),
-            "section": parsed.get("section"),
-        })
+        return Response(parsed)
 
     except Exception as e:
         logger.error("system_fabrics failed: %s", e, exc_info=True)
@@ -139,9 +109,7 @@ def system_preview(request):
         "fabric_name": "<string>",
         "width_mm": <int>,
         "gabarit_height_mm": <int>,
-        "gabarit_width_flag": <bool>,   # optional
-        "magnets": <bool>,              # optional
-        "force_refresh": <bool>         # optional
+        "gabarit_width_flag": <bool>,
       }
     """
     data = request.data or {}
@@ -152,19 +120,13 @@ def system_preview(request):
     fabric_name = (data.get("fabric_name") or "").strip()
     width_mm = data.get("width_mm")
     gabarit_height_mm = data.get("gabarit_height_mm")
-    gabarit_width_flag = _flag(data.get("gabarit_width_flag"))
-    magnets = _flag(data.get("magnets"))
+    gabarit_width_flag = data.get("gabarit_width_flag")
 
-    force = _flag(data.get("force_refresh")) or _flag(
-        request.query_params.get("force_refresh")
-    )
-
-    # numeric validation
+    # ---- numeric validation ----
     try:
         width_mm = int(width_mm)
         gabarit_height_mm = int(gabarit_height_mm)
-    except Exception as e:
-        logger.error("system_preview failed: %s", e, exc_info=True)
+    except Exception:
         return Response(
             {"detail": "width_mm та gabarit_height_mm мають бути цілими числами."},
             status=status.HTTP_400_BAD_REQUEST,
@@ -177,6 +139,7 @@ def system_preview(request):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
+        
     if width_mm <= 0 or gabarit_height_mm <= 0:
         return Response(
             {"detail": "Ширина/висота мають бути > 0."},
@@ -184,37 +147,26 @@ def system_preview(request):
         )
 
     try:
-        preview = price_preview_section(
+        preview = parse_sheet_price_section(
             google_sheet_url=url,
             sheet_name=system_sheet,
             section_title=section_title,
             fabric_name=fabric_name,
             width_mm=width_mm,
             gabarit_height_mm=gabarit_height_mm,
-            gabarit_width_flag=gabarit_width_flag,
-            magnets=magnets,
-            force_refresh=force,
+            gabarit_width_flag = gabarit_width_flag
         )
 
-        params = fabric_params_for_sheet_section(
-            google_sheet_url=url,
-            sheet_name=system_sheet,
-            section_title=section_title,
-            fabric_name=fabric_name,
-            force_refresh=force,
-        ) or {}
-
-        preview.update({"fabric_params": params})
         return Response(preview, status=status.HTTP_200_OK)
 
     except ValueError as ve:
         return Response({"detail": str(ve)}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
-        logger.error("system_preview failed: %s", e, exc_info=True)
         return Response(
             {"detail": f"Помилка розрахунку: {e}"},
             status=status.HTTP_502_BAD_GATEWAY,
         )
+
 
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
@@ -236,3 +188,18 @@ def fabric_colors(request):
         logger.error("fabric_colors failed: %s", e, exc_info=True)
         return Response({"detail": f"Помилка завантаження кольорів: {e}"}, status=status.HTTP_400_BAD_REQUEST)
 
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def system_config(request):
+    """
+    GET /api/v1/pricing/system-config?system=...
+
+    Возвращает полный конфиг из SYSTEM_CONFIG для конкретной вкладки.
+    """
+    system = request.query_params.get("system")
+    if not system:
+        return Response({"detail": "Missing system"}, status=status.HTTP_400_BAD_REQUEST)
+
+    cfg = get_system_cfg(system)
+    return Response({"system": system, "config": cfg})

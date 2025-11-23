@@ -25,15 +25,23 @@ class Order(models.Model):
         return f"#{self.pk} {self.title}"
     
     
+from django.db import models
+
+
 class OrderItem(models.Model):
-    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
-    organization = models.ForeignKey("customers.Organization", on_delete=models.PROTECT, null=True, blank=True)
+    order = models.ForeignKey("orders.Order", on_delete=models.CASCADE, related_name="items")
+    organization = models.ForeignKey(
+        "customers.Organization",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+    )
 
     # Selects
     system_sheet = models.CharField(max_length=128)      # назва вкладки (система)
     table_section = models.CharField(max_length=256)     # заголовок секції (колір системи)
-    fabric_name  = models.CharField(max_length=128)      # назва тканини
-    
+    fabric_name = models.CharField(max_length=128)       # назва тканини
+
     fabric_color_code = models.CharField(
         max_length=50,
         blank=True,
@@ -43,16 +51,20 @@ class OrderItem(models.Model):
 
     # Numeric input
     height_gabarit_mm = models.PositiveIntegerField()    # габаритна висота, мм
-    width_fabric_mm   = models.PositiveIntegerField()    # введена ширина, мм (зараз = по тканині; логіку можна змінити пізніше)
+    width_fabric_mm = models.PositiveIntegerField()      # введена ширина, мм (зараз = по тканині; логіку можна змінити пізніше)
 
     # Info
-    roll_height_info = models.CharField(max_length=64, blank=True)  # "Висота рулону, мм"
+    roll_height_info = models.CharField(
+        max_length=64,
+        blank=True,
+        help_text="Текстова підказка типу 'Висота рулону, мм'",
+    )
 
-    # Flags / options
+    # Flags / options (basic)
     gabarit_width_flag = models.BooleanField(default=False)   # галочка "Габаритна ширина (+4мм)" / "ширина габаритна"
-    magnets_fixation   = models.BooleanField(default=False)   # фіксація магнітами (з прайсу)
-    bottom_fixation    = models.BooleanField(default=False)   # нижня фіксація (логічний прапорець, без ціни поки)
-    pvc_plank          = models.BooleanField(default=False)   # планка ПВХ зі скотчем (логічний прапорець, без ціни поки)
+    magnets_fixation = models.BooleanField(default=False)     # базова фіксація магнітами (логічний прапорець)
+    bottom_fixation = models.BooleanField(default=False)      # нижня фіксація (логічний прапорець, без ціни поки)
+    pvc_plank = models.BooleanField(default=False)            # планка ПВХ зі скотчем (логічний прапорець, без ціни поки)
 
     # Control side
     control_side = models.CharField(
@@ -61,15 +73,281 @@ class OrderItem(models.Model):
         help_text="Сторона керування (лівий/правий ланцюжок тощо)",
     )
 
-    # Prices (EUR)
-    base_price_eur       = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Base prices (EUR) for main product
+    base_price_eur = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     surcharge_height_eur = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    magnets_price_eur    = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    subtotal_eur         = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    magnets_price_eur = models.DecimalField(  # можна залишити як 'total' або перепризначити під одиничну ціну
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="Ціна магнітної фіксації (може бути загальною або одиничною, залежно від логіки калькулятора)",
+    )
+    subtotal_eur = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="Проміжна сума по позиції (без множення на quantity)",
+    )
 
-    quantity = models.PositiveIntegerField(default=1, help_text="Кількість однакових виробів у цій позиції")
+    quantity = models.PositiveIntegerField(
+        default=1,
+        help_text="Кількість однакових виробів у цій позиції",
+    )
+
+    # ---------------------------------------------------------------------
+    # Extra options / accessories (per piece or per meter)
+    # ---------------------------------------------------------------------
+    # 1) Фіксація Леска ПВХ з дотяжкою (шт)
+    cord_pvc_tension_qty = models.PositiveIntegerField(
+        default=0,
+        help_text="Кількість фіксацій лески ПВХ з дотяжкою, шт",
+    )
+    cord_pvc_tension_price_eur = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="Ціна за одну фіксацію лески ПВХ з дотяжкою, EUR/шт",
+    )
+
+    # 2) Фіксація Леска з мідною діжкою (шт)
+    cord_copper_barrel_qty = models.PositiveIntegerField(
+        default=0,
+        help_text="Кількість фіксацій лески з мідною діжкою, шт",
+    )
+    cord_copper_barrel_price_eur = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="Ціна за одну фіксацію лески з мідною діжкою, EUR/шт",
+    )
+
+    # 3) Фіксація Магніт (шт)
+    magnet_fix_qty = models.PositiveIntegerField(
+        default=0,
+        help_text="Кількість магнітних фіксацій, шт",
+    )
+    magnet_fix_price_eur = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="Ціна за одну магнітну фіксацію, EUR/шт",
+    )
+
+    # 4) Кліпса кріплення для верхньої планки ПВХ, пара (шт = пар)
+    top_pvc_clip_pair_qty = models.PositiveIntegerField(
+        default=0,
+        help_text="Кількість кліпс для верхньої планки ПВХ, пар",
+    )
+    top_pvc_clip_pair_price_eur = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="Ціна за одну пару кліпс, EUR/пара",
+    )
+
+    # 5) Доплата за верхню планку ПВХ зі скотчем (монтаж без свердління), за м.п.
+    top_pvc_bar_tape_m = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=0,
+        help_text="Довжина верхньої планки ПВХ зі скотчем, м.п.",
+    )
+    top_pvc_bar_tape_price_eur = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="Ціна доплати за верхню планку ПВХ зі скотчем, EUR/м.п.",
+    )
+
+    # 6) Доплата за широку нижню планку 10/28, за м.п.
+    bottom_wide_bar_m = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=0,
+        help_text="Довжина широкої нижньої планки 10/28, м.п.",
+    )
+    bottom_wide_bar_price_eur = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="Ціна доплати за широку нижню планку 10/28, EUR/м.п.",
+    )
+
+    # 7) Фіксація лески металева (шт)
+    metal_cord_fix_qty = models.PositiveIntegerField(
+        default=0,
+        help_text="Кількість металевих фіксацій лески, шт",
+    )
+    metal_cord_fix_price_eur = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="Ціна за одну металеву фіксацію лески, EUR/шт",
+    )
+
+    # 8) Скотч на верхню планку для встановлення без свердління, за м.п.
+    top_bar_scotch_m = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=0,
+        help_text="Довжина скотчу на верхню планку (без свердління), м.п.",
+    )
+    top_bar_scotch_price_eur = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="Ціна скотчу на верхню планку, EUR/м.п.",
+    )
+
+    # 9) Доплата за електродвигун без пульта (під вимикач), шт
+    motor_no_remote_qty = models.PositiveIntegerField(
+        default=0,
+        help_text="Кількість електродвигунів без пульта (під вимикач), шт",
+    )
+    motor_no_remote_price_eur = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="Ціна доплати за один електродвигун без пульта, EUR/шт",
+    )
+
+    # 10) Доплата за електродвигун з одноканальним пультом ДУ, шт
+    motor_with_remote_qty = models.PositiveIntegerField(
+        default=0,
+        help_text="Кількість електродвигунів з одноканальним пультом ДУ, шт",
+    )
+    motor_with_remote_price_eur = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="Ціна доплати за електродвигун з одноканальним пультом, EUR/шт",
+    )
+
+    # 12) Доплата за 5-ти канальний пульт ДУ, шт
+    remote_5ch_qty = models.PositiveIntegerField(
+        default=0,
+        help_text="Кількість 5-ти канальних пультів ДУ, шт",
+    )
+    remote_5ch_price_eur = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="Ціна доплати за 5-ти канальний пульт ДУ, EUR/шт",
+    )
+
+    # 13) Доплата за 15-ти канальний пульт ДУ, шт
+    remote_15ch_qty = models.PositiveIntegerField(
+        default=0,
+        help_text="Кількість 15-ти канальних пультів ДУ, шт",
+    )
+    remote_15ch_price_eur = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="Ціна доплати за 15-ти канальний пульт ДУ, EUR/шт",
+    )
+
+    # 14) Доплата за проміжковий кронштейн, шт
+    middle_bracket_qty = models.PositiveIntegerField(
+        default=0,
+        help_text="Кількість проміжкових кронштейнів, шт",
+    )
+    middle_bracket_price_eur = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="Ціна доплати за один проміжковий кронштейн, EUR/шт",
+    )
+    
+    
+
+    # ---------------------------------------------------------------------
+    
+    
+        # --- Адаптери двигуна Mosel ---
+    adapter_mosel_internal_qty = models.PositiveIntegerField(default=0)
+    adapter_mosel_internal_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=3.461)
+
+    adapter_mosel_external_qty = models.PositiveIntegerField(default=0)
+    adapter_mosel_external_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=0.797)
+
+    # --- Адаптер короба високий Uni-Besta (м.п.) ---
+    adapter_box_high_white_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    adapter_box_high_white_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=2.199)
+
+    adapter_box_high_brown_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    adapter_box_high_brown_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=2.249)
+
+    adapter_box_high_graphite_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    adapter_box_high_graphite_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=2.837)
+
+    adapter_box_high_oak_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    adapter_box_high_oak_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=4.190)
+
+    # --- Адаптер короба низький для плоскої (м.п.) ---
+    adapter_box_low_white_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    adapter_box_low_white_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=2.161)
+
+    adapter_box_low_brown_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    adapter_box_low_brown_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=2.161)
+
+    adapter_box_low_graphite_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    adapter_box_low_graphite_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=4.448)
+
+    # --- Вали ---
+    shaft_19_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    shaft_19_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=1.048)
+
+    shaft_25_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    shaft_25_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=1.380)
+
+    shaft_32_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    shaft_32_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=2.749)
+
+    shaft_47_white_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    shaft_47_white_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=7.437)
+
+    # --- Інші комплектуючі ---
+    chain_weight_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    chain_weight_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=0.084)
+
+    top_profile_dn_al_white_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    top_profile_dn_al_white_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=1.397)
+
+    top_profile_dn_al_brown_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    top_profile_dn_al_brown_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=2.455)
+
+    top_profile_dn_al_graphite_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    top_profile_dn_al_graphite_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=2.455)
+
+    top_profile_dn_std_pvc_white_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    top_profile_dn_std_pvc_white_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=1.535)
+
+    top_profile_dn_std_pvc_brown_m = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    top_profile_dn_std_pvc_brown_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=1.879)
+
+    insert_plus8_white_qty = models.PositiveIntegerField(default=0)
+    insert_plus8_white_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=0.154)
+
+    insert_plus8_brown_qty = models.PositiveIntegerField(default=0)
+    insert_plus8_brown_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=0.154)
+
+    insert_plus8_graphite_qty = models.PositiveIntegerField(default=0)
+    insert_plus8_graphite_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=0.182)
+
+    insert_plus8_oak_qty = models.PositiveIntegerField(default=0)
+    insert_plus8_oak_price_eur = models.DecimalField(max_digits=12, decimal_places=3, default=0.182)
+
+ # ---------------------------------------------------------------------
 
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    eur_rate_at_creation = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        default=0,
+        help_text="Курс EUR на момент створення позиції"
+    )
 
     class Meta:
         ordering = ["id"]
@@ -79,5 +357,6 @@ class OrderItem(models.Model):
 
     @property
     def total_eur(self):
-        """Сумарна ціна з урахуванням кількості"""
+        """Total price including quantity of main item (accessories can be включені у subtotal_eur логікою калькулятора)."""
         return float(self.subtotal_eur or 0) * self.quantity
+

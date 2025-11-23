@@ -1,3 +1,29 @@
+
+  // счетчик, чтобы корректно работать с несколькими параллельными запросами
+  let ajaxCounter = 0;
+
+  function showGlobalLoader() {
+      ajaxCounter++;
+      $("#global-loader").removeClass("d-none");
+  }
+
+  function hideGlobalLoader() {
+      ajaxCounter = Math.max(0, ajaxCounter - 1);
+      if (ajaxCounter === 0) {
+          $("#global-loader").addClass("d-none");
+      }
+  }
+
+  // Автоматически для всех jQuery AJAX
+  $(document).ajaxStart(function () {
+      showGlobalLoader();
+  });
+
+  $(document).ajaxStop(function () {
+      hideGlobalLoader();
+  });
+
+
 // UA: Налаштування CSRF для jQuery; EN: CSRF setup for jQuery AJAX
 (function () {
   function getCookie(name) {
@@ -33,4 +59,6 @@
     toast.show();
     el.addEventListener('hidden.bs.toast', () => el.remove());
   };
+
+
 })();

@@ -1,3 +1,96 @@
 /* EN: Minor style tweaks; UA: Невеликі покращення стилю */
-body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-.navbar-brand { letter-spacing: .2px; }
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.navbar-brand {
+  letter-spacing: .2px;
+}
+
+#global-loader .loader-backdrop {
+  position: fixed;
+  inset: 0;
+  /* top:0; right:0; bottom:0; left:0; */
+  background: rgba(0, 0, 0, 0.25);
+  z-index: 2000;
+  /* выше модалок, при необходимости увеличь */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: all;
+}
+
+#global-loader .loader-box {
+  background: #fff;
+  border-radius: 0.75rem;
+  padding: 1.5rem 2rem;
+  box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.2);
+}
+
+.op-card-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+/* Карточка-опция */
+.op-card {
+  background: #fff;
+  border-radius: 0.75rem;
+  border: 1px solid #dee2e6;
+  
+  padding: 0.75rem 1rem 0.75rem 1rem;  /* нормальные одинаковые паддинги */
+
+  box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.05);
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  cursor: pointer;
+}
+
+/* hover */
+.op-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 0.5rem 1.2rem rgba(0, 0, 0, 0.1);
+}
+
+/* -----------------------------
+   ВЫДЕЛЕНИЕ ВЫБРАННОЙ КАРТОЧКИ
+------------------------------ */
+.op-card.checked {
+  border-color: #0d6efd;
+  background: #e7f1ff;
+  box-shadow: 0 0.25rem 0.9rem rgba(13, 110, 253, .15);
+}
+
+/* Чекбокс сдвигаем чуть вправо, чтобы не лип к краю */
+.op-card input[type="checkbox"] {
+  margin: 0;              /* убрать Bootstrap-отступы */
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.order-position {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #fff3cd;   
+  border: 1px solid #ffeeba;
+  font-weight: 600;
+  margin: 0 40px 0 0;      
+}
+
+.comment-proportions {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #bff5af;   
+  border: 1px solid #bff5af;
+  font-weight: 600;
+  margin: 0 40px 0 0;      
+}
+

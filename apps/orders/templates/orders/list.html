@@ -37,6 +37,10 @@
               <td>{{ o.created_at|date:'d.m.Y H:i' }}</td>
               <td class="text-end">
                 <a class="btn btn-outline-primary btn-sm" href="{% url 'orders:detail' o.id %}">Відкрити</a>
+                <form action="{% url 'orders:delete' o.id %}" method="post" style="display:inline-block;">
+                  {% csrf_token %}
+                  <button class="btn btn-danger btn-sm" onclick="return confirm('Видалити замовлення?');"><i class="bi bi-trash"></i></button>
+                </form>
               </td>
             </tr>
           {% endfor %}

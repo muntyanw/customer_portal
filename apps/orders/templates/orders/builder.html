@@ -1,475 +1,699 @@
-{% extends "core/dashboard_base.html" %}
-{% block dashboard_title %}Нове замовлення{% endblock %}
-{% block dashboard_heading %}Конструктор замовлення{% endblock %}
+{% extends 'core/dashboard_base.html' %}
+{% block dashboard_title %}
+  Нове замовлення
+{% endblock %}
+{% block dashboard_heading %}
+  Тканинні ролети замовлення
+{% endblock %}
 
 {% block head_extra %}
   {{ block.super }}
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
+  <!-- Select2 CSS для "умных" селектов -->
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
   <style>
-    .order-total-bar{
-      position: sticky; bottom: 0; z-index: 1030;
-      background: var(--bs-body-bg); border-top: 1px solid var(--bs-border-color);
+    .order-total-bar {
+      position: sticky;
+      bottom: 0;
+      z-index: 1030;
+      background: var(--bs-body-bg);
+      border-top: 1px solid var(--bs-border-color);
     }
-    .item-card .price-box .kv{
-      display:flex; justify-content:space-between; gap:.75rem;
-      font-size:.9rem; color:var(--bs-secondary-color);
+    .item-card .price-box .kv {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      font-size: 0.9rem;
+      color: var(--bs-secondary-color);
     }
-    .item-card .price-box .sum{
-      display:flex; justify-content:space-between; gap:.75rem;
-      font-weight:600; font-size:1.05rem;
+    .item-card .price-box .sum {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      font-weight: 600;
+      font-size: 1.05rem;
     }
-    @media (min-width: 992px){
-      .item-card .controls-inline{ display:flex; gap:.75rem; }
+    @media (min-width: 992px) {
+      .item-card .controls-inline {
+        display: flex;
+        gap: 0.75rem;
+      }
     }
   </style>
 {% endblock %}
 
 {% block dashboard_content %}
-<form method="post" id="orderForm" novalidate>{% csrf_token %}
-  <div class="mb-3">
-    <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
-      <div class="fw-semibold" style="display: none;">Джерело прайсу</div>
-      <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="small">Відкрити прайс</a>
+  <form method="post" id="orderForm" novalidate>
+    {% csrf_token %}
+
+    <div class="mb-3">
+      <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
+        <div class="fw-semibold" style="display: none;">Джерело прайсу</div>
+        <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="small">Відкрити прайс</a>
+      </div>
+      <input type="url" class="form-control" id="priceUrl" name="price_url" value="{{ PRICE_SHEET_URL }}" required style="display: none;" />
     </div>
-    <input type="url" class="form-control" id="priceUrl" name="price_url"
-           value="{{ PRICE_SHEET_URL }}" required style="display: none;">
-  </div>
 
-  <!-- Контейнер для карток позицій -->
-  <div id="itemsContainer" class="d-flex flex-column gap-3"></div>
+    <!-- Контейнер для карток позицій -->
+    <div id="itemsContainer" class="d-flex flex-column gap-3"></div>
 
-  <div class="d-grid mt-2">
-    <button type="button" class="btn btn-outline-primary" id="addRow">
-      <i class="bi bi-plus-lg me-1"></i> Додати позицію
-    </button>
-  </div>
-
-  <!-- Підсумок по замовленню -->
-  <div class="order-total-bar mt-3 p-3 rounded-3 shadow-sm">
-    <div class="d-flex justify-content-between align-items-center">
-      <div class="fw-semibold">Разом по замовленню, €</div>
-      <div id="orderTotal" class="fs-5 fw-bold">0.00</div>
+    <div class="d-grid mt-2">
+      <button type="button" class="btn btn-outline-primary" id="addRow"><i class="bi bi-plus-lg me-1"></i> Додати позицію</button>
     </div>
-  </div>
 
-  <div class="d-grid mt-3">
-    <button type="submit" class="btn btn-success btn-lg">Зберегти замовлення</button>
-  </div>
-</form>
+    <!-- Підсумок по замовленню -->
+    <div class="order-total-bar mt-3 p-3 rounded-3 shadow-sm">
+      <div class="d-flex justify-content-between align-items-center">
+        <div class="fw-semibold">Разом по замовленню, €</div>
+        <div id="orderTotal" class="fs-5 fw-bold">0.00</div>
+      </div>
+    </div>
 
-{% include "orders/_item_template.html" %}
+    <div class="d-grid mt-3">
+      <button type="submit" class="btn btn-success btn-lg">Зберегти замовлення</button>
+    </div>
+  </form>
+
+  {% include 'orders/_item_template.html' %}
 {% endblock %}
 
 {% block body_extra %}
   {{ block.super }}
+  <!-- Select2 JS -->
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
   <script>
+    // EN: Global builder context from Django
+    // UA: Глобальний контекст білдера з Django
+    const builderOrderId = {{ order.id|default:"null" }};
+    const builderItems = {{ items_json|safe|default:"[]" }};
+
+    const systemConfigCache = new Map() // system -> config
     // ---------- Helpers ----------
-    function money(x){ return (Math.round(parseFloat(x||0)*100)/100).toFixed(2); }
-
-    function getCsrf(){
-      const m = document.querySelector('meta[name="csrf-token"]');
-      if (m && m.content) return m.content;
-      const match = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/);
-      return match ? decodeURIComponent(match[1]) : "";
+    function money(x) {
+      return (Math.round(parseFloat(x || 0) * 100) / 100).toFixed(2)
     }
-
+    
+    function getCsrf() {
+      const m = document.querySelector('meta[name="csrf-token"]')
+      if (m && m.content) return m.content
+      const match = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/)
+      return match ? decodeURIComponent(match[1]) : ''
+    }
+    
     if (!window.showToast) {
-      window.showToast = (msg, type="info")=>{
-        const div = document.createElement('div');
-        div.className = `alert alert-${type} position-fixed top-0 start-50 translate-middle-x mt-3 shadow`;
-        div.style.zIndex = 2000;
-        div.textContent = msg;
-        document.body.appendChild(div);
-        setTimeout(()=>div.remove(), 2500);
-      };
+      window.showToast = (msg, type = 'info') => {
+        const div = document.createElement('div')
+        div.className = `alert alert-${type} position-fixed top-0 start-50 translate-middle-x mt-3 shadow`
+        div.style.zIndex = 2000
+        div.textContent = msg
+        document.body.appendChild(div)
+        setTimeout(() => div.remove(), 2500)
+      }
     }
-
+    
     function itemTemplate(index) {
-      const tpl = document.getElementById("item-template");
-      const node = tpl.content.cloneNode(true);
-      $(node).find(".pos-index").text(index + 1);
-      $(node).find("[data-index]").attr("data-index", index);
-      return node;
+      const tpl = document.getElementById('item-template')
+      const node = tpl.content.cloneNode(true)
+      $(node)
+        .find('.pos-index')
+        .text(index + 1)
+      $(node).find('[data-index]').attr('data-index', index)
+      return node
     }
-
+    
     // ---------- State / cache ----------
-    const $container = $("#itemsContainer");
-    const priceUrlInput = $("#priceUrl");
+    const $container = $('#itemsContainer')
+    const priceUrlInput = $('#priceUrl')
+    
+    let systemsCache = null // список вкладок (систем)
+    let pricesCache = {}
+    const sectionsCache = new Map() // key: system -> [sections]
+    const fabricsCache = new Map() // key: system|section -> {fabrics, width_bands, magnets_price_eur}
+    const fabricColorsCache = new Map()
 
-    let systemsCache = null;              // список вкладок (систем)
-    const sectionsCache = new Map();      // key: system -> [sections]
-    const fabricsCache  = new Map();      // key: system|section -> {fabrics, width_bands, magnets_price_eur}
-
-    // ---------- API ----------
-
-    async function loadSystems(){
-      const url = priceUrlInput.val();
-      const resp = await fetch(`/api/v1/pricing/systems-list?url=${encodeURIComponent(url)}`);
-      if(!resp.ok) throw new Error("Cannot load systems");
-      const data = await resp.json();
-      systemsCache = data.systems || data.sheets || [];
-      return systemsCache;
+    // ---------- Select2 init ----------
+    function initSelectsForCard($card) {
+      $card.find('.system-sheet, .table-section, .fabric').select2({
+        width: '100%',
+        dropdownParent: $card
+      })
+      const $fabricColor = $card.find('.fabric-color-code').select2({
+        width: '100%',
+        dropdownParent: $card,
+        tags: true,
+        createTag: function (params) {
+          const term = $.trim(params.term)
+          if (term === '') {
+            return null
+          }
+          return {
+            id: term,
+            text: term,
+            newTag: true
+          }
+        }
+      })
+    
+      let debounceTimer
+      $fabricColor.on('select2:select', function (e) {
+        $w_mm = $card.find('.w-mm')
+        $h_mm = $card.find('.h-mm')
+        $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag').prop('disabled', false)
+        $card.find('.h-mm, .w-mm').on('input', function () {
+          clearTimeout(debounceTimer)
+          debounceTimer = setTimeout(() => {
+            if ($w_mm.val() && $h_mm.val()) {
+              previewCard($card)
+            }
+          }, 600)
+        })
+        $card.find('.gabarit-width-flag').on('change', function () {
+          if ($w_mm.val() && $h_mm.val()) {
+            previewCard($card)
+          }
+        })
+      })
     }
-
-    async function loadSectionsForSystem(system){
-      if(sectionsCache.has(system)) return sectionsCache.get(system);
-
-      const url = priceUrlInput.val();
-      const resp = await fetch(
-        `/api/v1/pricing/system-fabrics?url=${encodeURIComponent(url)}&system=${encodeURIComponent(system)}`
-      );
-      if(!resp.ok) throw new Error("Cannot load sections");
-      const data = await resp.json();
-      const sections = data.sections || [];
-      sectionsCache.set(system, sections);
-      return sections;
+    
+    async function loadSystems() {
+      const url = priceUrlInput.val()
+      showGlobalLoader()
+      const resp = await fetch(`/api/v1/pricing/systems-list?url=${encodeURIComponent(url)}`)
+      hideGlobalLoader()
+      if (!resp.ok) throw new Error('Cannot load systems')
+      const data = await resp.json()
+      systemsCache = data.systems || data.sheets || []
+      return systemsCache
     }
-
-    async function loadFabricsForSection(system, section){
-      const key = `${system}|||${section}`;
-      if(fabricsCache.has(key)) return fabricsCache.get(key);
-
-      const url = priceUrlInput.val();
-      const resp = await fetch(
-        `/api/v1/pricing/system-fabrics?url=${encodeURIComponent(url)}&system=${encodeURIComponent(system)}&section=${encodeURIComponent(section)}`
-      );
-      if(!resp.ok) throw new Error("Cannot load fabrics");
-      const data = await resp.json();
-      fabricsCache.set(key, data);
-      return data;
+    
+    async function loadSectionsForSystem(system) {
+      if (sectionsCache.has(system)) return sectionsCache.get(system)
+    
+      const url = priceUrlInput.val()
+      showGlobalLoader()
+      const resp = await fetch(`/api/v1/pricing/system-fabrics?url=${encodeURIComponent(url)}&system=${encodeURIComponent(system)}`)
+      hideGlobalLoader()
+      if (!resp.ok) throw new Error('Cannot load sections')
+      const data = await resp.json()
+      const sections = data.sections || []
+      sectionsCache.set(system, sections)
+      return sections
     }
-
-    async function previewPrice({url, system, section, fabric, fabric_color, h, w, magnets, gabaritWidth}){
-      $(".load_gif").show();
-      const resp = await fetch("/api/v1/pricing/system-preview", {
-        method: "POST",
-        headers: {"Content-Type":"application/json", "X-CSRFToken": getCsrf()},
+    
+    async function loadFabricsForSection(system, section) {
+      const key = `${system}|||${section}`
+      if (fabricsCache.has(key)) return fabricsCache.get(key)
+    
+      const url = priceUrlInput.val()
+      showGlobalLoader()
+      const resp = await fetch(`/api/v1/pricing/system-fabrics?url=${encodeURIComponent(url)}&system=${encodeURIComponent(system)}&section=${encodeURIComponent(section)}`)
+      hideGlobalLoader()
+      if (!resp.ok) throw new Error('Cannot load fabrics')
+      const data = await resp.json()
+      fabricsCache.set(key, data)
+      return data
+    }
+    
+    async function previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabaritWidth }) {
+      $('.load_gif').show()
+      showGlobalLoader()
+      const resp = await fetch('/api/v1/pricing/system-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
         body: JSON.stringify({
           url,
           system_sheet: system,
           section_title: section,
           fabric_name: fabric,
-          fabric_color: fabric_color,
+          fabric_color_code: fabric_color_code,
           width_mm: w,
           gabarit_height_mm: h,
-          gabarit_width_flag: gabaritWidth,
-          magnets
+          gabarit_width_flag: gabaritWidth
         })
-      });
-      if(!resp.ok){
-        const err = await resp.json().catch(()=>({detail:"Error"}));
-        throw new Error(err.detail || "Помилка розрахунку");
+      })
+      hideGlobalLoader()
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: 'Error' }))
+        throw new Error(err.detail || 'Помилка розрахунку')
       }
-      $(".load_gif").hide();
-      return resp.json();
+      $('.load_gif').hide()
+      return resp.json()
     }
+    
+    async function loadFabricColors(fabricName) {
+      if (!fabricName) return { color_codes: [] }
 
-    // ---------- UI helpers ----------
+      if (fabricColorsCache.has(fabricName)) {
+        return fabricColorsCache.get(fabricName)
+      }
 
-    function setCardBlockedUntilSection($card, blocked){
-      $card.find(".fabric").prop("disabled", blocked);
-      $card.find(".fabric_color").prop("disabled", blocked);
-      $card.find(".h-mm, .w-mm, .gabarit-width-flag, .magnets, .qty").prop("disabled", blocked);
-      $card.find(".need-section-hint").toggle(blocked);
+      showGlobalLoader()
+      const resp = await fetch(`/api/v1/pricing/fabric-colors?fabric=${encodeURIComponent(fabricName)}`)
+      hideGlobalLoader()
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: 'Error' }))
+        throw new Error(err.detail || 'Не вдалося завантажити кольори тканини')
+      }
+      const data = await resp.json()
+      fabricColorsCache.set(fabricName, data)
+      return data
     }
-
-    function setLoadingFabrics($card, isLoading){
-      const $fab = $card.find(".fabric");
-      if(isLoading){
-        $fab.html('<option>Завантаження тканин…</option>').prop("disabled", true);
+    
+    function fillFabricColorsForCard($card, codes, preselect) {
+      const $sel = $card.find('.fabric-color-code')
+      $sel.empty()
+      $sel.append('<option value="" selected disabled>— Оберіть колір —</option>')
+      ;(codes || []).forEach((code) => {
+        $sel.append(new Option(code, code))
+      })
+      if (preselect) {
+        $sel.val(preselect)
+      } else {
+        $sel.val(null)
+      }
+      $sel.trigger('change')
+    }
+    
+    function setLoadingFabrics($card, isLoading) {
+      const $fab = $card.find('.fabric')
+      if (isLoading) {
+        $fab.html('<option>Завантаження тканин…</option>').prop('disabled', true)
+        $fab.trigger('change')
       }
     }
-
-    function fillSystems($card, preselectSystem){
-      const $sys = $card.find(".system-sheet");
-      $sys.empty();
-      $sys.append('<option value="" selected disabled>— Оберіть систему —</option>');
-      (systemsCache || []).forEach(name => {
-        $sys.append(new Option(name, name));
-      });
-      if(preselectSystem && systemsCache && systemsCache.includes(preselectSystem)){
-        $sys.val(preselectSystem);
+    
+    function fillSystems($card, preselectSystem) {
+      const $sys = $card.find('.system-sheet')
+      $sys.empty()
+      $sys.append('<option value="" selected disabled>— Оберіть систему —</option>')
+      ;(systemsCache || []).forEach((name) => {
+        $sys.append(new Option(name, name))
+      })
+      if (preselectSystem && systemsCache && systemsCache.includes(preselectSystem)) {
+        $sys.val(preselectSystem)
+      } else {
+        $sys.val(null)
       }
+      $sys.trigger('change')
     }
-
-    function fillSectionsForCard($card, system, preselectSection){
-      const $sec = $card.find(".table-section");
-      $sec.empty();
-      $sec.append('<option value="" selected disabled>— Оберіть колір системи —</option>');
-
-      const sections = sectionsCache.get(system) || [];
-      sections.forEach(s => {
+    
+    function fillSectionsForCard($card, system, preselectSection) {
+      const $sec = $card.find('.table-section')
+      $sec.empty()
+      $sec.append('<option value="" selected disabled>— Оберіть колір системи —</option>')
+    
+      const sections = sectionsCache.get(system) || []
+      sections.forEach((s) => {
         // s может быть строкой или объектом { title: "..." }
-        const t = (typeof s === "string") ? s : (s.title || "Секція");
-        $sec.append(new Option(t, t));
-      });
-
-      $sec.prop("disabled", false);
-
-      if(preselectSection){
-        $sec.val(preselectSection);
+        const t = typeof s === 'string' ? s : s.title || 'Секція'
+        $sec.append(new Option(t, t))
+      })
+    
+      $sec.prop('disabled', false)
+    
+      if (preselectSection) {
+        $sec.val(preselectSection)
+      } else {
+        $sec.val(null)
       }
+      $sec.trigger('change')
     }
-
-
-    async function fillFabricsForCard($card, system, section, preselectFabric){
-      if(!system || !section){
-        setCardBlockedUntilSection($card, true);
-        return;
+    
+    async function fillFabricsForCard($card, system, section, preselectFabric) {
+      if (!system || !section) {
+        return
       }
-      setLoadingFabrics($card, true);
-      try{
-        const data = await loadFabricsForSection(system, section);
-        const $fab = $card.find(".fabric");
-        $fab.empty();
-        (data.fabrics || []).forEach(f => $fab.append(new Option(f.name, f.name)));
-        if(preselectFabric){
-          $fab.val(preselectFabric);
+      setLoadingFabrics($card, true)
+      try {
+        const data = await loadFabricsForSection(system, section)
+        const $fab = $card.find('.fabric')
+        $fab.empty()
+        ;(data.fabrics || []).forEach((f) => $fab.append(new Option(f.name, f.name)))
+        if (preselectFabric) {
+          $fab.val(preselectFabric)
+        } else {
+          $fab.val(null)
         }
-        $fab.prop("disabled", false);
-        setCardBlockedUntilSection($card, false);
-      }catch(e){
-        setCardBlockedUntilSection($card, true);
-        window.showToast("Не вдалося завантажити тканини для секції", "danger");
-      }finally{
-        setLoadingFabrics($card, false);
+        $fab.prop('disabled', false)
+        $fab.trigger('change')
+      } catch (e) {
+        window.showToast('Не вдалося завантажити тканини для секції', 'danger')
+      } finally {
+        setLoadingFabrics($card, false)
       }
     }
-
-    function readCardValues($card){
+    
+    function readCardValues($card) {
       return {
-        system:  $card.find(".system-sheet").val() || "",
-        section: $card.find(".table-section").val() || "",
-        fabric:  $card.find(".fabric").val() || "",
-        fabric_color:  $card.find(".fabric_color").val() || "",
-        h:       $card.find(".h-mm").val() || "",
-        w:       $card.find(".w-mm").val() || "",
-        qty:     $card.find(".qty").val() || "1",
-        gw:      $card.find(".gabarit-width-flag").is(":checked"),
-        mg:      $card.find(".magnets").is(":checked"),
-      };
-    }
-
-    function recalcOrderTotal(){
-      let sum = 0;
-      $container.find(".item-card").each(function(){
-        const st = parseFloat($(this).find(".subtotal").text() || "0");
-        sum += isNaN(st) ? 0 : st;
-      });
-      $("#orderTotal").text(money(sum));
-    }
-
-    $container.on("change", ".fabric", async function(){
-      const $card = $(this).closest(".item-card");
-      const fabric = $(this).val();
-
-      if (!fabric){
-        fillFabricColorsForCard($card, [], null);
-        return;
-      }
-
-      try{
-        const data = await loadFabricColors(fabric);
-        fillFabricColorsForCard($card, data.color_codes || [], null);
-      }catch(e){
-        window.showToast(e.message || "Не вдалося завантажити кольори тканини", "danger");
-        fillFabricColorsForCard($card, [], null);
-      }
-
-      // и по сути у тебя уже есть превью:
-      previewCard($card);
-    });
-
-
-    async function previewCard($card){
-      const url = priceUrlInput.val();
-      const system  = $card.find(".system-sheet").val();
-      const section = $card.find(".table-section").val();
-      const fabric  = $card.find(".fabric").val();
-      const fabric_color  = $card.find(".fabric_color").val();
-      const h = parseInt($card.find(".h-mm").val() || "0", 10);
-      const w = parseInt($card.find(".w-mm").val() || "0", 10);
-      const magnets = $card.find(".magnets").is(":checked");
-      const gabaritWidth = $card.find(".gabarit-width-flag").is(":checked");
-      const qty = Math.max(1, parseInt($card.find(".qty").val() || "1", 10));
-
-      if(!system || !section || !fabric || !fabric_color || !h || !w){ return; }
-
-      try{
-        const data = await previewPrice({url, system, section, fabric, fabric_color, h, w, magnets, gabaritWidth});
-
-        const base1 = Number(data.base_price_eur || 0);
-        const sur1  = Number(data.surcharge_height_eur || 0);
-        const mag1  = Number(data.magnets_price_eur || 0);
-        const sub1  = Number(data.subtotal_eur || 0);
-
-        const base = base1 * qty;
-        const sur  = sur1  * qty;
-        const mag  = mag1  * qty;
-        const sub  = sub1  * qty;
-
-        $card.find(".base").text(money(base));
-        $card.find(".surcharge").text(money(sur));
-        $card.find(".magnets-price").text(money(mag));
-        $card.find(".subtotal").text(money(sub));
-
-        $card.find(".base-input").val(money(base));
-        $card.find(".surcharge-input").val(money(sur));
-        $card.find(".magnets-input").val(money(mag));
-        $card.find(".subtotal-input").val(money(sub));
-
-        const rollInfo = (data.fabric_params && data.fabric_params.roll_height_mm) ? data.fabric_params.roll_height_mm : "";
-        $card.find(".roll-info-input").val(rollInfo);
-
-        recalcOrderTotal();
-      }catch(err){
-        window.showToast(err.message || "Помилка розрахунку", "danger");
+        system: $card.find('.system-sheet').val() || '',
+        section: $card.find('.table-section').val() || '',
+        fabric: $card.find('.fabric').val() || '',
+        fabric_color_code: $card.find('.fabric-color-code').val() || '',
+        h: $card.find('.h-mm').val() || '',
+        w: $card.find('.w-mm').val() || '',
+        qty: $card.find('.qty').val() || '1',
+        gw: $card.find('.gabarit-width-flag').is(':checked'),
+        mg: $card.find('.magnets_fixation').is(':checked')
       }
     }
-
-    // ---------- Обробники ----------
-
-    $("#addRow").on("click", async function(){
-      const $prev = $container.find(".item-card").last();
-      const prevVals = $prev.length ? readCardValues($prev) : null;
-
-      const idx = $container.children().length;
-      $container.append(itemTemplate(idx));
-      const $card = $container.find(".item-card").last();
-
-      setCardBlockedUntilSection($card, true);
-
-      if(!systemsCache){
-        try{ await loadSystems(); }
-        catch(e){ window.showToast("Не вдалося завантажити системи прайсу", "danger"); return; }
+    
+    async function previewCard($card, preselects = {}) {
+      const url = priceUrlInput.val()
+      const system = $card.find('.system-sheet').val()
+      const section = $card.find('.table-section').val()
+      const fabric = $card.find('.fabric').val()
+      const fabric_color_code = $card.find('.fabric-color-code').val()
+      const h = parseInt($card.find('.h-mm').val() || '0', 10)
+      const w = parseInt($card.find('.w-mm').val() || '0', 10)
+      const magnets = $card.find('.magnets').is(':checked')
+      const gabaritWidth = $card.find('.gabarit-width-flag').is(':checked')
+      const qty = Math.max(1, parseInt($card.find('.qty').val() || '1', 10))
+    
+      if (!system || !section || !fabric || !fabric_color_code || !h || !w) {
+        return
       }
-      fillSystems($card, prevVals?.system);
+    
+      try {
+        const data = await previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabaritWidth })
+        pricesCache[$card.find('.pos-index')] = data
+        renderPriceOptions($card, preselects)
+      } catch (err) {
+        window.showToast(err.message || 'Помилка розрахунку', 'danger')
+      }
+    }
+    
+    function copySelectOptionsFromPrevCard($card, selectClass) {
+      const $prev = $card.prev('.item-card')
+      if ($prev.length === 0) {
+        console.warn('No previous .item-card found!')
+        return
+      }
+      const $currentSelect = $card.find(selectClass)
+      const $prevSelect = $prev.find(selectClass)
+      if ($currentSelect.length === 0 || $prevSelect.length === 0) {
+        console.warn('Select not found in one of cards')
+        return
+      }
+      const optionsHtml = $prevSelect.html()
+      $currentSelect.html(optionsHtml)
+      const prevValue = $prevSelect.val()
+      $currentSelect.val(prevValue)
+      $currentSelect.trigger('change')
+    }
+    
+    async function addRowWithData(item) {
+      const idx = $container.children().length
+      $container.append(itemTemplate(idx))
+      const $card = $container.find('.item-card').last()
 
-      if(prevVals && prevVals.system){
-        try{
-          await loadSectionsForSystem(prevVals.system);
-          fillSectionsForCard($card, prevVals.system, prevVals.section);
+      initSelectsForCard($card)
 
-          if(prevVals.section){
-            await fillFabricsForCard($card, prevVals.system, prevVals.section, prevVals.fabric);
+      // 1) Система
+      if (item.system_sheet) {
+        // просто заполняем, без триггеров
+        fillSystems($card, item.system_sheet)
 
-            if(prevVals.h)   $card.find(".h-mm").val(prevVals.h);
-            if(prevVals.w)   $card.find(".w-mm").val(prevVals.w);
-            if(prevVals.qty) $card.find(".qty").val(prevVals.qty);
+        // грузим секції (кеш спрацює, якщо вже було)
+        await loadSectionsForSystem(item.system_sheet)
 
-            $card.find(".gabarit-width-flag").prop("checked", !!prevVals.gw);
-            $card.find(".magnets").prop("checked", !!prevVals.mg);
+        // заполняем select секцій, сразу с preselect
+        fillSectionsForCard($card, item.system_sheet, item.table_section || null)
+      } else {
+        fillSystems($card, null)
+      }
 
-            previewCard($card);
+      // 2) Тканини
+      if (item.system_sheet && item.table_section) {
+        // заполняем список тканин для цієї системи/секції
+        await fillFabricsForCard($card, item.system_sheet, item.table_section, item.fabric_name || null)
+      }
+
+      // 3) Колір тканини
+      if (item.fabric_name) {
+        try {
+          const data = await loadFabricColors(item.fabric_name)
+          fillFabricColorsForCard($card, data.color_codes || [], item.fabric_color_code || null)
+        } catch (e) {
+          window.showToast(e.message || 'Не вдалося завантажити кольори тканини', 'danger')
+          fillFabricColorsForCard($card, [], item.fabric_color_code || null)
+        }
+      }
+
+      /// 3) размеры
+      if (item.height_gabarit_mm) $card.find('.h-mm').val(item.height_gabarit_mm)
+      if (item.width_fabric_mm) $card.find('.w-mm').val(item.width_fabric_mm)
+
+      if (item.gabarit_width_flag) {
+        // если в разметке вдруг оба класса – проставим в оба
+        $card.find('.gabarit-width-flag').prop('checked', true)
+      }
+
+      // 5) количество
+      $card.find('.qty').val(item.quantity || 1)
+
+      // Разблокируем поля
+      $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag').prop('disabled', false)
+
+      // актуализируем цену из прайса
+      previewCard($card, {magnets_fixation:item.magnets_fixation})
+
+      // восстанавливаем состояние магнита (а не передаём его в previewCard)
+      const $mfCb = $card.find('.magnets_fixation')
+      if ($mfCb.length) {
+        $mfCb.prop('checked', !!item.magnets_fixation).trigger('change')
+      }
+    }
+
+    $('#addRow').on('click', async function () {
+      const $prev = $container.find('.item-card').last()
+      const prevVals = $prev.length ? readCardValues($prev) : null
+    
+      const idx = $container.children().length
+      $container.append(itemTemplate(idx))
+      const $card = $container.find('.item-card').last()
+    
+      initSelectsForCard($card)
+    
+      if (!systemsCache) {
+          try {
+              await loadSystems()
+          } catch (e) {
+              window.showToast('Не вдалося завантажити системи прайсу', 'danger')
+              return
           }
-        }catch(e){
-          window.showToast("Не вдалося завантажити секції/тканини", "danger");
+      }
+      fillSystems($card, prevVals?.system)
+    
+      if (prevVals && prevVals.system) {
+        try {
+          await loadSectionsForSystem(prevVals.system)
+          fillSectionsForCard($card, prevVals.system, prevVals.section)
+    
+          if (prevVals.section) {
+            await fillFabricsForCard($card, prevVals.system, prevVals.section, prevVals.fabric)
+    
+            if (prevVals.fabric_color_code) {
+              copySelectOptionsFromPrevCard($card, ".fabric-color-code")
+              $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag').prop('disabled', false)
+            }
+    
+            if (prevVals.h) $card.find('.h-mm').val(prevVals.h)
+            if (prevVals.w) $card.find('.w-mm').val(prevVals.w)
+            if (prevVals.qty) $card.find('.qty').val(prevVals.qty)
+    
+            $card.find('.gabarit-width-flag').prop('checked', !!prevVals.gw)
+            $card.find('.magnets_fixation').prop('checked', !!prevVals.mg)
+    
+            previewCard($card, {magnets_fixation:prevVals.mg})
+          }
+        } catch (e) {
+          window.showToast('Не вдалося завантажити секції/тканини', 'danger')
         }
       }
-    });
+    })
+    
+    $container.on('click', '.remove-row', function () {
+      $(this).closest('.item-card').remove()
+      recalcPrice()
+    })
+    
+    $container.on('change keyup', '.qty', function () {
+      const v = parseInt(this.value || '1', 10)
+      if (isNaN(v) || v < 1) this.value = 1
+      renderPriceOptions($(this).closest('.item-card'))
+    })
+    
+    function recalcPrice() {
+      $('.item-card').each(function (i, card) {
+        const $card = $(card)
+    
+        const base = Number($card.find('.base').text()) || 0
+        const surcharge = Number($card.find('.surcharge').text()) || 0
+        const magnets = Number($card.find('.magnets-fixation-input').val()) || 0
+    
+        const sum = base + surcharge + magnets
+    
+        $card.find('.subtotal-input').text(money(sum))
+      })
+    
+      let sumTotal = 0
+      $('.subtotal-input').each(function (i, el) {
+        sumTotal += $(el).val()
+      })
+      $('#orderTotal').val(money(Number(sumTotal)))
+    }
+    
+    function renderPriceOptions($card, preselects = {}) {
+      let numberCard = $card.find('.pos-index')
+      let data = pricesCache[numberCard]
+      $card.find('.comment-proportions').html(data.comment_system)
+      let qty = $card.find('.qty').val()
+      let addMoney = 0
+    
+      $card.find('.base').text(money(Number(data.base_price_eur || 0) * qty))
+      $card.find('.base-input').text(money(Number(data.base_price_eur || 0) * qty))
+      $card.find('.surcharge').text(money(Number(data.surcharge_height_eur || 0) * qty))
+      $card.find('.surcharge-input').text(money(Number(data.surcharge_height_eur || 0) * qty))
+    
+      const magnets_price_eur = data.magnets_price_eur
+      if (magnets_price_eur) {
+        $card.find('.magnets-fixation').removeClass('d-none').show
+        $card.find('.magnets-fixation .price').text(money(Number(magnets_price_eur)))
 
-    $container.on("click", ".remove-row", function(){
-      $(this).closest(".item-card").remove();
-      recalcOrderTotal();
-    });
-
-    $container.on("change", ".system-sheet", async function(){
-      const $card = $(this).closest(".item-card");
-      const system = $(this).val();
-
-      $card.find(".table-section").empty().append('<option value="" selected disabled>— Оберіть колір системи —</option>');
-      $card.find(".fabric").empty().append('<option value="">Спочатку оберіть колір системи…</option>');
-      $card.find(".fabric_color").empty().append('<option value="">Спочатку оберіть колір системи…</option>');
-      setCardBlockedUntilSection($card, true);
-
-      if(!system) return;
-
-      try{
-        await loadSectionsForSystem(system);
-        fillSectionsForCard($card, system, null);
-      }catch(e){
-        window.showToast("Не вдалося завантажити секції для системи", "danger");
-      }
-    });
-
-    $container.on("change", ".table-section", async function(){
-      const $card = $(this).closest(".item-card");
-      const system  = $card.find(".system-sheet").val();
-      const section = $(this).val();
-
-      $card.find(".base,.surcharge,.magnets-price,.subtotal").text("0.00");
-      if(!system || !section){
-        setCardBlockedUntilSection($card, true);
-        return;
-      }
-      await fillFabricsForCard($card, system, section, null);
-    });
-
-    $container.on("change keyup", ".fabric, .h-mm, .w-mm, .magnets", function(){
-      previewCard($(this).closest(".item-card"));
-    });
-
-    $container.on("change keyup", ".qty", function(){
-      const v = parseInt(this.value || "1", 10);
-      if (isNaN(v) || v < 1) this.value = 1;
-      previewCard($(this).closest(".item-card"));
-    });
-
-    $("#orderForm").on("submit", function(e){
-      let ok = true;
-      $container.find(".item-card").each(function(){
-        const $c = $(this);
-        const sys = $c.find(".system-sheet").val();
-        const sec = $c.find(".table-section").val();
-        const fab = $c.find(".fabric").val();
-        const fabс = $c.find(".fabric_color").val();
-        if(!sys || !sec || !fab){
-          ok = false;
-          if(!sys) $c.find(".system-sheet").addClass("is-invalid");
-          if(!sec) $c.find(".table-section").addClass("is-invalid");
-          if(!fab) $c.find(".fabric").addClass("is-invalid");
-          if(!fabс) $c.find(".fabric_color").addClass("is-invalid");
-        }else{
-          $c.find(".system-sheet,.table-section,.fabric,.fabric_color").removeClass("is-invalid");
+        if (preselects.magnets_fixation) {
+          $card.find('.magnets_fixation').prop('checked', true)
+          $card.find('.magnets-fixation-input').val(money(Number(magnets_price_eur)))
+          $card.find('.magnets-fixation-price').text(money(Number(magnets_price_eur)))
         }
-      });
-      if(!ok){
-        e.preventDefault();
-        window.scrollTo({ top: 0, behavior: "smooth" });
-        window.showToast("Оберіть систему, колір системи та тканину для кожної позиції", "warning");
+
+        $card.find('.magnets_fixation').on('change', function () {
+          if (this.checked) {
+            $card.find('.magnets-fixation-input').val(money(Number(magnets_price_eur)))
+            $card.find('.magnets-fixation-price').text(money(Number(magnets_price_eur)))
+          } else {
+            $card.find('.magnets-fixation-input').val(money(Number(0)))
+            $card.find('.magnets-fixation-price').text(money(Number(0)))
+          }
+          recalcPrice()
+        })
+      } else {
+        $card.find('.magnets-fixation').addClass('d-none').hide
+        $card.find('.magnets-fixation-input').val(0)
+        $card.find('.magnets-fixation .price').text(0)
       }
-    });
 
-    // ---------- Ініціалізація ----------
-    (async function(){
-      try{
-        await loadSystems();
-        $("#addRow").trigger("click");
-      }catch(e){
-        window.showToast("Не вдалося завантажити системи прайсу", "danger");
+
+    
+      recalcPrice()
+    }
+    
+    $container.on('change', '.system-sheet', async function () {
+      const $card = $(this).closest('.item-card')
+      const system = $(this).val()
+    
+      const $sec = $card.find('.table-section')
+      const $fab = $card.find('.fabric')
+      const $fabColor = $card.find('.fabric-color-code')
+    
+      $sec.empty().append('<option value="" selected disabled>— Оберіть колір системи —</option>')
+      $fab.empty().append('<option value="">Спочатку оберіть колір системи…</option>')
+      $fabColor.empty().append('<option value="">Спочатку оберіть колір системи…</option>')
+    
+      $sec.val(null).trigger('change')
+      $fab.val(null).trigger('change')
+      $fabColor.val(null).trigger('change')
+    
+      if (!system) return
+    
+      try {
+        await loadSectionsForSystem(system)
+        fillSectionsForCard($card, system, null)
+      } catch (e) {
+        window.showToast('Не вдалося завантажити секції для системи', 'danger')
       }
-    })();
+    })
+    
+    $container.on('change', '.table-section', async function () {
+      const $card = $(this).closest('.item-card')
+      const system = $card.find('.system-sheet').val()
+      const section = $(this).val()
+    
+      $card.find('.base,.surcharge,.magnets-price,.subtotal').text('0.00')
+      if (!system || !section) {
+        return
+      }
+      await fillFabricsForCard($card, system, section, null)
+    })
 
-    async function loadFabricColors(fabricName){
-  const resp = await fetch(`/api/v1/pricing/fabric-colors?fabric=${encodeURIComponent(fabricName)}`);
-  if (!resp.ok){
-    const err = await resp.json().catch(()=>({detail:"Error"}));
-    throw new Error(err.detail || "Не вдалося завантажити кольори тканини");
-  }
-  return resp.json();
-}
+    $container.on('select2:select', '.fabric', async function (event) {
 
-function fillFabricColorsForCard($card, codes, preselect){
-  const $sel = $card.find(".fabric-color");
-  $sel.empty();
-  $sel.append('<option value="" selected disabled>— Оберіть колір —</option>');
-  (codes || []).forEach(code => {
-    $sel.append(new Option(code, code));
-  });
-  if (preselect){
-    $sel.val(preselect);
-  }
-}
+      const $card = $(this).closest('.item-card')
+      const fabric = $(this).val()
+    
+      if (!fabric) {
+        fillFabricColorsForCard($card, [], null)
+        return
+      }
+    
+      try {
+        const data = await loadFabricColors(fabric)
+        fillFabricColorsForCard($card, data.color_codes || [], null)
+      } catch (e) {
+        window.showToast(e.message || 'Не вдалося завантажити кольори тканини', 'danger')
+        fillFabricColorsForCard($card, [], null)
+      }
+    
+      previewCard($card)
+    })
+    
+    $('#orderForm').on('submit', function (e) {
+      let ok = true
+      $container.find('.item-card').each(function () {
+        const $c = $(this)
+        const sys = $c.find('.system-sheet').val()
+        const sec = $c.find('.table-section').val()
+        const fab = $c.find('.fabric').val()
+        const fabc = $c.find('.fabric-color-code').val()
+    
+        if (!sys || !sec || !fab || !fabc) {
+          ok = false
+          if (!sys) $c.find('.system-sheet').addClass('is-invalid')
+          if (!sec) $c.find('.table-section').addClass('is-invalid')
+          if (!fab) $c.find('.fabric').addClass('is-invalid')
+          if (!fabc) $c.find('.fabric-color-code').addClass('is-invalid')
+        } else {
+          $c.find('.system-sheet,.table-section,.fabric,.fabric-color-code').removeClass('is-invalid')
+        }
+      })
+      if (!ok) {
+        e.preventDefault()
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+        window.showToast('Оберіть систему, колір системи, тканину та колір тканини для кожної позиції', 'warning')
+      }
+    })
+    
+     // ---------- Ініціалізація ----------
+    ;(async function () {
+      try {
+        await loadSystems()
 
+        if (Array.isArray(builderItems) && builderItems.length > 0) {
+          // UA: Режим редагування існуючого замовлення
+          // EN: Edit mode – restore existing items
+          for (const item of builderItems) {
+            await addRowWithData(item)
+          }
+          recalcPrice()
+        } else {
+          // UA: Нове замовлення — одна порожня позиція
+          // EN: New order – start with single empty card
+          $('#addRow').trigger('click')
+        }
+      } catch (e) {
+        console.error(e)
+        window.showToast('Не вдалося завантажити системи прайсу', 'danger')
+      }
+    })()
   </script>
 {% endblock %}

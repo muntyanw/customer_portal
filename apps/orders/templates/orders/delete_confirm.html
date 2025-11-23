@@ -1,0 +1,12 @@
+{% extends 'core/dashboard_base.html' %}
+{% block dashboard_title %}Видалити замовлення{% endblock %}
+
+{% block dashboard_content %}
+<h3>Видалити замовлення #{{ order.id }}?</h3>
+
+<form method="post">
+    {% csrf_token %}
+    <button class="btn btn-danger">Так, видалити</button>
+    <a href="{% url 'orders:detail' order.id %}" class="btn btn-secondary">Скасувати</a>
+</form>
+{% endblock %}
