@@ -3,7 +3,7 @@
   Нове замовлення
 {% endblock %}
 {% block dashboard_heading %}
-  Тканинні ролети замовлення
+  Тканинні ролети замовлення №{{ order.id|default:"null" }}
 {% endblock %}
 
 {% block head_extra %}
@@ -105,7 +105,7 @@
       window.showToast = (msg, type = 'info') => {
         const div = document.createElement('div')
         div.className = `alert alert-${type} position-fixed top-0 start-50 translate-middle-x mt-3 shadow`
-        div.style.zIndex = 2000
+        div.style.zIndex = 99000
         div.textContent = msg
         document.body.appendChild(div)
         setTimeout(() => div.remove(), 2500)
@@ -132,6 +132,25 @@
     const fabricsCache = new Map() // key: system|section -> {fabrics, width_bands, magnets_price_eur}
     const fabricColorsCache = new Map()
 
+    let debounceTimer
+    function setEventsFromGabarits($card){
+      $w_mm = $card.find('.w-mm')
+      $h_mm = $card.find('.h-mm')
+      $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag').prop('disabled', false)
+      $card.find('.h-mm, .w-mm').on('input', function () {
+        clearTimeout(debounceTimer)
+        debounceTimer = setTimeout(() => {
+          if ($w_mm.val() && $h_mm.val()) {
+            previewCard($card)
+          }
+        }, 600)
+      })
+      $card.find('.gabarit-width-flag').on('change', function () {
+        if ($w_mm.val() && $h_mm.val()) {
+          previewCard($card)
+        }
+      })
+    }
     // ---------- Select2 init ----------
     function initSelectsForCard($card) {
       $card.find('.system-sheet, .table-section, .fabric').select2({
@@ -154,25 +173,9 @@
           }
         }
       })
-    
-      let debounceTimer
+      
       $fabricColor.on('select2:select', function (e) {
-        $w_mm = $card.find('.w-mm')
-        $h_mm = $card.find('.h-mm')
-        $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag').prop('disabled', false)
-        $card.find('.h-mm, .w-mm').on('input', function () {
-          clearTimeout(debounceTimer)
-          debounceTimer = setTimeout(() => {
-            if ($w_mm.val() && $h_mm.val()) {
-              previewCard($card)
-            }
-          }, 600)
-        })
-        $card.find('.gabarit-width-flag').on('change', function () {
-          if ($w_mm.val() && $h_mm.val()) {
-            previewCard($card)
-          }
-        })
+        setEventsFromGabarits($card)
       })
     }
     
@@ -283,7 +286,7 @@
       }
     }
     
-    function fillSystems($card, preselectSystem) {
+    async function fillSystems($card, preselectSystem) {
       const $sys = $card.find('.system-sheet')
       $sys.empty()
       $sys.append('<option value="" selected disabled>— Оберіть систему —</option>')
@@ -298,14 +301,13 @@
       $sys.trigger('change')
     }
     
-    function fillSectionsForCard($card, system, preselectSection) {
+    async function fillSectionsForCard($card, system, preselectSection) {
       const $sec = $card.find('.table-section')
       $sec.empty()
       $sec.append('<option value="" selected disabled>— Оберіть колір системи —</option>')
     
       const sections = sectionsCache.get(system) || []
       sections.forEach((s) => {
-        // s может быть строкой или объектом { title: "..." }
         const t = typeof s === 'string' ? s : s.title || 'Секція'
         $sec.append(new Option(t, t))
       })
@@ -317,7 +319,7 @@
       } else {
         $sec.val(null)
       }
-      $sec.trigger('change')
+      //$sec.trigger('change')
     }
     
     async function fillFabricsForCard($card, system, section, preselectFabric) {
@@ -409,34 +411,19 @@
 
       initSelectsForCard($card)
 
-      // 1) Система
-      if (item.system_sheet) {
-        // просто заполняем, без триггеров
-        fillSystems($card, item.system_sheet)
-
-        // грузим секції (кеш спрацює, якщо вже було)
-        await loadSectionsForSystem(item.system_sheet)
-
-        // заполняем select секцій, сразу с preselect
-        fillSectionsForCard($card, item.system_sheet, item.table_section || null)
-      } else {
-        fillSystems($card, null)
-      }
-
-      // 2) Тканини
-      if (item.system_sheet && item.table_section) {
-        // заполняем список тканин для цієї системи/секції
-        await fillFabricsForCard($card, item.system_sheet, item.table_section, item.fabric_name || null)
-      }
+      await fillSystems($card, item.system_sheet)
+      await loadSectionsForSystem(item.system_sheet)
+      await fillSectionsForCard($card, item.system_sheet, item.table_section)
+      await fillFabricsForCard($card, item.system_sheet, item.table_section, item.fabric_name)
 
       // 3) Колір тканини
       if (item.fabric_name) {
         try {
           const data = await loadFabricColors(item.fabric_name)
-          fillFabricColorsForCard($card, data.color_codes || [], item.fabric_color_code || null)
+          await fillFabricColorsForCard($card, data.color_codes || [], item.fabric_color_code || null)
         } catch (e) {
           window.showToast(e.message || 'Не вдалося завантажити кольори тканини', 'danger')
-          fillFabricColorsForCard($card, [], item.fabric_color_code || null)
+          await fillFabricColorsForCard($card, [], item.fabric_color_code || null)
         }
       }
 
@@ -452,17 +439,11 @@
       // 5) количество
       $card.find('.qty').val(item.quantity || 1)
 
-      // Разблокируем поля
-      $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag').prop('disabled', false)
+      setEventsFromGabarits($card)
 
       // актуализируем цену из прайса
-      previewCard($card, {magnets_fixation:item.magnets_fixation})
+      await previewCard($card, {magnets_fixation:item.magnets_fixation})
 
-      // восстанавливаем состояние магнита (а не передаём его в previewCard)
-      const $mfCb = $card.find('.magnets_fixation')
-      if ($mfCb.length) {
-        $mfCb.prop('checked', !!item.magnets_fixation).trigger('change')
-      }
     }
 
     $('#addRow').on('click', async function () {
@@ -525,29 +506,31 @@
     })
     
     function recalcPrice() {
+      let sumTotal = 0
       $('.item-card').each(function (i, card) {
         const $card = $(card)
-    
         const base = Number($card.find('.base').text()) || 0
         const surcharge = Number($card.find('.surcharge').text()) || 0
         const magnets = Number($card.find('.magnets-fixation-input').val()) || 0
-    
         const sum = base + surcharge + magnets
-    
         $card.find('.subtotal-input').text(money(sum))
+        sumTotal += sum
       })
-    
-      let sumTotal = 0
-      $('.subtotal-input').each(function (i, el) {
-        sumTotal += $(el).val()
-      })
-      $('#orderTotal').val(money(Number(sumTotal)))
+      
+      $('#orderTotal').text(money(Number(sumTotal)))
     }
     
     function renderPriceOptions($card, preselects = {}) {
       let numberCard = $card.find('.pos-index')
       let data = pricesCache[numberCard]
-      $card.find('.comment-proportions').html(data.comment_system)
+      if(!data){
+        previewCard($card)
+        return
+      }
+
+      if(data.comment_system){
+        $card.find('.comment-proportions').html(data.comment_system)
+      }
       let qty = $card.find('.qty').val()
       let addMoney = 0
     
@@ -582,8 +565,6 @@
         $card.find('.magnets-fixation-input').val(0)
         $card.find('.magnets-fixation .price').text(0)
       }
-
-
     
       recalcPrice()
     }
