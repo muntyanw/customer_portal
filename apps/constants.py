@@ -1,6 +1,9 @@
 SheetNameFalshi = "Фальші"
+GbDiffWidthMmFalshi = 4
 SheetNameFalshiDn = "Фальші DN"
+GbDiffWidthMmFalshiDn = 20
 SheetNameVidkr19yiBesta = "Відкр 19-й Besta"
+GbDiffWidthMmVidkr19yiBesta = 35
 SheetNameVidkr19yiBestaDn = "Відкр 19-й Besta DN"
 SheetNameZakrytaPloskaBesta = "Закрита Плоска Besta"
 SheetNameZakrytaPloskaBestaDn = "Закрита плоска Besta DN"

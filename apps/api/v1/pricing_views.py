@@ -6,7 +6,6 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from apps.integrations.google_colors import get_fabric_color_codes
-from apps.integrations.pricing_config import get_system_cfg
 
 from apps.integrations.google_sheets import (
     parse_sheet_price_section,

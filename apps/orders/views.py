@@ -134,11 +134,25 @@ def order_builder(request, pk=None):
         w_list = request.POST.getlist("width_fabric_mm")
 
         gw_flags = request.POST.getlist("gabarit_width_flag")
-        mg_flags = request.POST.getlist("magnets_fixation")
 
         base_prices = request.POST.getlist("base_price_eur")
         sur_prices = request.POST.getlist("surcharge_height_eur")
-        mag_prices = request.POST.getlist("magnets_price_eur")
+        magnets_price_eur = request.POST.getlist("magnets_price_eur")
+        magnets_qty = request.POST.getlist("magnets_qty")
+        cord_pvc_tension_price_eur = request.POST.getlist("cord_pvc_tension_price_eur")
+        cord_pvc_tension_qty = request.POST.getlist("cord_pvc_tension_qty")
+        cord_copper_barrel_price_eur = request.POST.getlist("cord_copper_barrel_price_eur")
+        cord_copper_barrel_qty = request.POST.getlist("cord_copper_barrel_qty")
+        top_pvc_clip_pair_price_eur = request.POST.getlist("top_pvc_clip_pair_price_eur")
+        top_pvc_clip_pair_qty = request.POST.getlist("top_pvc_clip_pair_qty")
+        top_pvc_bar_tape_price_eur_mp = request.POST.getlist("top_pvc_bar_tape_price_eur_mp")
+        top_pvc_bar_tape_qty = request.POST.getlist("top_pvc_bar_tape_qty")
+        bottom_wide_bar_price_eur_mp = request.POST.getlist("bottom_wide_bar_price_eur_mp")
+        bottom_wide_bar_qty = request.POST.getlist("bottom_wide_bar_qty")
+        top_bar_scotch_price_eur = request.POST.getlist("top_bar_scotch_price_eur")
+        top_bar_scotch_qty = request.POST.getlist("top_bar_scotch_qty")
+        metal_kronsht_price_eur = request.POST.getlist("metal_kronsht_price_eur")
+        metal_kronsht_qty = request.POST.getlist("metal_kronsht_qty")
         subtotals = request.POST.getlist("subtotal_eur")
 
         roll_infos = request.POST.getlist("roll_height_info")
@@ -162,10 +176,24 @@ def order_builder(request, pk=None):
                 height_gabarit_mm=int(_get(h_list, idx, "0")),
                 width_fabric_mm=int(_get(w_list, idx, "0")),
                 gabarit_width_flag=_get(gw_flags, idx) in ("on", "true", "1"),
-                magnets_fixation=_get(mg_flags, idx) in ("on", "true", "1"),
                 base_price_eur=_to_decimal(_get(base_prices, idx)),
                 surcharge_height_eur=_to_decimal(_get(sur_prices, idx)),
-                magnets_price_eur=_to_decimal(_get(mag_prices, idx)),
+                magnets_price_eur=_to_decimal(_get(magnets_price_eur, idx)),
+                magnets_qty=_to_decimal(_get(magnets_qty, idx)),
+                cord_pvc_tension_price_eur=_to_decimal(_get(cord_pvc_tension_price_eur, idx)),
+                cord_pvc_tension_qty=_to_decimal(_get(cord_pvc_tension_qty, idx)),
+                cord_copper_barrel_price_eur=_to_decimal(_get(cord_copper_barrel_price_eur, idx)),
+                cord_copper_barrel_qty=_to_decimal(_get(cord_copper_barrel_qty, idx)),
+                top_pvc_clip_pair_price_eur=_to_decimal(_get(top_pvc_clip_pair_price_eur, idx)),
+                top_pvc_clip_pair_qty=_to_decimal(_get(top_pvc_clip_pair_qty, idx)),
+                top_pvc_bar_tape_price_eur_mp=_to_decimal(_get(top_pvc_bar_tape_price_eur_mp, idx)),
+                top_pvc_bar_tape_qty=_to_decimal(_get(top_pvc_bar_tape_qty, idx)),
+                bottom_wide_bar_price_eur_mp=_to_decimal(_get(bottom_wide_bar_price_eur_mp, idx)),
+                bottom_wide_bar_qty=_to_decimal(_get(bottom_wide_bar_qty, idx)),
+                top_bar_scotch_price_eur=_to_decimal(_get(top_bar_scotch_price_eur, idx)),
+                top_bar_scotch_qty=_to_decimal(_get(top_bar_scotch_qty, idx)),
+                metal_kronsht_price_eur=_to_decimal(_get(metal_kronsht_price_eur, idx)),
+                metal_kronsht_qty=_to_decimal(_get(metal_kronsht_qty, idx)),
                 subtotal_eur=_to_decimal(_get(subtotals, idx)),
                 roll_height_info=_get(roll_infos, idx, ""),
                 quantity=int(_get(qty_list, idx, "1")),
@@ -196,10 +224,26 @@ def order_builder(request, pk=None):
                 "height_gabarit_mm": it.height_gabarit_mm,
                 "width_fabric_mm": it.width_fabric_mm,
                 "gabarit_width_flag": it.gabarit_width_flag,
-                "magnets_fixation": it.magnets_fixation,
                 "base_price_eur": float(it.base_price_eur),
                 "surcharge_height_eur": float(it.surcharge_height_eur),
+                
                 "magnets_price_eur": float(it.magnets_price_eur),
+                "magnets_qty": float(it.magnets_qty),
+                "cord_pvc_tension_price_eur": float(it.cord_pvc_tension_price_eur),
+                "cord_pvc_tension_qty": float(it.cord_pvc_tension_qty),
+                "cord_copper_barrel_price_eur": float(it.cord_copper_barrel_price_eur),
+                "cord_copper_barrel_qty": float(it.cord_copper_barrel_qty),
+                "top_pvc_clip_pair_price_eur": float(it.top_pvc_clip_pair_price_eur),
+                "top_pvc_clip_pair_qty": float(it.top_pvc_clip_pair_qty),
+                "top_pvc_bar_tape_price_eur_mp": float(it.top_pvc_bar_tape_price_eur_mp),
+                "top_pvc_bar_tape_qty": float(it.top_pvc_bar_tape_qty),
+                "bottom_wide_bar_price_eur_mp": float(it.bottom_wide_bar_price_eur_mp),
+                "bottom_wide_bar_qty": float(it.bottom_wide_bar_qty),
+                "top_bar_scotch_price_eur": float(it.top_bar_scotch_price_eur),
+                "top_bar_scotch_qty": float(it.top_bar_scotch_qty),
+                "metal_kronsht_price_eur": float(it.metal_kronsht_price_eur),
+                "metal_kronsht_qty": float(it.metal_kronsht_qty),
+                
                 "subtotal_eur": float(it.subtotal_eur),
                 "quantity": it.quantity,
                 "roll_height_info": it.roll_height_info,

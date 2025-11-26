@@ -1,27 +1,27 @@
 
-  // счетчик, чтобы корректно работать с несколькими параллельными запросами
-  let ajaxCounter = 0;
+// счетчик, чтобы корректно работать с несколькими параллельными запросами
+let ajaxCounter = 0;
 
-  function showGlobalLoader() {
-      ajaxCounter++;
-      $("#global-loader").removeClass("d-none");
+function showGlobalLoader() {
+  ajaxCounter++;
+  $("#global-loader").removeClass("d-none");
+}
+
+function hideGlobalLoader() {
+  ajaxCounter = Math.max(0, ajaxCounter - 1);
+  if (ajaxCounter === 0) {
+    $("#global-loader").addClass("d-none");
   }
+}
 
-  function hideGlobalLoader() {
-      ajaxCounter = Math.max(0, ajaxCounter - 1);
-      if (ajaxCounter === 0) {
-          $("#global-loader").addClass("d-none");
-      }
-  }
+// Автоматически для всех jQuery AJAX
+$(document).ajaxStart(function () {
+  showGlobalLoader();
+});
 
-  // Автоматически для всех jQuery AJAX
-  $(document).ajaxStart(function () {
-      showGlobalLoader();
-  });
-
-  $(document).ajaxStop(function () {
-      hideGlobalLoader();
-  });
+$(document).ajaxStop(function () {
+  hideGlobalLoader();
+});
 
 
 // UA: Налаштування CSRF для jQuery; EN: CSRF setup for jQuery AJAX
@@ -43,22 +43,24 @@
     }
   });
 
-  // EN: Toast helper (Bootstrap 5); UA: Хелпер для тостів
   window.showToast = function (message, type = "primary") {
     const id = "toast-" + Math.random().toString(36).slice(2);
     const html = `
-      <div id="${id}" class="toast align-items-center text-bg-${type} border-0 position-fixed bottom-0 end-0 m-3" role="alert" aria-live="assertive" aria-atomic="true">
-        <div class="d-flex">
-          <div class="toast-body">${message}</div>
-          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-        </div>
-      </div>`;
+    <div id="${id}" class="toast align-items-center text-bg-${type} border-0 position-fixed bottom-0 end-0 m-3"
+         style="z-index: 99999;"
+         role="alert" aria-live="assertive" aria-atomic="true">
+      <div class="d-flex">
+        <div class="toast-body">${message}</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+    </div>`;
     document.body.insertAdjacentHTML('beforeend', html);
     const el = document.getElementById(id);
     const toast = new bootstrap.Toast(el, { delay: 3000 });
     toast.show();
     el.addEventListener('hidden.bs.toast', () => el.remove());
   };
+
 
 
 })();

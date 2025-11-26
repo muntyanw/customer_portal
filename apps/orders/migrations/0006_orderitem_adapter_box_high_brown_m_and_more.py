@@ -107,7 +107,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name='orderitem',
-            name='bottom_wide_bar_price_eur',
+            name='bottom_wide_bar_price_eur_mp',
             field=models.DecimalField(decimal_places=2, default=0, help_text='Ціна доплати за широку нижню планку 10/28, EUR/м.п.', max_digits=12),
         ),
         migrations.AddField(
@@ -362,7 +362,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name='orderitem',
-            name='top_pvc_bar_tape_price_eur',
+            name='top_pvc_bar_tape_price_eur_mp',
             field=models.DecimalField(decimal_places=2, default=0, help_text='Ціна доплати за верхню планку ПВХ зі скотчем, EUR/м.п.', max_digits=12),
         ),
         migrations.AddField(

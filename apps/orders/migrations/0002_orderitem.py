@@ -23,7 +23,6 @@ class Migration(migrations.Migration):
                 ('width_fabric_mm', models.PositiveIntegerField()),
                 ('roll_height_info', models.CharField(blank=True, max_length=64)),
                 ('gabarit_width_flag', models.BooleanField(default=False)),
-                ('magnets_fixation', models.BooleanField(default=False)),
                 ('base_price_eur', models.DecimalField(decimal_places=2, default=0, max_digits=12)),
                 ('surcharge_height_eur', models.DecimalField(decimal_places=2, default=0, max_digits=12)),
                 ('magnets_price_eur', models.DecimalField(decimal_places=2, default=0, max_digits=12)),

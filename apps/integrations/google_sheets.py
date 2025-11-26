@@ -9,7 +9,7 @@ from typing import List, Dict, Optional
 
 from openpyxl.worksheet.worksheet import Worksheet
 
-import apps.constants as sc
+from apps.sheet_config import sheetName, sheetConfigs, getConfigBySheetName, sheetConfig
 from .google_sheets_core import (
     _download_workbook,
     _row_values,
@@ -276,9 +276,16 @@ def parse_sheet_price_section(
         return result
     
     real_width_mm = width_mm
-    if sheet_name == sc.SheetNameFalshi:
-        if gabarit_height_mm:
-            real_width_mm = width_mm - 4
+    cg = getConfigBySheetName(sheet_name) 
+    if cg.gbDiffWidthMm:
+        gb_width_mm =  width_mm + cg.gbDiffWidthMm
+        if gabarit_width_flag:
+            real_width_mm = width_mm - cg.gbDiffWidthMm
+            gb_width_mm =  width_mm
+        result["GbDiffWidthMm"] = cg.gbDiffWidthMm
+    else:
+        result["GbDiffWidthMm"] = 0
+    
         
     idx = pick_width_band(width_bands, real_width_mm)
     if idx is None:
@@ -309,18 +316,76 @@ def parse_sheet_price_section(
 
     
     # 6) Extra magnets price (for Falshi sheet only)
-    magnets_price_eur = None
-    comment_system = None
     
-    if sheet_name == sc.SheetNameFalshi:
-        logger.info(f"start_row = {start_row} header_row = {header_row}")
-        magnets_price_eur = get_money_value(ws, header_row-1, col_letter_to_index("D"))
-        comment_system = get_str_values(ws, header_row-3, header_row-1, 1, 1)
+    if sheet_name == sheetName.falshi:
+        #logger.info(f"start_row = {start_row} header_row = {header_row}")
+        result["magnets_price_eur"] = get_money_value(ws, header_row-1, col_letter_to_index("D"))
+        result["comment_system_red"] = get_str_values(ws, header_row-3, header_row-3, 1, 1)
+        result["comment_system_green"] = get_str_values(ws, header_row-2, header_row-2, 1, 1)
+        
+    if sheet_name == sheetName.falshiDn:
+        result["comment_system_red"] = get_str_values(ws, header_row-3, header_row-3, 1, 1)
+        result["comment_system_green"] = get_str_values(ws, header_row-2, header_row-2, 1, 1)
 
-        result["magnets_price_eur"] = magnets_price_eur
-        result["comment_system"] = comment_system
+    if sheet_name == sheetName.vidkr19yiBesta:
+        result["comment_system_red"] = get_str_values(ws, header_row-9, header_row-9, 1, 1)
+        result["comment_system_green"] = get_str_values(ws, header_row-8, header_row-6, 1, 1)
+        result["metal_cord_fix_price_eur"] = get_money_value(ws, header_row-3, col_letter_to_index("D"))
+        result["cord_copper_barrel_price_eur"] = get_money_value(ws, header_row-2, col_letter_to_index("D"))
+        result["magnets_price_eur"] = get_money_value(ws, header_row-1, col_letter_to_index("D"))
+        result["top_pvc_clip_pair_price_eur"] = get_money_value(ws, header_row-3, col_letter_to_index("N"))
+        result["op_pvc_bar_tape_price_eur"] = get_money_value(ws, header_row-2, col_letter_to_index("N"))
+
+    if sheet_name == sheetName.vidkr19yiBestaDn:
+        result["comment_system_red"] = get_str_values(ws, header_row-8, header_row-7, 1, 1)
+        result["comment_system_red"] += "<br/>" + get_str_values(ws, header_row-4, header_row-4, col_letter_to_index("E"), col_letter_to_index("E"))
+        result["comment_system_green"] = get_str_values(ws, header_row-7, header_row-4, 1, 1)
+        result["cord_pvc_tension_price_eur"] = get_money_value(ws, header_row-3, col_letter_to_index("D"))
+        result["top_pvc_clip_pair_price_eur"] = get_money_value(ws, header_row-2, col_letter_to_index("D"))
+        result["op_bar_scotch_price_eur"] = get_money_value(ws, header_row-1, col_letter_to_index("D"))
+        
+    if sheet_name == sheetName.zakrytaPloskaBesta:
+        result["comment_system_red"] = get_str_values(ws, header_row-6, header_row-6, 1, 1)
+        result["comment_system_red"] += "<br/>" + get_str_values(ws, header_row-4, header_row-4, col_letter_to_index("E"), col_letter_to_index("E"))        
+        result["comment_system_green"] = get_str_values(ws, header_row-5, header_row-5, 1, 1)
+        result["comment_system_green"] += "<br/>" + get_str_values(ws, header_row-3, header_row-2, col_letter_to_index("E"), col_letter_to_index("E"))        
+        
+    if sheet_name == sheetName.zakrytaPloskaBestaDn:
+        if section_title.indexOn("біла"):
+            result["comment_system_red"] = get_str_values(ws, header_row-6, header_row-6, 1, 1)
+            result["comment_system_green"] = get_str_values(ws, header_row-4, header_row-1, 1, 1)
+        elif section_title.indexOn("золотий дуб"):
+            result["comment_system_red"] = get_str_values(ws, header_row-6, header_row-6, 1, 1)
+            result["comment_system_red"] += "<br/>" + get_str_values(ws, header_row-4, header_row-4, col_letter_to_index("E"), col_letter_to_index("E"))        
+            result["comment_system_red"] += "<br/>" + get_str_values(ws, header_row-2, header_row-2, col_letter_to_index("E"), col_letter_to_index("E"))        
+            result["comment_system_green"] = get_str_values(ws, header_row-5, header_row-5, 1, 1)
+            result["comment_system_green"] += "<br/>" + get_str_values(ws, header_row-3, header_row-3, col_letter_to_index("E"), col_letter_to_index("E"))        
+        else:    
+            result["comment_system_red"] = get_str_values(ws, header_row-6, header_row-6, 1, 1)
+            result["comment_system_red"] += "<br/>" + get_str_values(ws, header_row-4, header_row-4, col_letter_to_index("E"), col_letter_to_index("E"))        
+            result["comment_system_green"] = get_str_values(ws, header_row-5, header_row-5, 1, 1)
+            result["comment_system_green"] += "<br/>" + get_str_values(ws, header_row-3, header_row-2, col_letter_to_index("E"), col_letter_to_index("E"))        
+                
+    if sheet_name == sheetName.zakrytaPpodibBesta:
+        result["comment_system_red"] = get_str_values(ws, header_row-7, header_row-7, 1, 1)
+        result["comment_system_green"] = get_str_values(ws, header_row-6, header_row-6, 1, 1)
+        
+    if sheet_name == sheetName.zakrytaPpodibnaBestaDn:
+        result["comment_system_red"] = get_str_values(ws, header_row-6, header_row-6, 1, 1)
+        result["comment_system_green"] = get_str_values(ws, header_row-5, header_row-1, 1, 1)
+        
+    if sheet_name == sheetName.vidkr25yiBesta:
+        result["comment_system_red"] = get_str_values(ws, header_row-8, header_row-8, 1, 1)
+        result["comment_system_green"] = get_str_values(ws, header_row-7, header_row-4, 1, 1)
+        
+        result["cord_pvc_tension_price_eur"] = get_money_value(ws, header_row-3, col_letter_to_index("D"))
+        result["cord_copper_barrel_price_eur"] = get_money_value(ws, header_row-2, col_letter_to_index("D"))
+        result["magnets_price_eur"] = get_money_value(ws, header_row-1, col_letter_to_index("D"))
+        result["metal_kronsht_price_eur"] = get_money_value(ws, header_row-2, col_letter_to_index("N"))
+        result["bottom_wide_bar_price_eur_mp"] = get_money_value(ws, header_row-1, col_letter_to_index("N"))
     
     result["gabarit_limit_mm"]=limit or None
+    result["gb_width_mm"]=gb_width_mm or None
     result["band_index"]=idx or None
     result["band_label"] = width_bands[idx] if width_bands and idx < len(width_bands) else None
     result["base_price_eur"]=str(round_money(base)) if base else None

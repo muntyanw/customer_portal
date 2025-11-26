@@ -62,7 +62,6 @@ class OrderItem(models.Model):
 
     # Flags / options (basic)
     gabarit_width_flag = models.BooleanField(default=False)   # галочка "Габаритна ширина (+4мм)" / "ширина габаритна"
-    magnets_fixation = models.BooleanField(default=False)     # базова фіксація магнітами (логічний прапорець)
     bottom_fixation = models.BooleanField(default=False)      # нижня фіксація (логічний прапорець, без ціни поки)
     pvc_plank = models.BooleanField(default=False)            # планка ПВХ зі скотчем (логічний прапорець, без ціни поки)
 
@@ -76,6 +75,12 @@ class OrderItem(models.Model):
     # Base prices (EUR) for main product
     base_price_eur = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     surcharge_height_eur = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    
+    magnets_qty = models.PositiveIntegerField(
+        default=0,
+        help_text="Кількість магнітної фіксації",
+    )
+    
     magnets_price_eur = models.DecimalField(  # можна залишити як 'total' або перепризначити під одиничну ціну
         max_digits=12,
         decimal_places=2,
@@ -146,13 +151,13 @@ class OrderItem(models.Model):
     )
 
     # 5) Доплата за верхню планку ПВХ зі скотчем (монтаж без свердління), за м.п.
-    top_pvc_bar_tape_m = models.DecimalField(
+    top_pvc_bar_tape_qty = models.DecimalField(
         max_digits=8,
         decimal_places=2,
         default=0,
         help_text="Довжина верхньої планки ПВХ зі скотчем, м.п.",
     )
-    top_pvc_bar_tape_price_eur = models.DecimalField(
+    top_pvc_bar_tape_price_eur_mp = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
@@ -160,13 +165,13 @@ class OrderItem(models.Model):
     )
 
     # 6) Доплата за широку нижню планку 10/28, за м.п.
-    bottom_wide_bar_m = models.DecimalField(
+    bottom_wide_bar_qty = models.DecimalField(
         max_digits=8,
         decimal_places=2,
         default=0,
         help_text="Довжина широкої нижньої планки 10/28, м.п.",
     )
-    bottom_wide_bar_price_eur = models.DecimalField(
+    bottom_wide_bar_price_eur_mp = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,
@@ -186,7 +191,7 @@ class OrderItem(models.Model):
     )
 
     # 8) Скотч на верхню планку для встановлення без свердління, за м.п.
-    top_bar_scotch_m = models.DecimalField(
+    top_bar_scotch_qty = models.DecimalField(
         max_digits=8,
         decimal_places=2,
         default=0,
@@ -257,6 +262,18 @@ class OrderItem(models.Model):
         decimal_places=2,
         default=0,
         help_text="Ціна доплати за один проміжковий кронштейн, EUR/шт",
+    )
+    
+    # 15) Доплата за металеві кронштейни, шт								
+    metal_kronsht_qty = models.PositiveIntegerField(
+        default=0,
+        help_text="Кількість металеві кронштейни, шт",
+    )
+    metal_kronsht_price_eur = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="Доплата за металеві кронштейни, EUR/шт",
     )
     
     

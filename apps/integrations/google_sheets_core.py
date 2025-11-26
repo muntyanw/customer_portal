@@ -22,7 +22,7 @@ from django.conf import settings
 logger = logging.getLogger("sheets")
 
 Q = Decimal
-CACHE_TTL_SECONDS = 300  # 5 min; can be changed
+CACHE_TTL_SECONDS = 15 * 60  # 15 min; can be changed
 
 CACHE_DIR = getattr(
     settings,

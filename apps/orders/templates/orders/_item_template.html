@@ -6,7 +6,9 @@
           Позиція <span class="pos-index">1</span>
         </div>
         <div>
-          <label class="comment-proportions"></label>
+          <label class="comment_system_red"></label>
+          <br />
+          <label class="comment_system_green"></label>
         </div>
         <button type="button" class="btn btn-sm btn-outline-danger remove-row" aria-label="Видалити позицію"><i class="bi bi-x-lg"></i></button>
       </div>
@@ -51,9 +53,9 @@
           <br />
           <label class="form-label"><strong>Ширина, мм</strong></label>
           <input type="number" min="0" name="width_fabric_mm" class="form-control w-mm" placeholder="введіть мм" disabled />
-          <div class="form-check mt-2">
+          <div class="form-check mt-2 gabarit-width-flag">
             <label class="form-label">Це габаритна ширина</label>
-            <input class="form-check-input bottom-fixation gabarit-width-flag" type="checkbox" name="gabarit_width_flag" disabled />
+            <input class="form-check-input bottom-fixation" type="checkbox" name="gabarit_width_flag" disabled />
           </div>
         </div>
 
@@ -64,12 +66,6 @@
 
         <div class="row">
           <div class="col-12 col-md-12 op-card-list">
-
-            <div class="form-check d-none op-card magnets-fixation">
-              <input class="form-check-input magnets_fixation" type="checkbox" name="magnets_fixation" />
-              <label class="form-check-label" for="mag_">Фіксація магнітами (<span class="price">0</span> грн)</label>
-            </div>
-
             <label class="form-label control_side d-none"><strong>Сторона керування</strong></label>
             <select name="control_side" class="form-select control-side d-none">
               <option value="">— Не вказано —</option>
@@ -90,8 +86,8 @@
             </div>
 
             <input type="hidden" name="base_price_eur" class="base-input" />
+            <input type="hidden" name="gb_width_mm" class="gb_width_mm" />
             <input type="hidden" name="surcharge_height_eur" class="surcharge-input" />
-            <input type="hidden" name="magnets-fixation-input" class="magnets-fixation-input" />
             <input type="hidden" name="subtotal_eur" class="subtotal-input" />
           </div>
         </div>
@@ -99,14 +95,13 @@
         <div class="row mt-3">
           <div class="col-12 col-md-3">
             <div class="price-box border rounded-3 p-3">
-              <div class="kv">
-                <span>Система</span><span class="base">0.00</span>
-              </div>
-              <div class="kv">
-                <span>Допис висоти</span><span class="surcharge">0.00</span>
-              </div>
-              <div class="kv magnets-fixation d-none">
-                <span>Магніти</span><span class="magnets-fixation-price">0.00</span>
+              <div class="price-options-manifest">
+                <div class="kv">
+                  <span>Система</span><span class="base">0.00</span>
+                </div>
+                <div class="kv">
+                  <span>Допис висоти</span><span class="surcharge">0.00</span>
+                </div>
               </div>
               <hr class="my-2" />
               <div class="sum">

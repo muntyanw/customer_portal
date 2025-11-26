@@ -3,7 +3,7 @@
   Нове замовлення
 {% endblock %}
 {% block dashboard_heading %}
-  Тканинні ролети замовлення №{{ order.id|default:"null" }}
+  Тканинні ролети замовлення №{{ order.id|default:'null' }}
 {% endblock %}
 
 {% block head_extra %}
@@ -101,17 +101,6 @@
       return match ? decodeURIComponent(match[1]) : ''
     }
     
-    if (!window.showToast) {
-      window.showToast = (msg, type = 'info') => {
-        const div = document.createElement('div')
-        div.className = `alert alert-${type} position-fixed top-0 start-50 translate-middle-x mt-3 shadow`
-        div.style.zIndex = 99000
-        div.textContent = msg
-        document.body.appendChild(div)
-        setTimeout(() => div.remove(), 2500)
-      }
-    }
-    
     function itemTemplate(index) {
       const tpl = document.getElementById('item-template')
       const node = tpl.content.cloneNode(true)
@@ -137,6 +126,7 @@
       $w_mm = $card.find('.w-mm')
       $h_mm = $card.find('.h-mm')
       $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag').prop('disabled', false)
+      $card.find('.gabarit-width-flag').prop('disabled', false)
       $card.find('.h-mm, .w-mm').on('input', function () {
         clearTimeout(debounceTimer)
         debounceTimer = setTimeout(() => {
@@ -150,13 +140,65 @@
           previewCard($card)
         }
       })
+
+      if ($w_mm.val() && $h_mm.val()) {
+        previewCard($card)
+      }
     }
+
+    function removePriceOptions($card){
+        priceOptions.forEach((nameOption, i) => {
+            $card.find('.' + nameOption).remove()
+        })
+    }
+
+
+    async function changeSystemSheet($card){
+        $card.find('.comment_system_red').html("")
+        $card.find('.comment_system_green').html("")
+        $card.find('.h-mm').val(0)
+        $card.find('.w-mm').val(0)
+        $card.find('.qty').val(1)
+        removePriceOptions($card)
+        recalcPrice()
+
+        const system = $card.find('.system-sheet').val()
+      
+        const $sec = $card.find('.table-section')
+        const $fab = $card.find('.fabric')
+        const $fabColor = $card.find('.fabric-color-code')
+      
+        $sec.empty().append('<option value="" selected disabled>— Оберіть колір системи —</option>')
+        $fab.empty().append('<option value="">Спочатку оберіть колір системи…</option>')
+        $fabColor.empty().append('<option value="">Спочатку оберіть колір системи…</option>')
+      
+        $sec.val(null).trigger('change')
+        $fab.val(null).trigger('change')
+        $fabColor.val(null).trigger('change')
+      
+        if (!system) return
+      
+        try {
+          await loadSectionsForSystem(system)
+          fillSectionsForCard($card, system, null)
+        } catch (e) {
+          window.showToast('Не вдалося завантажити секції для системи', 'danger')
+        }
+    }
+
     // ---------- Select2 init ----------
     function initSelectsForCard($card) {
-      $card.find('.system-sheet, .table-section, .fabric').select2({
+
+      $card.find('.table-section, .fabric').select2({
         width: '100%',
         dropdownParent: $card
       })
+
+      const $selectSys = $card.find('.system-sheet').select2({
+        width: '100%',
+        dropdownParent: $card
+      })
+
       const $fabricColor = $card.find('.fabric-color-code').select2({
         width: '100%',
         dropdownParent: $card,
@@ -177,6 +219,12 @@
       $fabricColor.on('select2:select', function (e) {
         setEventsFromGabarits($card)
       })
+
+      $selectSys.on('select2:select', function (e) {
+        changeSystemSheet($card)
+      })
+
+
     }
     
     async function loadSystems() {
@@ -347,6 +395,11 @@
     }
     
     function readCardValues($card) {
+      let qtyPriceOptions = {}
+      priceOptions.forEach((optionName) => {
+      qtyPriceOptions[optionName] = $card
+          .find('[name="' + optionName.replace("_price_eur", "_qty") + '"]').val()
+      });
       return {
         system: $card.find('.system-sheet').val() || '',
         section: $card.find('.table-section').val() || '',
@@ -356,11 +409,11 @@
         w: $card.find('.w-mm').val() || '',
         qty: $card.find('.qty').val() || '1',
         gw: $card.find('.gabarit-width-flag').is(':checked'),
-        mg: $card.find('.magnets_fixation').is(':checked')
+        qtyPriceOptions:qtyPriceOptions
       }
     }
     
-    async function previewCard($card, preselects = {}) {
+    async function previewCard($card, preSelectsPriceOptions = {}) {
       const url = priceUrlInput.val()
       const system = $card.find('.system-sheet').val()
       const section = $card.find('.table-section').val()
@@ -379,8 +432,10 @@
       try {
         const data = await previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabaritWidth })
         pricesCache[$card.find('.pos-index')] = data
-        renderPriceOptions($card, preselects)
+        renderPriceOptions($card, preSelectsPriceOptions)
       } catch (err) {
+        $card.find('.h-mm').val(0)
+        $card.find('.w-mm').val(0)
         window.showToast(err.message || 'Помилка розрахунку', 'danger')
       }
     }
@@ -432,17 +487,22 @@
       if (item.width_fabric_mm) $card.find('.w-mm').val(item.width_fabric_mm)
 
       if (item.gabarit_width_flag) {
-        // если в разметке вдруг оба класса – проставим в оба
-        $card.find('.gabarit-width-flag').prop('checked', true)
+        $card.find('.gabarit-width-flag .form-check-input').prop('checked', true)
       }
 
       // 5) количество
       $card.find('.qty').val(item.quantity || 1)
 
       setEventsFromGabarits($card)
+      let preSelectsPriceOptions = {}
+      priceOptions.forEach((optionName, index) => {
+          let qty = item[optionName.replace("_price_eur", "_qty")]
+          if(qty){
+            preSelectsPriceOptions[optionName] = qty
+          }
+      });
 
-      // актуализируем цену из прайса
-      await previewCard($card, {magnets_fixation:item.magnets_fixation})
+      await previewCard($card, preSelectsPriceOptions)
 
     }
 
@@ -477,16 +537,26 @@
             if (prevVals.fabric_color_code) {
               copySelectOptionsFromPrevCard($card, ".fabric-color-code")
               $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag').prop('disabled', false)
+              $card.find('.gabarit-width-flag .form-check-input').prop('disabled', false)
             }
     
             if (prevVals.h) $card.find('.h-mm').val(prevVals.h)
             if (prevVals.w) $card.find('.w-mm').val(prevVals.w)
             if (prevVals.qty) $card.find('.qty').val(prevVals.qty)
     
-            $card.find('.gabarit-width-flag').prop('checked', !!prevVals.gw)
-            $card.find('.magnets_fixation').prop('checked', !!prevVals.mg)
-    
-            previewCard($card, {magnets_fixation:prevVals.mg})
+            $card.find('.gabarit-width-flag .form-check-input').prop('checked', !prevVals.gw)
+            
+            {% comment %} let preSelectsPriceOptions = {}
+            for (let optionName in prevVals.qtyPriceOptions) {
+                let qty = prevVals.qtyPriceOptions[optionName];
+                if(qty){
+                  reSelectsPriceOptions[optionName] = qty
+                }
+            } {% endcomment %}
+
+            await previewCard($card, prevVals.qtyPriceOptions)
+
+            previewCard($card)
           }
         } catch (e) {
           window.showToast('Не вдалося завантажити секції/тканини', 'danger')
@@ -504,23 +574,127 @@
       if (isNaN(v) || v < 1) this.value = 1
       renderPriceOptions($(this).closest('.item-card'))
     })
+
+    let priceOptions = [
+      "magnets_price_eur",
+      "cord_pvc_tension_price_eur",
+      "cord_copper_barrel_price_eur",
+      "top_pvc_clip_pair_price_eur",
+      "top_pvc_bar_tape_price_eur_mp",
+      "bottom_wide_bar_price_eur_mp",     
+      "top_bar_scotch_price_eur",     
+      "metal_kronsht_price_eur"
+    ]
+
+    let priceOptionTexts = [
+      "Фіксація магнітами",
+      "Фіксація Леска ПВХ з дотяжкою (шт)",
+      "Фіксація Леска з мідною діжкою (шт)",
+      "Кліпса кріплення для верхньої планки ПВХ, пара",
+      "Доплата за верхню планку ПВХ зі скотчем (монтаж без свердління), за м.п.",
+      "Доплата за широку нижню планку 10/28, за м.п.",     
+      "Скотч на верхню планку для встановлення без свердління, за м.п.",     
+      "Доплата за металеві кронштейни, шт"
+    ]
     
     function recalcPrice() {
       let sumTotal = 0
       $('.item-card').each(function (i, card) {
         const $card = $(card)
-        const base = Number($card.find('.base').text()) || 0
-        const surcharge = Number($card.find('.surcharge').text()) || 0
-        const magnets = Number($card.find('.magnets-fixation-input').val()) || 0
-        const sum = base + surcharge + magnets
+        let sum = 0
+        const gb_width_mm = Number($card.find('.gb_width_mm').val()) || 0
+
+        sum += Number($card.find('.base').text() || 0) + Number($card.find('.surcharge').text() || 0)
+
+        priceOptions.forEach((nameOption) => {
+          const optionQtyName = nameOption.replace("_price_eur", "_qty")
+          const optionQty = $card.find('[name="' + optionQtyName + '"]').val()
+          if(optionQty){
+            if(!nameOption.includes("_mp")){
+                sum += Number($card.find('[name="' + nameOption + '"]').val()) || 0
+            }else{
+                sum += Number($card.find('[name="' + nameOption + '"]').val()) * (gb_width_mm/1000)
+            }
+          }
+        })
+        
         $card.find('.subtotal-input').text(money(sum))
         sumTotal += sum
       })
       
       $('#orderTotal').text(money(Number(sumTotal)))
     }
+
+    function checkPriceOption(el, optionName, optionVal) {
+        const $el = $(el);
+        const $card = $el.closest('.item-card');         // карточка
+        const $block = $el.closest('.op-card');          // конкретная опция
+        const $hidden = $block.find('.price-hidden');    // скрытый input
+        const $hiddenQty = $block.find('.qty-hidden');    // скрытый input
+        const $priceEl = $block.find(`.${optionName} .price`);          // span с ценой
+        const $priceMan = $card.find(`.price-options-manifest .${optionName} .price`);          // span с ценой
+
+        if (el.checked) {
+            const price = money(Number(optionVal));
+            $hidden.val(price);
+            $hiddenQty.val(1);
+            $priceEl.text(price);
+            $priceMan.text(price);
+        } else {
+            $hidden.val(0);
+            $hiddenQty.val(0);
+            $priceEl.text(0);
+            $priceMan.text(0);
+        }
+
+        recalcPrice()
+    }
+
+
+    function renderOnePriceOption($card, data, optionName,  i, preSelectsPriceOptions = {}){
+
+      const optionQtyName = optionName.replace("_price_eur", "_qty")
+      const optionPrice = data[optionName]
+      let optionQty = data[optionQtyName]
+      if (optionPrice) {
+
+        let check = ""
+        let price = 0
+
+        if (optionQty || preSelectsPriceOptions[optionName]) {
+          check = 'checked'
+          price = money(Number(optionPrice))
+          optionQty = 1
+        }
+
+        if ($card.find('.' + optionName).length === 0) {
+            $card.find('.op-card-list').append(
+                `<div class="form-check op-card ${optionName}">` 
+                + `<input class="form-check-input price-option" type="checkbox" onchange="checkPriceOption(this, '${optionName}', ${money(Number(optionPrice))})" ${check} />`
+                + `<label class="form-check-label">` 
+                + priceOptionTexts[i] 
+                + ` (<span class="price">${money(Number(optionPrice))}</span> грн)` 
+                + `</label><input class="price-hidden" type="hidden" name="${optionName}" value="${price}" />`
+                + `</label><input class="qty-hidden" type="hidden" name="${optionQtyName}" value="${optionQty}" />`
+                + `</div>`
+            );
+
+            $card.find('.price-options-manifest').append(
+                  `<div class="kv ${optionName}">`
+                + `<span>${priceOptionTexts[i]}</span><span class="price">${price}</span>` 
+                + `</div>`
+            );
+        }else{
+          if(optionQty || preSelectsPriceOptions[optionName]){
+              $card.find(`[name="${optionName.replace("_price_eur", "_qty")}"]`).val(1)
+              $card.find(`.${optionName} .form-check-input`).prop('checked', true)
+              $card.find('.price-options-manifest .price').val(price)
+          }
+        }
+      }
+    }
     
-    function renderPriceOptions($card, preselects = {}) {
+    function renderPriceOptions($card, preSelectsPriceOptions = {}) {
       let numberCard = $card.find('.pos-index')
       let data = pricesCache[numberCard]
       if(!data){
@@ -528,9 +702,21 @@
         return
       }
 
-      if(data.comment_system){
-        $card.find('.comment-proportions').html(data.comment_system)
+      if(data.comment_system_red){
+        $card.find('.comment_system_red').html(data.comment_system_red)
       }
+      if(data.comment_system_green){
+        $card.find('.comment_system_green').html(data.comment_system_green)
+      }
+
+      if(data.GbDiffWidthMm){
+        $card.find('.gabarit-width-flag').show()
+        $card.find('.gabarit-width-flag .form-check-input').prop('disabled', false)
+      }else{
+        $card.find('.gabarit-width-flag .form-check-input').hide()
+        $card.find('.gabarit-width-flag .form-check-input').prop('disabled', true)
+      }
+
       let qty = $card.find('.qty').val()
       let addMoney = 0
     
@@ -538,62 +724,15 @@
       $card.find('.base-input').text(money(Number(data.base_price_eur || 0) * qty))
       $card.find('.surcharge').text(money(Number(data.surcharge_height_eur || 0) * qty))
       $card.find('.surcharge-input').text(money(Number(data.surcharge_height_eur || 0) * qty))
+      $card.find('.gb_width_mm').text((Number(data.gb_width_mm || 0)))
     
-      const magnets_price_eur = data.magnets_price_eur
-      if (magnets_price_eur) {
-        $card.find('.magnets-fixation').removeClass('d-none').show
-        $card.find('.magnets-fixation .price').text(money(Number(magnets_price_eur)))
+      priceOptions.forEach((nameOption, i) => {
+          renderOnePriceOption($card, data, nameOption, i, preSelectsPriceOptions);
+      });
 
-        if (preselects.magnets_fixation) {
-          $card.find('.magnets_fixation').prop('checked', true)
-          $card.find('.magnets-fixation-input').val(money(Number(magnets_price_eur)))
-          $card.find('.magnets-fixation-price').text(money(Number(magnets_price_eur)))
-        }
-
-        $card.find('.magnets_fixation').on('change', function () {
-          if (this.checked) {
-            $card.find('.magnets-fixation-input').val(money(Number(magnets_price_eur)))
-            $card.find('.magnets-fixation-price').text(money(Number(magnets_price_eur)))
-          } else {
-            $card.find('.magnets-fixation-input').val(money(Number(0)))
-            $card.find('.magnets-fixation-price').text(money(Number(0)))
-          }
-          recalcPrice()
-        })
-      } else {
-        $card.find('.magnets-fixation').addClass('d-none').hide
-        $card.find('.magnets-fixation-input').val(0)
-        $card.find('.magnets-fixation .price').text(0)
-      }
-    
       recalcPrice()
     }
-    
-    $container.on('change', '.system-sheet', async function () {
-      const $card = $(this).closest('.item-card')
-      const system = $(this).val()
-    
-      const $sec = $card.find('.table-section')
-      const $fab = $card.find('.fabric')
-      const $fabColor = $card.find('.fabric-color-code')
-    
-      $sec.empty().append('<option value="" selected disabled>— Оберіть колір системи —</option>')
-      $fab.empty().append('<option value="">Спочатку оберіть колір системи…</option>')
-      $fabColor.empty().append('<option value="">Спочатку оберіть колір системи…</option>')
-    
-      $sec.val(null).trigger('change')
-      $fab.val(null).trigger('change')
-      $fabColor.val(null).trigger('change')
-    
-      if (!system) return
-    
-      try {
-        await loadSectionsForSystem(system)
-        fillSectionsForCard($card, system, null)
-      } catch (e) {
-        window.showToast('Не вдалося завантажити секції для системи', 'danger')
-      }
-    })
+       
     
     $container.on('change', '.table-section', async function () {
       const $card = $(this).closest('.item-card')
