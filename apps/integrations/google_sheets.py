@@ -20,7 +20,6 @@ from .google_sheets_core import (
     col_letter_to_index,
     get_money_value,
     get_str_values,
-    
 )
 
 
@@ -33,6 +32,7 @@ def _norm_title(s: Optional[str]) -> str:
 
 
 # ========= HELPERS / SECTION FINDERS =========
+
 
 def find_sections_merged(
     ws: Worksheet,
@@ -72,9 +72,10 @@ def find_sections_by_headers(
     ws: Worksheet,
     *,
     title_prefix: str = "",
-    min_merged_width: int = 0,   # kept for compatibility, not used
+    min_merged_width: int = 0,  # kept for compatibility, not used
     search_cols: int = 6,
     case_insensitive: bool = True,
+    sheet_name: str = "",  # 🔹 новый параметр
 ) -> List[Dict]:
     """
     UA: Шукає секції за текстовими заголовками (без прив'язки до merged-ячейок).
@@ -82,12 +83,25 @@ def find_sections_by_headers(
             "Фальш-ролети, біла система"
             "Фальш-ролети, коричнева система"
             ...
+        Додатково: рядок вважається секцією, якщо перші 5 символів
+        збігаються з першими 5 символами назви аркуша (sheet_name).
     EN: Find sections by textual headers (no dependency on merged cells).
+        Additionally, a row is considered a section only if the first
+        5 characters match the first 5 characters of sheet_name.
     Returns: [{"title": str, "row": int, "col": int}, ...]
     """
     sections: List[Dict] = []
 
     prefix_norm = _norm_title(title_prefix)
+
+    # 🔹 Нормализуем sheet_name один раз
+    sheet_prefix_norm = ""
+    if sheet_name:
+        sheet_norm_full = sheet_name.strip()
+        if case_insensitive:
+            sheet_norm_full = sheet_norm_full.lower()
+        sheet_prefix_norm = sheet_norm_full[:4]
+
     for r in range(1, ws.max_row + 1):
         for c in range(1, search_cols + 1):
             v = ws.cell(row=r, column=c).value
@@ -99,8 +113,14 @@ def find_sections_by_headers(
 
             norm = raw.lower() if case_insensitive else raw
 
+            # 🔹 Условие по title_prefix, как было
             if prefix_norm and not norm.startswith(prefix_norm):
                 continue
+
+            # 🔹 Новое условие: первые 4 символов совпадают с sheet_name
+            if sheet_prefix_norm:
+                if norm[:4] != sheet_prefix_norm:
+                    continue
 
             # Heuristic: must contain word "система"
             if "система" not in norm:
@@ -144,7 +164,6 @@ def pick_width_band(width_bands: List[str], width_mm: int) -> Optional[int]:
 
 
 # ========= PARSE ONE PRICE SECTION =========
-
 def parse_sheet_price_section(
     google_sheet_url: str,
     sheet_name: str,
@@ -152,8 +171,8 @@ def parse_sheet_price_section(
     *,
     gabarit_width_flag: Optional[bool] = None,
     width_mm: int = None,
-    fabric_name: str  = None,
-    gabarit_height_mm: int  = None,
+    fabric_name: str = None,
+    gabarit_height_mm: int = None,
 ) -> Dict:
     """
     UA: Парсить ТІЛЬКИ вибрану секцію на вказаному листі.
@@ -165,9 +184,10 @@ def parse_sheet_price_section(
       - рядок заголовків з "Тканина", "Висота рулону / тканини", "Габаритна висота ...";
       - наступний рядок: ширинні смуги;
       - далі: тканини до пустого рядка або наступного заголовку-секції.
+      Може бути кілька таких під-таблиць (коли ширини не вміщаються в один блок).
     """
     result = {}
-    
+
     wb = _download_workbook(google_sheet_url, force_refresh=False)
     if sheet_name not in wb.sheetnames:
         raise ValueError(f"Sheet '{sheet_name}' not found in workbook")
@@ -180,14 +200,14 @@ def parse_sheet_price_section(
         min_merged_width=0,
         search_cols=6,
         case_insensitive=True,
+        sheet_name=sheet_name,
     )
-    
-    result["sheet_name"]=sheet_name or ""
-    result["sections"]=all_sections or None
-    
+
+    result["sheet_name"] = sheet_name or ""
+    result["sections"] = all_sections or None
+
     if not section_title:
         return result
-    
 
     wanted_norm = _norm_title(section_title)
     target = next(
@@ -198,95 +218,133 @@ def parse_sheet_price_section(
         raise ValueError(f"Section '{section_title}' not found on sheet '{sheet_name}'")
 
     sections_sorted = sorted(all_sections, key=lambda x: (x["row"], x["col"]))
-    idx = sections_sorted.index(target)
+
+    idx_section = sections_sorted.index(target)
     start_row = target["row"]
     end_row = (
-        sections_sorted[idx + 1]["row"] - 1
-        if idx + 1 < len(sections_sorted)
+        sections_sorted[idx_section + 1]["row"] - 1
+        if idx_section + 1 < len(sections_sorted)
         else ws.max_row
     )
 
-    # 2) Find header row inside section
-    header_row: Optional[int] = None
+    # 2) Find ALL header rows inside section
+    #    (support one or multiple header blocks "Тканина / Висота / Габарит...")
+    header_rows: List[int] = []
     for r in range(start_row, min(end_row, ws.max_row) + 1):
         vals = _row_values(ws, r)
         joined = " ".join([x or "" for x in vals]).lower()
         if "тканина" in joined and "висота" in joined and "габарит" in joined:
-            header_row = r
-            break
+            header_rows.append(r)
 
-    if not header_row:
+    if not header_rows:
         raise RuntimeError(
             f"Header row not found in section '{section_title}' on sheet '{sheet_name}'"
         )
 
-    # 3) Determine column index where width bands start
-    header_vals = _row_values(ws, header_row)
-    width_hdr_idx = None
-    for i, v in enumerate(header_vals):
-        if isinstance(v, str) and "ширина" in v.lower():
-            width_hdr_idx = i
-            break
-    if width_hdr_idx is None:
-        # Fallback: after third column
-        width_hdr_idx = 3
+    # Для сумісності далі використовуємо перший заголовок як "основний"
+    header_rows = sorted(header_rows)
+    header_row = header_rows[0]
 
-    width_row = header_row + 1
-    width_row_vals = _row_values(ws, width_row)
-    width_bands = [v for v in width_row_vals[width_hdr_idx:] if v]
+    # 3) Determine width bands and fabrics (support multiple sub-tables)
+    #    Ми НЕ дублюємо парсинг: кожен рядок читається рівно один раз,
+    #    а ціни по одній тканині з різних під-таблиць просто додаються в кінець.
+    all_width_bands: List[Any] = []
 
-    # 5) Fabrics list
-    fabrics: List[Dict] = []
-    r = width_row + 1
-    while r <= end_row:
-        vals = _row_values(ws, r)
+    fabrics_map: Dict[str, Dict] = {}  # key: name.lower()
+    fabric_order: List[str] = []  # to preserve first-seen order
 
-        if not any(vals):
-            break
+    for i_hr, hr in enumerate(header_rows):
+        header_vals = _row_values(ws, hr)
 
-        name = (vals[0] or "").strip() if len(vals) > 0 else ""
-        if not name:
-            r += 1
-            continue
+        # Find the first "ширина" column in this header block
+        width_hdr_idx = None
+        for i, v in enumerate(header_vals):
+            if isinstance(v, str) and "ширина" in v.lower():
+                width_hdr_idx = i
+                break
+        if width_hdr_idx is None:
+            # Fallback: after third column
+            width_hdr_idx = 3
 
-        roll_h = _to_decimal(vals[1]) if len(vals) > 1 else None
-        gabarit_limit = _to_decimal(vals[2]) if len(vals) > 2 else None
+        width_row = hr + 1
+        width_row_vals = _row_values(ws, width_row)
+        width_bands_part = [v for v in width_row_vals[width_hdr_idx:] if v]
+        all_width_bands.extend(width_bands_part)
 
-        price_cells = vals[width_hdr_idx:]
-        prices = [
-            (_to_decimal(pc) if _to_decimal(pc) is not None else None)
-            for pc in price_cells
-        ]
-
-        fabrics.append(
-            {
-                "name": name,
-                "roll_height_mm": int(roll_h) if roll_h is not None else None,
-                "gabarit_limit_mm": int(gabarit_limit) if gabarit_limit is not None else None,
-                "prices_by_band": prices,
-            }
+        # границя поточної під-таблиці: до наступного header_row або end_row
+        next_header_row = (
+            header_rows[i_hr + 1] if i_hr + 1 < len(header_rows) else end_row + 1
         )
-        r += 1
-    
-    result["section_title"]=section_title or ""
-    result["fabrics"]=fabrics or None
-    result["section"]=target or ""
-    
+
+        # 5) Fabrics list for this sub-table
+        r = width_row + 1
+        while r < next_header_row and r <= end_row:
+            vals = _row_values(ws, r)
+
+            # порожній рядок — кінець даних поточної під-таблиці
+            if not any(vals):
+                break
+
+            name = (vals[0] or "").strip() if len(vals) > 0 else ""
+            if not name:
+                r += 1
+                continue
+
+            roll_h = _to_decimal(vals[1]) if len(vals) > 1 else None
+            gabarit_limit = _to_decimal(vals[2]) if len(vals) > 2 else None
+
+            price_cells = vals[width_hdr_idx:]
+            prices_part = [
+                (_to_decimal(pc) if _to_decimal(pc) is not None else None)
+                for pc in price_cells
+            ]
+
+            key = name.lower()
+
+            if key not in fabrics_map:
+                fabrics_map[key] = {
+                    "name": name,
+                    "roll_height_mm": int(roll_h) if roll_h is not None else None,
+                    "gabarit_limit_mm": (
+                        int(gabarit_limit) if gabarit_limit is not None else None
+                    ),
+                    "prices_by_band": prices_part,
+                }
+                fabric_order.append(key)
+            else:
+                f = fabrics_map[key]
+                # дозаповнюємо висоту/габарит, якщо раніше були None
+                if f["roll_height_mm"] is None and roll_h is not None:
+                    f["roll_height_mm"] = int(roll_h)
+                if f["gabarit_limit_mm"] is None and gabarit_limit is not None:
+                    f["gabarit_limit_mm"] = int(gabarit_limit)
+                # додаємо нові ціни в кінець діапазону
+                f["prices_by_band"].extend(prices_part)
+
+            r += 1
+
+    fabrics: List[Dict] = [fabrics_map[k] for k in fabric_order]
+    width_bands = all_width_bands
+
+    result["section_title"] = section_title or ""
+    result["fabrics"] = fabrics or None
+    result["section"] = target or ""
+
     if not width_mm or not gabarit_height_mm:
         return result
-    
+
     real_width_mm = width_mm
-    cg = getConfigBySheetName(sheet_name) 
+    cg = getConfigBySheetName(sheet_name)
+    gb_width_mm = width_mm
     if cg.gbDiffWidthMm:
-        gb_width_mm =  width_mm + cg.gbDiffWidthMm
+        gb_width_mm = width_mm + cg.gbDiffWidthMm
         if gabarit_width_flag:
             real_width_mm = width_mm - cg.gbDiffWidthMm
-            gb_width_mm =  width_mm
+            gb_width_mm = width_mm
         result["GbDiffWidthMm"] = cg.gbDiffWidthMm
     else:
         result["GbDiffWidthMm"] = 0
-    
-        
+
     idx = pick_width_band(width_bands, real_width_mm)
     if idx is None:
         raise ValueError("Ширина поза діапазонами прайсу")
@@ -312,89 +370,214 @@ def parse_sheet_price_section(
         steps = (over + 99) // 100  # кожні 10см, заокруглення догори
         surcharge = round_money(base * Q("0.10") * Q(int(steps)))
 
-
-
-    
     # 6) Extra magnets price (for Falshi sheet only)
-    
     if sheet_name == sheetName.falshi:
-        #logger.info(f"start_row = {start_row} header_row = {header_row}")
-        result["magnets_price_eur"] = get_money_value(ws, header_row-1, col_letter_to_index("D"))
-        result["comment_system_red"] = get_str_values(ws, header_row-3, header_row-3, 1, 1)
-        result["comment_system_green"] = get_str_values(ws, header_row-2, header_row-2, 1, 1)
-        
+        result["magnets_price_eur"] = get_money_value(
+            ws, header_row - 1, col_letter_to_index("D")
+        )
+        result["comment_system_red"] = get_str_values(
+            ws, header_row - 3, header_row - 3, 1, 1
+        )
+        result["comment_system_green"] = get_str_values(
+            ws, header_row - 2, header_row - 2, 1, 1
+        )
+
     if sheet_name == sheetName.falshiDn:
-        result["comment_system_red"] = get_str_values(ws, header_row-3, header_row-3, 1, 1)
-        result["comment_system_green"] = get_str_values(ws, header_row-2, header_row-2, 1, 1)
+        result["comment_system_red"] = get_str_values(
+            ws, header_row - 3, header_row - 3, 1, 1
+        )
+        result["comment_system_green"] = get_str_values(
+            ws, header_row - 2, header_row - 2, 1, 1
+        )
 
     if sheet_name == sheetName.vidkr19yiBesta:
-        result["comment_system_red"] = get_str_values(ws, header_row-9, header_row-9, 1, 1)
-        result["comment_system_green"] = get_str_values(ws, header_row-8, header_row-6, 1, 1)
-        result["metal_cord_fix_price_eur"] = get_money_value(ws, header_row-3, col_letter_to_index("D"))
-        result["cord_copper_barrel_price_eur"] = get_money_value(ws, header_row-2, col_letter_to_index("D"))
-        result["magnets_price_eur"] = get_money_value(ws, header_row-1, col_letter_to_index("D"))
-        result["top_pvc_clip_pair_price_eur"] = get_money_value(ws, header_row-3, col_letter_to_index("N"))
-        result["op_pvc_bar_tape_price_eur"] = get_money_value(ws, header_row-2, col_letter_to_index("N"))
+        result["comment_system_red"] = get_str_values(
+            ws, header_row - 9, header_row - 9, 1, 1
+        )
+        result["comment_system_green"] = get_str_values(
+            ws, header_row - 8, header_row - 6, 1, 1
+        )
+        result["metal_cord_fix_price_eur"] = get_money_value(
+            ws, header_row - 3, col_letter_to_index("D")
+        )
+        result["cord_copper_barrel_price_eur"] = get_money_value(
+            ws, header_row - 2, col_letter_to_index("D")
+        )
+        result["magnets_price_eur"] = get_money_value(
+            ws, header_row - 1, col_letter_to_index("D")
+        )
+        result["top_pvc_clip_pair_price_eur"] = get_money_value(
+            ws, header_row - 3, col_letter_to_index("N")
+        )
+        result["op_pvc_bar_tape_price_eur"] = get_money_value(  # как у тебя
+            ws, header_row - 2, col_letter_to_index("N")
+        )
 
     if sheet_name == sheetName.vidkr19yiBestaDn:
-        result["comment_system_red"] = get_str_values(ws, header_row-8, header_row-7, 1, 1)
-        result["comment_system_red"] += "<br/>" + get_str_values(ws, header_row-4, header_row-4, col_letter_to_index("E"), col_letter_to_index("E"))
-        result["comment_system_green"] = get_str_values(ws, header_row-7, header_row-4, 1, 1)
-        result["cord_pvc_tension_price_eur"] = get_money_value(ws, header_row-3, col_letter_to_index("D"))
-        result["top_pvc_clip_pair_price_eur"] = get_money_value(ws, header_row-2, col_letter_to_index("D"))
-        result["op_bar_scotch_price_eur"] = get_money_value(ws, header_row-1, col_letter_to_index("D"))
-        
+        result["comment_system_red"] = get_str_values(
+            ws, header_row - 8, header_row - 7, 1, 1
+        )
+        result["comment_system_red"] += "<br/>" + get_str_values(
+            ws,
+            header_row - 4,
+            header_row - 4,
+            col_letter_to_index("E"),
+            col_letter_to_index("E"),
+        )
+        result["comment_system_green"] = get_str_values(
+            ws, header_row - 7, header_row - 5, 1, 1
+        )
+        result["metal_cord_fix_price_eur"] = get_money_value(
+            ws, header_row - 3, col_letter_to_index("D")
+        )
+        result["top_pvc_clip_pair_price_eur"] = get_money_value(
+            ws, header_row - 2, col_letter_to_index("D")
+        )
+        result["top_bar_scotch_price_eur"] = get_money_value(
+            ws, header_row - 1, col_letter_to_index("D")
+        )
+
     if sheet_name == sheetName.zakrytaPloskaBesta:
-        result["comment_system_red"] = get_str_values(ws, header_row-6, header_row-6, 1, 1)
-        result["comment_system_red"] += "<br/>" + get_str_values(ws, header_row-4, header_row-4, col_letter_to_index("E"), col_letter_to_index("E"))        
-        result["comment_system_green"] = get_str_values(ws, header_row-5, header_row-5, 1, 1)
-        result["comment_system_green"] += "<br/>" + get_str_values(ws, header_row-3, header_row-2, col_letter_to_index("E"), col_letter_to_index("E"))        
-        
+        result["comment_system_red"] = get_str_values(
+            ws, header_row - 6, header_row - 6, 1, 1
+        )
+        result["comment_system_red"] += "<br/>" + get_str_values(
+            ws, header_row - 4, header_row - 4, 1, 1
+        )
+        result["comment_system_green"] = get_str_values(
+            ws, header_row - 5, header_row - 5, 1, 1
+        )
+        result["comment_system_green"] += "<br/>" + get_str_values(
+            ws, header_row - 3, header_row - 2, 1, 1
+        )
+
     if sheet_name == sheetName.zakrytaPloskaBestaDn:
-        if section_title.indexOn("біла"):
-            result["comment_system_red"] = get_str_values(ws, header_row-6, header_row-6, 1, 1)
-            result["comment_system_green"] = get_str_values(ws, header_row-4, header_row-1, 1, 1)
-        elif section_title.indexOn("золотий дуб"):
-            result["comment_system_red"] = get_str_values(ws, header_row-6, header_row-6, 1, 1)
-            result["comment_system_red"] += "<br/>" + get_str_values(ws, header_row-4, header_row-4, col_letter_to_index("E"), col_letter_to_index("E"))        
-            result["comment_system_red"] += "<br/>" + get_str_values(ws, header_row-2, header_row-2, col_letter_to_index("E"), col_letter_to_index("E"))        
-            result["comment_system_green"] = get_str_values(ws, header_row-5, header_row-5, 1, 1)
-            result["comment_system_green"] += "<br/>" + get_str_values(ws, header_row-3, header_row-3, col_letter_to_index("E"), col_letter_to_index("E"))        
-        else:    
-            result["comment_system_red"] = get_str_values(ws, header_row-6, header_row-6, 1, 1)
-            result["comment_system_red"] += "<br/>" + get_str_values(ws, header_row-4, header_row-4, col_letter_to_index("E"), col_letter_to_index("E"))        
-            result["comment_system_green"] = get_str_values(ws, header_row-5, header_row-5, 1, 1)
-            result["comment_system_green"] += "<br/>" + get_str_values(ws, header_row-3, header_row-2, col_letter_to_index("E"), col_letter_to_index("E"))        
-                
+        if "біла" in section_title:
+            result["comment_system_red"] = get_str_values(
+                ws, header_row - 5, header_row - 5, 1, 1
+            )
+            result["comment_system_green"] = get_str_values(
+                ws, header_row - 4, header_row - 2, 1, 1
+            )
+        else:
+            result["comment_system_red"] = get_str_values(
+                ws, header_row - 6, header_row - 6, 1, 1
+            )
+            result["comment_system_red"] += "<br/>" + get_str_values(
+                ws, header_row - 4, header_row - 4, 1, 1
+            )
+            result["comment_system_green"] = get_str_values(
+                ws, header_row - 5, header_row - 5, 1, 1
+            )
+            result["comment_system_green"] += "<br/>" + get_str_values(
+                ws, header_row - 3, header_row - 2, 1, 1
+            )
+
     if sheet_name == sheetName.zakrytaPpodibBesta:
-        result["comment_system_red"] = get_str_values(ws, header_row-7, header_row-7, 1, 1)
-        result["comment_system_green"] = get_str_values(ws, header_row-6, header_row-6, 1, 1)
-        
+        result["comment_system_red"] = get_str_values(
+            ws, header_row - 7, header_row - 7, 1, 1
+        )
+        result["comment_system_green"] = get_str_values(
+            ws, header_row - 6, header_row - 2, 1, 1
+        )
+
     if sheet_name == sheetName.zakrytaPpodibnaBestaDn:
-        result["comment_system_red"] = get_str_values(ws, header_row-6, header_row-6, 1, 1)
-        result["comment_system_green"] = get_str_values(ws, header_row-5, header_row-1, 1, 1)
-        
+        result["comment_system_red"] = get_str_values(
+            ws, header_row - 6, header_row - 6, 1, 1
+        )
+        result["comment_system_green"] = get_str_values(
+            ws, header_row - 5, header_row - 2, 1, 1
+        )
+
     if sheet_name == sheetName.vidkr25yiBesta:
-        result["comment_system_red"] = get_str_values(ws, header_row-8, header_row-8, 1, 1)
-        result["comment_system_green"] = get_str_values(ws, header_row-7, header_row-4, 1, 1)
+        result["comment_system_red"] = get_str_values(
+            ws, header_row - 8, header_row - 8, 1, 1
+        )
+        result["comment_system_green"] = get_str_values(
+            ws, header_row - 7, header_row - 4, 1, 1
+        )
+
+        result["cord_pvc_tension_price_eur"] = get_money_value(
+            ws, header_row - 3, col_letter_to_index("D")
+        )
+        result["cord_copper_barrel_price_eur"] = get_money_value(
+            ws, header_row - 2, col_letter_to_index("D")
+        )
+        result["magnets_price_eur"] = get_money_value(
+            ws, header_row - 1, col_letter_to_index("D")
+        )
+        result["metal_kronsht_price_eur"] = get_money_value(
+            ws, header_row - 2, col_letter_to_index("N")
+        )
+        result["bottom_wide_bar_price_eur_mp"] = get_money_value(
+            ws, header_row - 1, col_letter_to_index("N")
+        )
+
+    if sheet_name == sheetName.vidkr25yiDn:
+        result["comment_system_red"] = get_str_values(
+            ws, header_row - 6, header_row - 6, 1, 1
+        )
+        result["comment_system_green"] = get_str_values(
+            ws, header_row - 5, header_row - 3, 1, 1
+        )
+
+        result["metal_cord_fix_price_eur"] = get_money_value(
+            ws, header_row - 1, col_letter_to_index("D")
+        )
         
-        result["cord_pvc_tension_price_eur"] = get_money_value(ws, header_row-3, col_letter_to_index("D"))
-        result["cord_copper_barrel_price_eur"] = get_money_value(ws, header_row-2, col_letter_to_index("D"))
-        result["magnets_price_eur"] = get_money_value(ws, header_row-1, col_letter_to_index("D"))
-        result["metal_kronsht_price_eur"] = get_money_value(ws, header_row-2, col_letter_to_index("N"))
-        result["bottom_wide_bar_price_eur_mp"] = get_money_value(ws, header_row-1, col_letter_to_index("N"))
-    
-    result["gabarit_limit_mm"]=limit or None
-    result["gb_width_mm"]=gb_width_mm or None
-    result["band_index"]=idx or None
-    result["band_label"] = width_bands[idx] if width_bands and idx < len(width_bands) else None
-    result["base_price_eur"]=str(round_money(base)) if base else None
-    result["surcharge_height_eur"]=str(surcharge) if surcharge else None
-    
+    if sheet_name == sheetName.vidkrPruzhynna:
+        result["comment_system_red"] = get_str_values(
+            ws, header_row - 5, header_row - 5, 1, 1
+        )
+        result["comment_system_green"] = get_str_values(
+            ws, header_row - 4, header_row - 2, 1, 1
+        )
+
+    if sheet_name == sheetName.zakrPruzhPpodibBesta:
+        result["comment_system_red"] = get_str_values(
+            ws, header_row - 7, header_row - 7, 1, 1
+        )
+        result["comment_system_green"] = get_str_values(
+            ws, header_row - 6, header_row - 2, 1, 1
+        )
+        
+    if sheet_name == sheetName.vidkr32yiLouvolitte:
+        result["comment_system_red"] = get_str_values(
+            ws, header_row - 8, header_row - 8, 1, 1
+        )
+        result["comment_system_green"] = get_str_values(
+            ws, header_row - 7, header_row - 5, 1, 1
+        )
+
+        result["cord_pvc_tension_price_eur"] = get_money_value(
+            ws, header_row - 3, col_letter_to_index("D")
+        )
+        result["cord_copper_barrel_price_eur"] = get_money_value(
+            ws, header_row - 2, col_letter_to_index("D")
+        )
+        result["magnets_price_eur"] = get_money_value(
+            ws, header_row - 1, col_letter_to_index("D")
+        )
+        result["bottom_wide_bar_price_eur_mp"] = get_money_value(
+            ws, header_row - 1, col_letter_to_index("N")
+        )
+        
+       
+        
+    result["gabarit_limit_mm"] = limit or None
+    result["gb_width_mm"] = gb_width_mm or None
+    result["band_index"] = idx or None
+    result["band_label"] = (
+        width_bands[idx] if width_bands and idx < len(width_bands) else None
+    )
+    result["base_price_eur"] = str(round_money(base)) if base else None
+    result["surcharge_height_eur"] = str(surcharge) if surcharge else None
+
     return result
 
 
 # ========= PRICE PREVIEW / FABRIC PARAMS =========
+
 
 def price_preview_section(
     google_sheet_url: str,

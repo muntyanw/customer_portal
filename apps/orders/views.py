@@ -151,8 +151,9 @@ def order_builder(request, pk=None):
         bottom_wide_bar_qty = request.POST.getlist("bottom_wide_bar_qty")
         top_bar_scotch_price_eur = request.POST.getlist("top_bar_scotch_price_eur")
         top_bar_scotch_qty = request.POST.getlist("top_bar_scotch_qty")
-        metal_kronsht_price_eur = request.POST.getlist("metal_kronsht_price_eur")
-        metal_kronsht_qty = request.POST.getlist("metal_kronsht_qty")
+        metal_cord_fix_price_eur = request.POST.getlist("metal_cord_fix_price_eur")
+        metal_cord_fix_qty = request.POST.getlist("metal_cord_fix_qty")
+        
         subtotals = request.POST.getlist("subtotal_eur")
 
         roll_infos = request.POST.getlist("roll_height_info")
@@ -192,8 +193,8 @@ def order_builder(request, pk=None):
                 bottom_wide_bar_qty=_to_decimal(_get(bottom_wide_bar_qty, idx)),
                 top_bar_scotch_price_eur=_to_decimal(_get(top_bar_scotch_price_eur, idx)),
                 top_bar_scotch_qty=_to_decimal(_get(top_bar_scotch_qty, idx)),
-                metal_kronsht_price_eur=_to_decimal(_get(metal_kronsht_price_eur, idx)),
-                metal_kronsht_qty=_to_decimal(_get(metal_kronsht_qty, idx)),
+                metal_cord_fix_price_eur=_to_decimal(_get(metal_cord_fix_price_eur, idx)),
+                metal_cord_fix_qty=_to_decimal(_get(metal_cord_fix_qty, idx)),
                 subtotal_eur=_to_decimal(_get(subtotals, idx)),
                 roll_height_info=_get(roll_infos, idx, ""),
                 quantity=int(_get(qty_list, idx, "1")),
@@ -241,8 +242,8 @@ def order_builder(request, pk=None):
                 "bottom_wide_bar_qty": float(it.bottom_wide_bar_qty),
                 "top_bar_scotch_price_eur": float(it.top_bar_scotch_price_eur),
                 "top_bar_scotch_qty": float(it.top_bar_scotch_qty),
-                "metal_kronsht_price_eur": float(it.metal_kronsht_price_eur),
-                "metal_kronsht_qty": float(it.metal_kronsht_qty),
+                "metal_cord_fix_price_eur": float(it.metal_cord_fix_price_eur),
+                "metal_cord_fix_qty": float(it.metal_cord_fix_qty),
                 
                 "subtotal_eur": float(it.subtotal_eur),
                 "quantity": it.quantity,

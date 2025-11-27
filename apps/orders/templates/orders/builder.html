@@ -140,10 +140,7 @@
           previewCard($card)
         }
       })
-
-      if ($w_mm.val() && $h_mm.val()) {
-        previewCard($card)
-      }
+      
     }
 
     function removePriceOptions($card){
@@ -152,16 +149,19 @@
         })
     }
 
+    function clearCard($card){
+      $card.find('.comment_system_red').html("")
+      $card.find('.comment_system_green').html("")
+      $card.find('.h-mm').val(0)
+      $card.find('.w-mm').val(0)
+      $card.find('.qty').val(1)
+      removePriceOptions($card)
+      recalcPrice()
+    }
+
 
     async function changeSystemSheet($card){
-        $card.find('.comment_system_red').html("")
-        $card.find('.comment_system_green').html("")
-        $card.find('.h-mm').val(0)
-        $card.find('.w-mm').val(0)
-        $card.find('.qty').val(1)
-        removePriceOptions($card)
-        recalcPrice()
-
+        clearCard($card)
         const system = $card.find('.system-sheet').val()
       
         const $sec = $card.find('.table-section')
@@ -189,7 +189,12 @@
     // ---------- Select2 init ----------
     function initSelectsForCard($card) {
 
-      $card.find('.table-section, .fabric').select2({
+      $card.find('.fabric').select2({
+        width: '100%',
+        dropdownParent: $card
+      })
+
+      const $table_section = $card.find('.table-section').select2({
         width: '100%',
         dropdownParent: $card
       })
@@ -216,8 +221,19 @@
         }
       })
       
+      $table_section.on('select2:select', function (e) {
+        clearCard($card)
+      })
+
       $fabricColor.on('select2:select', function (e) {
+
         setEventsFromGabarits($card)
+
+        if (!changingProgrammatically) {
+          if ($w_mm.val() && $h_mm.val()) {
+            previewCard($card)
+          }
+        }
       })
 
       $selectSys.on('select2:select', function (e) {
@@ -398,7 +414,7 @@
       let qtyPriceOptions = {}
       priceOptions.forEach((optionName) => {
       qtyPriceOptions[optionName] = $card
-          .find('[name="' + optionName.replace("_price_eur", "_qty") + '"]').val()
+          .find('[name="' + optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty") + '"]').val()
       });
       return {
         system: $card.find('.system-sheet').val() || '',
@@ -458,11 +474,15 @@
       $currentSelect.val(prevValue)
       $currentSelect.trigger('change')
     }
+
+    let changingProgrammatically = false
     
     async function addRowWithData(item) {
       const idx = $container.children().length
       $container.append(itemTemplate(idx))
       const $card = $container.find('.item-card').last()
+
+      changingProgrammatically = true      
 
       initSelectsForCard($card)
 
@@ -496,13 +516,15 @@
       setEventsFromGabarits($card)
       let preSelectsPriceOptions = {}
       priceOptions.forEach((optionName, index) => {
-          let qty = item[optionName.replace("_price_eur", "_qty")]
+          let qty = item[optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")]
           if(qty){
             preSelectsPriceOptions[optionName] = qty
           }
       });
 
       await previewCard($card, preSelectsPriceOptions)
+
+      changingProgrammatically = false
 
     }
 
@@ -556,7 +578,6 @@
 
             await previewCard($card, prevVals.qtyPriceOptions)
 
-            previewCard($card)
           }
         } catch (e) {
           window.showToast('Не вдалося завантажити секції/тканини', 'danger')
@@ -583,7 +604,9 @@
       "top_pvc_bar_tape_price_eur_mp",
       "bottom_wide_bar_price_eur_mp",     
       "top_bar_scotch_price_eur",     
-      "metal_kronsht_price_eur"
+      "metal_kronsht_price_eur",
+      "metal_cord_fix_price_eur"     
+
     ]
 
     let priceOptionTexts = [
@@ -594,7 +617,8 @@
       "Доплата за верхню планку ПВХ зі скотчем (монтаж без свердління), за м.п.",
       "Доплата за широку нижню планку 10/28, за м.п.",     
       "Скотч на верхню планку для встановлення без свердління, за м.п.",     
-      "Доплата за металеві кронштейни, шт"
+      "Доплата за металеві кронштейни, шт",
+      "Фіксація лески металева"
     ]
     
     function recalcPrice() {
@@ -607,14 +631,14 @@
         sum += Number($card.find('.base').text() || 0) + Number($card.find('.surcharge').text() || 0)
 
         priceOptions.forEach((nameOption) => {
-          const optionQtyName = nameOption.replace("_price_eur", "_qty")
-          const optionQty = $card.find('[name="' + optionQtyName + '"]').val()
-          if(optionQty){
-            if(!nameOption.includes("_mp")){
-                sum += Number($card.find('[name="' + nameOption + '"]').val()) || 0
-            }else{
-                sum += Number($card.find('[name="' + nameOption + '"]').val()) * (gb_width_mm/1000)
-            }
+          const optionQtyName = nameOption.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
+          const optionQty = Number($card.find('[name="' + optionQtyName + '"]').val())
+          if(optionQty>0){
+            //if(!nameOption.includes("_mp")){
+                sum += Number($card.find(`.price-options-manifest .${nameOption} .price`).val()) || 0
+            //}else{
+                //sum += Number($card.find('.price-options-manifest .${nameOption} .price').val()  * (gb_width_mm/1000))
+            //}
           }
         })
         
@@ -639,7 +663,13 @@
             $hidden.val(price);
             $hiddenQty.val(1);
             $priceEl.text(price);
-            $priceMan.text(price);
+            const gb_width_mm = Number($card.find('.gb_width_mm').val()) || 0
+            if(optionName.includes("_mp")){
+                $priceMan.text(money(Number(price * (gb_width_mm/1000))))
+            }else{
+                $priceMan.text(price)
+            }
+            
         } else {
             $hidden.val(0);
             $hiddenQty.val(0);
@@ -653,9 +683,10 @@
 
     function renderOnePriceOption($card, data, optionName,  i, preSelectsPriceOptions = {}){
 
-      const optionQtyName = optionName.replace("_price_eur", "_qty")
+      const optionQtyName = optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
       const optionPrice = data[optionName]
       let optionQty = data[optionQtyName]
+      const gb_width_mm = Number($card.find('.gb_width_mm').val()) || 0
       if (optionPrice) {
 
         let check = ""
@@ -663,7 +694,12 @@
 
         if (optionQty || preSelectsPriceOptions[optionName]) {
           check = 'checked'
-          price = money(Number(optionPrice))
+          
+          if(optionName.includes("_mp")){
+              price = money(Number(optionPrice * (gb_width_mm/1000)))
+          }else{
+              price = money(Number(optionPrice))
+          }
           optionQty = 1
         }
 
@@ -686,9 +722,9 @@
             );
         }else{
           if(optionQty || preSelectsPriceOptions[optionName]){
-              $card.find(`[name="${optionName.replace("_price_eur", "_qty")}"]`).val(1)
+              $card.find(`[name="${optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")}"]`).val(1)
               $card.find(`.${optionName} .form-check-input`).prop('checked', true)
-              $card.find('.price-options-manifest .price').val(price)
+              $card.find(`.price-options-manifest .${optionName} .price`).val(price)
           }
         }
       }
@@ -724,7 +760,7 @@
       $card.find('.base-input').text(money(Number(data.base_price_eur || 0) * qty))
       $card.find('.surcharge').text(money(Number(data.surcharge_height_eur || 0) * qty))
       $card.find('.surcharge-input').text(money(Number(data.surcharge_height_eur || 0) * qty))
-      $card.find('.gb_width_mm').text((Number(data.gb_width_mm || 0)))
+      $card.find('.gb_width_mm').val((Number(data.gb_width_mm || 0)))
     
       priceOptions.forEach((nameOption, i) => {
           renderOnePriceOption($card, data, nameOption, i, preSelectsPriceOptions);

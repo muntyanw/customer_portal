@@ -45,17 +45,17 @@ sheetConfigs: dict[sheetName, sheetConfig] = {
     sheetName.zakrytaPloskaBesta: sheetConfig(gbDiffWidthMm=None),
     sheetName.zakrytaPloskaBestaDn: sheetConfig(gbDiffWidthMm=None),
 
-    sheetName.zakrytaPpodibBesta: sheetConfig(gbDiffWidthMm=None),
-    sheetName.zakrytaPpodibnaBestaDn: sheetConfig(gbDiffWidthMm=None),
+    sheetName.zakrytaPpodibBesta: sheetConfig(gbDiffWidthMm=20),
+    sheetName.zakrytaPpodibnaBestaDn: sheetConfig(gbDiffWidthMm=20),
 
-    sheetName.vidkr25yiBesta: sheetConfig(gbDiffWidthMm=None),
-    sheetName.vidkr25yiDn: sheetConfig(gbDiffWidthMm=None),
+    sheetName.vidkr25yiBesta: sheetConfig(gbDiffWidthMm=35),
+    sheetName.vidkr25yiDn: sheetConfig(gbDiffWidthMm=30),
 
-    sheetName.vidkrPruzhynna: sheetConfig(gbDiffWidthMm=None),
-    sheetName.zakrPruzhPpodibBesta: sheetConfig(gbDiffWidthMm=None),
+    sheetName.vidkrPruzhynna: sheetConfig(gbDiffWidthMm=35),
+    sheetName.zakrPruzhPpodibBesta: sheetConfig(gbDiffWidthMm=20),
 
-    sheetName.vidkr32yiLouvolitte: sheetConfig(gbDiffWidthMm=None),
-    sheetName.vidkr47yiDvyhunAboLouvolit: sheetConfig(gbDiffWidthMm=None),
+    sheetName.vidkr32yiLouvolitte: sheetConfig(gbDiffWidthMm=35),
+    sheetName.vidkr47yiDvyhunAboLouvolit: sheetConfig(gbDiffWidthMm=50),
 
     sheetName.komplektatsiya: sheetConfig(gbDiffWidthMm=None),
 }
