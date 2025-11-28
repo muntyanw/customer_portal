@@ -559,7 +559,43 @@ def parse_sheet_price_section(
             ws, header_row - 1, col_letter_to_index("D")
         )
         result["bottom_wide_bar_price_eur_mp"] = get_money_value(
+            ws, header_row - 3, col_letter_to_index("N")
+        )
+        
+    if sheet_name == sheetName.vidkr47yiDvyhunAboLouvolit:
+        result["comment_system_red"] = get_str_values(
+            ws, header_row - 8, header_row - 8, 1, 1
+        )
+        result["comment_system_green"] = get_str_values(
+            ws, header_row - 7, header_row - 5, 1, 1
+        )
+
+        result["cord_pvc_tension_price_eur"] = get_money_value(
+            ws, header_row - 3, col_letter_to_index("D")
+        )
+        result["cord_copper_barrel_price_eur"] = get_money_value(
+            ws, header_row - 2, col_letter_to_index("D")
+        )
+        result["magnets_price_eur"] = get_money_value(
+            ws, header_row - 1, col_letter_to_index("D")
+        )
+        result["motor_no_remote_price_eur"] = get_money_value(
+            ws, header_row - 3, col_letter_to_index("N")
+        )
+        result["motor_with_remote_price_eur"] = get_money_value(
+            ws, header_row - 2, col_letter_to_index("N")
+        )
+        result["bottom_wide_bar_price_eur_mp"] = get_money_value(
             ws, header_row - 1, col_letter_to_index("N")
+        )
+        result["remote_5ch_price_eur"] = get_money_value(
+            ws, header_row - 3, col_letter_to_index("X")
+        )
+        result["remote_15ch_price_eur"] = get_money_value(
+            ws, header_row - 2, col_letter_to_index("X")
+        )
+        result["middle_bracket_price_eur"] = get_money_value(
+            ws, header_row - 1, col_letter_to_index("X")
         )
         
        

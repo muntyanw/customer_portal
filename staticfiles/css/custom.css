@@ -84,13 +84,58 @@ body {
   margin: 0 40px 0 0;      
 }
 
-.comment-proportions {
+.comment_system_red {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #f5b0a4;   
+  border: 1px solid #f5b0a4;
+  font-weight: 600;
+  margin: 0 40px 20px 0;      
+}
+
+.comment_system_green {
   display: inline-block;
   padding: 2px 6px;
   border-radius: 4px;
   background: #bff5af;   
   border: 1px solid #bff5af;
   font-weight: 600;
-  margin: 0 40px 0 0;      
+  margin: 0 40px 20px 0;      
 }
+
+/* UA: Стиль картки опції / EN: Single option card styling */
+.price-option-card {
+  transition: box-shadow 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+  cursor: pointer;
+  padding: 8px 12px;
+}
+
+.price-option-card:hover {
+  box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+  border-color: var(--bs-primary);
+}
+
+.price-option-card .option-title {
+  font-size: 0.95rem;
+}
+
+.price-option-card .price-chip {
+  font-size: 0.85rem;
+}
+
+/* UA: Щоб кліки по картці не ламали чекбокс / EN: Don't break checkbox behaviour */
+.price-option-card input.price-option {
+  cursor: pointer;
+}
+
+/* UA: Кількість / EN: Qty styling */
+.qty-controls .qty-value {
+  min-width: 2.2rem;
+  text-align: center;
+  font-weight: 600;
+}
+
+
 

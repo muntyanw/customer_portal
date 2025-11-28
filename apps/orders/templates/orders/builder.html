@@ -130,13 +130,13 @@
       $card.find('.h-mm, .w-mm').on('input', function () {
         clearTimeout(debounceTimer)
         debounceTimer = setTimeout(() => {
-          if ($w_mm.val() && $h_mm.val()) {
+          if (Number($w_mm.val()) > 0 && Number($h_mm.val()) > 0) {
             previewCard($card)
           }
         }, 600)
       })
       $card.find('.gabarit-width-flag').on('change', function () {
-        if ($w_mm.val() && $h_mm.val()) {
+        if (Number($w_mm.val()) > 0 && Number($h_mm.val()) > 0) {
           previewCard($card)
         }
       })
@@ -230,7 +230,7 @@
         setEventsFromGabarits($card)
 
         if (!changingProgrammatically) {
-          if ($w_mm.val() && $h_mm.val()) {
+          if (Number($w_mm.val()) > 0 && Number($h_mm.val()) > 0) {
             previewCard($card)
           }
         }
@@ -448,7 +448,7 @@
       try {
         const data = await previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabaritWidth })
         pricesCache[$card.find('.pos-index')] = data
-        renderPriceOptions($card, preSelectsPriceOptions)
+        renderPriceOptions($card, 0,preSelectsPriceOptions)
       } catch (err) {
         $card.find('.h-mm').val(0)
         $card.find('.w-mm').val(0)
@@ -516,9 +516,11 @@
       setEventsFromGabarits($card)
       let preSelectsPriceOptions = {}
       priceOptions.forEach((optionName, index) => {
+          let price = item[optionName]
           let qty = item[optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")]
           if(qty){
-            preSelectsPriceOptions[optionName] = qty
+            preSelectsPriceOptions[optionName] = price
+            preSelectsPriceOptions[optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")] = qty
           }
       });
 
@@ -567,14 +569,6 @@
             if (prevVals.qty) $card.find('.qty').val(prevVals.qty)
     
             $card.find('.gabarit-width-flag .form-check-input').prop('checked', !prevVals.gw)
-            
-            {% comment %} let preSelectsPriceOptions = {}
-            for (let optionName in prevVals.qtyPriceOptions) {
-                let qty = prevVals.qtyPriceOptions[optionName];
-                if(qty){
-                  reSelectsPriceOptions[optionName] = qty
-                }
-            } {% endcomment %}
 
             await previewCard($card, prevVals.qtyPriceOptions)
 
@@ -593,7 +587,7 @@
     $container.on('change keyup', '.qty', function () {
       const v = parseInt(this.value || '1', 10)
       if (isNaN(v) || v < 1) this.value = 1
-      renderPriceOptions($(this).closest('.item-card'))
+      renderPriceOptions($(this).closest('.item-card'), v)
     })
 
     let priceOptions = [
@@ -605,7 +599,13 @@
       "bottom_wide_bar_price_eur_mp",     
       "top_bar_scotch_price_eur",     
       "metal_kronsht_price_eur",
-      "metal_cord_fix_price_eur"     
+      "metal_cord_fix_price_eur",
+      "motor_no_remote_price_eur",
+      "motor_with_remote_price_eur",
+      "bottom_wide_bar_price_eur_mp",
+      "middle_bracket_price_eur",
+      "remote_5ch_price_eur",
+      "remote_15ch_price_eur"
 
     ]
 
@@ -618,7 +618,13 @@
       "Доплата за широку нижню планку 10/28, за м.п.",     
       "Скотч на верхню планку для встановлення без свердління, за м.п.",     
       "Доплата за металеві кронштейни, шт",
-      "Фіксація лески металева"
+      "Фіксація лески металева",
+      "Доплата за електродвигун без пульта (під вимикач, вимикач в вартість не входить), шт",
+      "Доплата за електродвигун з одноканальним пультом ДУ (входить до вартості), шт",
+      "Доплата за широку нижню планку 10/28, за м.п.",
+      "Доплата за проміжковий кронштейн, шт",
+      "Доплата за 5-ти канальний пульт ДУ, шт",
+      "Доплата за 15-ти канальний пульт ДУ, шт								"
     ]
     
     function recalcPrice() {
@@ -634,11 +640,13 @@
           const optionQtyName = nameOption.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
           const optionQty = Number($card.find('[name="' + optionQtyName + '"]').val())
           if(optionQty>0){
-            //if(!nameOption.includes("_mp")){
-                sum += Number($card.find(`.price-options-manifest .${nameOption} .price`).val()) || 0
-            //}else{
-                //sum += Number($card.find('.price-options-manifest .${nameOption} .price').val()  * (gb_width_mm/1000))
-            //}
+            const $priceMan = $card.find(`.price-options-manifest .${nameOption} .price`);
+            const $qtyMan = $card.find(`.price-options-manifest .${nameOption} .man-qty`);
+            const $priceOneMan = $card.find(`.price-options-manifest .${nameOption} .man-price-one`);
+
+            $priceMan.text(money(Number($priceOneMan.text()) * Number($qtyMan.text())))
+
+            sum += Number($priceMan.text()) || 0
           }
         })
         
@@ -657,42 +665,49 @@
         const $hiddenQty = $block.find('.qty-hidden');    // скрытый input
         const $priceEl = $block.find(`.${optionName} .price`);          // span с ценой
         const $priceMan = $card.find(`.price-options-manifest .${optionName} .price`);          // span с ценой
+        const $qtyMan = $card.find(`.price-options-manifest .${optionName} .man-qty`);          // span с ценой
+        const $priceOneMan = $card.find(`.price-options-manifest .${optionName} .man-price-one`);          // span с ценой
+        const commonQty = $card.find(`.qty`).val() 
 
         if (el.checked) {
-            const price = money(Number(optionVal));
-            $hidden.val(price);
-            $hiddenQty.val(1);
-            $priceEl.text(price);
+            const price = money(Number(optionVal) * Number(commonQty))
+            $hidden.val(price)
+            $hiddenQty.val(Number(commonQty))
+            $priceEl.text(Number(optionVal))
             const gb_width_mm = Number($card.find('.gb_width_mm').val()) || 0
             if(optionName.includes("_mp")){
                 $priceMan.text(money(Number(price * (gb_width_mm/1000))))
+                $priceOneMan.text(money(Number(optionVal) * (gb_width_mm/1000)))
+                $qtyMan.text(money(Number(commonQty)))
             }else{
                 $priceMan.text(price)
+                $priceOneMan.text(Number(optionVal))
+                $qtyMan.text(Number(commonQty))
             }
             
         } else {
-            $hidden.val(0);
-            $hiddenQty.val(0);
-            $priceEl.text(0);
-            $priceMan.text(0);
+            $hidden.val(0)
+            $hiddenQty.val(0)
+            $priceEl.text(0)
+            $priceMan.text(0)
+            $qtyMan.text(0)
         }
 
         recalcPrice()
     }
 
-
-    function renderOnePriceOption($card, data, optionName,  i, preSelectsPriceOptions = {}){
+    function renderOnePriceOption($card, data, optionName,  i, commonQty, preSelectsPriceOptions = {}){
 
       const optionQtyName = optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
-      const optionPrice = data[optionName]
-      let optionQty = data[optionQtyName]
+      const optionPrice = preSelectsPriceOptions[optionName] ||data[optionName]
+      let optionQty = commonQty || Number(preSelectsPriceOptions[optionQtyName] || 0)
       const gb_width_mm = Number($card.find('.gb_width_mm').val()) || 0
       if (optionPrice) {
 
         let check = ""
         let price = 0
 
-        if (optionQty || preSelectsPriceOptions[optionName]) {
+        if (optionQty) {
           check = 'checked'
           
           if(optionName.includes("_mp")){
@@ -700,37 +715,63 @@
           }else{
               price = money(Number(optionPrice))
           }
-          optionQty = 1
+          if (!optionQty) optionQty = 1
         }
 
         if ($card.find('.' + optionName).length === 0) {
             $card.find('.op-card-list').append(
-                `<div class="form-check op-card ${optionName}">` 
-                + `<input class="form-check-input price-option" type="checkbox" onchange="checkPriceOption(this, '${optionName}', ${money(Number(optionPrice))})" ${check} />`
-                + `<label class="form-check-label">` 
-                + priceOptionTexts[i] 
-                + ` (<span class="price">${money(Number(optionPrice))}</span> грн)` 
-                + `</label><input class="price-hidden" type="hidden" name="${optionName}" value="${price}" />`
-                + `</label><input class="qty-hidden" type="hidden" name="${optionQtyName}" value="${optionQty}" />`
-                + `</div>`
+              `<div class="op-card ${optionName} price-option-card border rounded-3 mb-2 bg-light-subtle">`
+            +   `<div class="d-flex align-items-center justify-content-between gap-2">`
+            +     `<div class="d-flex align-items-center gap-2">`
+            +       `<input class="form-check-input price-option mt-0" type="checkbox"`
+            +         ` onchange="checkPriceOption(this, '${optionName}', '${money(Number(optionPrice))}')" ${check} />`
+            +       `<div class="d-flex flex-column">`
+            +         `<span class="fw-semibold option-title">${priceOptionTexts[i]}</span>`
+            +       `</div>`
+            +     `</div>`
+            +     `<div class="text-end">`
+            +       `<span class="price-chip badge rounded-pill text-bg-primary">`
+            +         `<span class="price">${money(Number(optionPrice))}</span> грн`
+            +       `</span>`
+            +     `</div>`
+            +   `</div>`
+
+            +   `<div class="d-flex align-items-center justify-content-between mt-2">`
+            +     `<div class="qty-controls btn-group btn-group-sm" role="group" aria-label="Кількість">`
+            +       `<button type="button" class="btn btn-outline-secondary qty-minus">`
+            +         `<i class="bi bi-dash"></i>`
+            +       `</button>`
+            +       `<span class="qty-value px-2">${optionQty}</span>`
+            +       `<button type="button" class="btn btn-outline-secondary qty-plus">`
+            +         `<i class="bi bi-plus"></i>`
+            +       `</button>`
+            +     `</div>`
+            +   `</div>`
+
+            +   `<input class="price-hidden" type="hidden" name="${optionName}" value="${price}" />`
+            +   `<input class="qty-hidden" type="hidden" name="${optionQtyName}" value="${optionQty}" />`
+            + `</div>`
+
             );
 
             $card.find('.price-options-manifest').append(
                   `<div class="kv ${optionName}">`
-                + `<span>${priceOptionTexts[i]}</span><span class="price">${price}</span>` 
+                + `<span style="width: 300px;">${priceOptionTexts[i]}</span><span class="man-price-one">${optionPrice}</span><span class="man-qty">${optionQty}</span><span class="price">${price}</span>` 
                 + `</div>`
             );
         }else{
-          if(optionQty || preSelectsPriceOptions[optionName]){
-              $card.find(`[name="${optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")}"]`).val(1)
+          if(optionQty){
+              $card.find(`[name="${optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")}"]`).val(optionQty)
               $card.find(`.${optionName} .form-check-input`).prop('checked', true)
-              $card.find(`.price-options-manifest .${optionName} .price`).val(price)
+              $card.find(`.price-options-manifest .${optionName} .man-price-one`).text(optionPrice)
+              $card.find(`.price-options-manifest .${optionName} .man-qty`).text(optionQty)
+              $card.find(`.price-options-manifest .${optionName} .price`).text(price)
           }
         }
       }
     }
     
-    function renderPriceOptions($card, preSelectsPriceOptions = {}) {
+    function renderPriceOptions($card,commonQty, preSelectsPriceOptions = {}) {
       let numberCard = $card.find('.pos-index')
       let data = pricesCache[numberCard]
       if(!data){
@@ -763,13 +804,12 @@
       $card.find('.gb_width_mm').val((Number(data.gb_width_mm || 0)))
     
       priceOptions.forEach((nameOption, i) => {
-          renderOnePriceOption($card, data, nameOption, i, preSelectsPriceOptions);
+          renderOnePriceOption($card, data, nameOption, i, commonQty, preSelectsPriceOptions);
       });
 
       recalcPrice()
     }
-       
-    
+           
     $container.on('change', '.table-section', async function () {
       const $card = $(this).closest('.item-card')
       const system = $card.find('.system-sheet').val()
