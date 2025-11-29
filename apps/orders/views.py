@@ -153,6 +153,16 @@ def order_builder(request, pk=None):
         top_bar_scotch_qty = request.POST.getlist("top_bar_scotch_qty")
         metal_cord_fix_price_eur = request.POST.getlist("metal_cord_fix_price_eur")
         metal_cord_fix_qty = request.POST.getlist("metal_cord_fix_qty")
+        middle_bracket_price_eur = request.POST.getlist("middle_bracket_price_eur")
+        middle_bracket_qty = request.POST.getlist("middle_bracket_qty")
+        remote_15ch_price_eur = request.POST.getlist("remote_15ch_price_eur")
+        remote_15ch_qty = request.POST.getlist("remote_15ch_qty")
+        remote_5ch_price_eur = request.POST.getlist("remote_5ch_price_eur")
+        remote_5ch_qty = request.POST.getlist("remote_5ch_qty")
+        motor_with_remote_price_eur = request.POST.getlist("motor_with_remote_price_eur")
+        motor_with_remote_qty = request.POST.getlist("motor_with_remote_qty")
+        motor_no_remote_price_eur = request.POST.getlist("motor_no_remote_price_eur")
+        motor_no_remote_qty = request.POST.getlist("motor_no_remote_qty")
         
         subtotals = request.POST.getlist("subtotal_eur")
 
@@ -195,6 +205,18 @@ def order_builder(request, pk=None):
                 top_bar_scotch_qty=_to_decimal(_get(top_bar_scotch_qty, idx)),
                 metal_cord_fix_price_eur=_to_decimal(_get(metal_cord_fix_price_eur, idx)),
                 metal_cord_fix_qty=_to_decimal(_get(metal_cord_fix_qty, idx)),
+                
+                middle_bracket_price_eur = _to_decimal(_get(middle_bracket_price_eur, idx)),
+                middle_bracket_qty = _to_decimal(_get(middle_bracket_qty, idx)),
+                remote_15ch_price_eur = _to_decimal(_get(remote_15ch_price_eur, idx)),
+                remote_15ch_qty = _to_decimal(_get(remote_15ch_qty, idx)),
+                remote_5ch_price_eur = _to_decimal(_get(remote_5ch_price_eur, idx)),
+                remote_5ch_qty = _to_decimal(_get(remote_5ch_qty, idx)),
+                motor_with_remote_price_eur = _to_decimal(_get(motor_with_remote_price_eur, idx)),
+                motor_with_remote_qty = _to_decimal(_get(motor_with_remote_qty, idx)),
+                motor_no_remote_price_eur = _to_decimal(_get(motor_no_remote_price_eur, idx)),
+                motor_no_remote_qty = _to_decimal(_get(motor_no_remote_qty, idx)),
+        
                 subtotal_eur=_to_decimal(_get(subtotals, idx)),
                 roll_height_info=_get(roll_infos, idx, ""),
                 quantity=int(_get(qty_list, idx, "1")),
@@ -244,6 +266,17 @@ def order_builder(request, pk=None):
                 "top_bar_scotch_qty": float(it.top_bar_scotch_qty),
                 "metal_cord_fix_price_eur": float(it.metal_cord_fix_price_eur),
                 "metal_cord_fix_qty": float(it.metal_cord_fix_qty),
+                
+                "middle_bracket_price_eur": float(it.middle_bracket_price_eur),
+                "middle_bracket_qty": float(it.middle_bracket_qty),
+                "remote_15ch_price_eur": float(it.remote_15ch_price_eur),
+                "remote_15ch_qty": float(it.remote_15ch_qty),
+                "remote_5ch_price_eur": float(it.remote_5ch_price_eur),
+                "remote_5ch_qty": float(it.remote_5ch_qty),
+                "motor_with_remote_price_eur": float(it.motor_with_remote_price_eur),
+                "motor_with_remote_qty": float(it.motor_with_remote_qty),
+                "motor_no_remote_price_eur": float(it.motor_no_remote_price_eur),
+                "motor_no_remote_qty": float(it.motor_no_remote_qty),
                 
                 "subtotal_eur": float(it.subtotal_eur),
                 "quantity": it.quantity,
