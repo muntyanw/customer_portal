@@ -584,7 +584,7 @@
       recalcPrice()
     })
     
-    $container.on('change keyup', '.qty', function () {
+    $container.on('change', '.qty', function () {
       const v = parseInt(this.value || '1', 10)
       if (isNaN(v) || v < 1) this.value = 1
       renderPriceOptions($(this).closest('.item-card'), v)
@@ -796,7 +796,13 @@
       const optionName = option.key
       const optionQtyName = optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
       const optionPrice = preSelectsPriceOptions[optionName] ||data[optionName]
-      let optionQty = Number(preSelectsPriceOptions[optionQtyName] || 0)
+      let optionQty = Number(preSelectsPriceOptions[optionQtyName])
+      if(optionQty == 0 || Number.isNaN(optionQty)){
+        optionQty = Number($card.find(`[name="${optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")}"]`).val())
+      }
+      if(Number.isNaN(optionQty)){
+        optionQty = 0
+      }
       const gb_width_mm = Number($card.find('.gb_width_mm').val()) || 0
       if (optionPrice) {
 
