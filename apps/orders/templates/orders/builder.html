@@ -796,14 +796,16 @@
       const optionName = option.key
       const optionQtyName = optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
       const optionPrice = preSelectsPriceOptions[optionName] ||data[optionName]
-      let optionQty = commonQty || Number(preSelectsPriceOptions[optionQtyName] || 0)
+      let optionQty = Number(preSelectsPriceOptions[optionQtyName] || 0)
       const gb_width_mm = Number($card.find('.gb_width_mm').val()) || 0
       if (optionPrice) {
 
         let check = ""
         let price = 0
-
-        if (optionQty) {
+        let dis = "diabled"
+        if (optionQty > 0) {
+          dis = ""
+          if(commonQty > 0) optionQty = commonQty
           check = 'checked'
           
           if(optionName.includes("_mp")){
@@ -811,10 +813,9 @@
           }else{
               price = money(Number(optionPrice))
           }
-          if (!optionQty) optionQty = 1
         }
 
-        if ($card.find('.op-card .' + optionName).length === 0) {
+        if ($card.find('.' + optionName).length === 0) {
 
             let htmlPriceOption = 
               `<div class="op-card ${optionName} price-option-card border rounded-3 mb-2 bg-light-subtle">`
@@ -837,11 +838,11 @@
                 htmlPriceOption +=
                     `<div class="d-flex align-items-center justify-content-between mt-2">`
                 +     `<div class="qty-controls btn-group btn-group-sm" role="group" aria-label="Кількість">`
-                +       `<button type="button" class="btn btn-outline-secondary qty-button qty-minus" onclick="javascript:changeQty(this, '${optionName}', ${optionPrice},${price}, -1)" disabled>`
+                +       `<button type="button" class="btn btn-outline-secondary qty-button qty-minus" onclick="javascript:changeQty(this, '${optionName}', ${optionPrice},${price}, -1)" ${dis}>`
                 +         `<i class="bi bi-dash"></i>`
                 +       `</button>`
                 +       `<span class="option-qty-value px-2">${optionQty}</span>`
-                +       `<button type="button" class="btn btn-outline-secondary qty-button qty-plus" onclick="javascript:changeQty(this, '${optionName}', ${optionPrice},${price}, 1)" disabled>`
+                +       `<button type="button" class="btn btn-outline-secondary qty-button qty-plus" onclick="javascript:changeQty(this, '${optionName}', ${optionPrice},${price}, 1)" ${dis}>`
                 +         `<i class="bi bi-plus"></i>`
                 +       `</button>`
                 +     `</div>`
