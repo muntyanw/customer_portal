@@ -796,8 +796,10 @@
       const optionName = option.key
       const optionQtyName = optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
       const optionPrice = preSelectsPriceOptions[optionName] ||data[optionName]
-      let optionQty = Number(preSelectsPriceOptions[optionQtyName])
-      if(optionQty == 0 || Number.isNaN(optionQty)){
+      let optionQty = 0
+      if(preSelectsPriceOptions[optionQtyName]){
+        optionQty = Number(preSelectsPriceOptions[optionQtyName])
+      }else{
         optionQty = Number($card.find(`[name="${optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")}"]`).val())
       }
       if(Number.isNaN(optionQty)){

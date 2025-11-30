@@ -1,6 +1,7 @@
 #apps/orders/models.py
 from django.db import models
 from django.conf import settings
+from django.core.validators import MinValueValidator
 
 class Order(models.Model):
     NEW = "new"
@@ -376,4 +377,62 @@ class OrderItem(models.Model):
     def total_eur(self):
         """Total price including quantity of main item (accessories can be включені у subtotal_eur логікою калькулятора)."""
         return float(self.subtotal_eur or 0) * self.quantity
+ 
+
+class OrderComponentItem(models.Model):
+    """
+    EN: Single accessory/component line for a given order.
+    UA: Окрема позиція комплектуючої для конкретного замовлення.
+    """
+
+    order = models.ForeignKey(
+        "orders.Order",
+        on_delete=models.CASCADE,
+        related_name="component_items",
+        verbose_name="Order",
+    )
+
+    name = models.CharField(
+        max_length=255,
+        verbose_name="Найменування",
+        help_text="Назва комплектуючої (з аркуша 'Комплектація')",
+    )
+
+    unit = models.CharField(
+        max_length=32,
+        verbose_name="Од. вим.",
+        help_text="Одиниця виміру (шт, м.п., компл. тощо)",
+    )
+
+    color = models.CharField(
+        max_length=64,
+        verbose_name="Колір",
+        blank=True,
+        help_text="Колір комплектуючої (Білий, Графіт, Відсутній тощо)",
+    )
+
+    # 🔹 Кількість
+    quantity = models.DecimalField(
+        max_digits=9,
+        decimal_places=3,
+        default=1,
+        validators=[MinValueValidator(0)],
+        verbose_name="Кількість",
+        help_text="Кількість у вказаних одиницях виміру (шт, м.п. тощо)",
+    )
+
+    # Вартість, Євро за 1 од.
+    price_eur = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        verbose_name="Вартість, Євро",
+        help_text="Ціна за одиницю в євро (як у прайсі)",
+    )
+
+    class Meta:
+        verbose_name = "Комплектуюча в замовленні"
+        verbose_name_plural = "Комплектуючі в замовленні"
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.color}) – {self.price_eur} € x {self.quantity}"
 

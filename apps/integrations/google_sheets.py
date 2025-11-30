@@ -5,7 +5,8 @@
 from __future__ import annotations
 
 import re
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
+
 
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -677,3 +678,149 @@ def price_preview_section(
         "surcharge_height_eur": str(surcharge),
         "magnets_price_eur": str(round_money(magnets_price)),
     }
+    
+
+# ========= COMPONENTS SHEET (Комплектація) =========
+
+
+def parse_components_sheet(
+    google_sheet_url: str,
+    sheet_name: str = "Комплектація",
+    *,
+    force_refresh: bool = False,
+) -> Dict[str, Any]:
+    """
+    EN: Parse simple components list from 'Комплектація' sheet.
+    UA: Парсить простий список комплектуючих з аркуша 'Комплектація'.
+
+    Очікувана структура аркуша:
+        Найменування | Од. вим. | Колір | Вартість, Євро
+        <name>       | <unit>   | <color> | <price>
+
+    Повертає:
+        {
+          "sheet_name": "Комплектація",
+          "items": [
+             {
+               "name": "...",
+               "unit": "шт",
+               "color": "Білий",
+               "price_eur": "2.199",
+             },
+             ...
+          ],
+          "names": [... унікальні найменування ...],
+          "units": [... унікальні одиниці виміру ...],
+          "colors": [... унікальні кольори ...],
+        }
+    """
+    wb = _download_workbook(google_sheet_url, force_refresh=force_refresh)
+    if sheet_name not in wb.sheetnames:
+        raise ValueError(f"Sheet '{sheet_name}' not found in workbook")
+
+    ws = wb[sheet_name]
+
+    # 1) Знаходимо рядок заголовків
+    header_row = None
+    for r in range(1, ws.max_row + 1):
+        vals = _row_values(ws, r)
+        joined = " ".join([str(v) for v in vals if v]).strip().lower()
+        if not joined:
+            continue
+
+        # шукаємо одночасно "найменування" і "вартість"
+        if "найменування" in joined and "варт" in joined:
+            header_row = r
+            break
+
+    if header_row is None:
+        raise RuntimeError(
+            f"Header row not found on sheet '{sheet_name}' (expect 'Найменування' / 'Вартість')"
+        )
+
+    header_vals = _row_values(ws, header_row)
+
+    def _find_col(header_candidates) -> Optional[int]:
+        """
+        EN: Find column index by header text candidates.
+        UA: Знаходить індекс колонки за можливими варіантами заголовка.
+        """
+        for idx, val in enumerate(header_vals):
+            if not isinstance(val, str):
+                continue
+            norm = val.strip().lower()
+            for cand in header_candidates:
+                if cand in norm:
+                    return idx
+        return None
+
+    # очікувані колонки
+    name_idx = _find_col(["найменування"])
+    unit_idx = _find_col(["од.", "од. вим", "од.вим"])
+    color_idx = _find_col(["колір"])
+    price_idx = _find_col(["вартість", "варт.", "ціна"])
+
+    # як fallback — стандартний порядок колонок: 0,1,2,3
+    if name_idx is None:
+        name_idx = 0
+    if unit_idx is None:
+        unit_idx = 1
+    if color_idx is None:
+        color_idx = 2
+    if price_idx is None:
+        price_idx = 3
+
+    items: List[Dict[str, Any]] = []
+    names_set = set()
+    units_set = set()
+    colors_set = set()
+
+    # 2) Читаємо всі рядки після заголовка
+    for r in range(header_row + 1, ws.max_row + 1):
+        vals = _row_values(ws, r)
+        if not any(vals):
+            # порожній рядок вважаємо кінцем таблиці
+            continue
+
+        name = (vals[name_idx] or "").strip() if len(vals) > name_idx else ""
+        if not name:
+            # пропускаємо рядки без найменування
+            continue
+
+        unit = (vals[unit_idx] or "").strip() if len(vals) > unit_idx else ""
+        color = (vals[color_idx] or "").strip() if len(vals) > color_idx else ""
+
+        raw_price = vals[price_idx] if len(vals) > price_idx else None
+        price_dec = _to_decimal(raw_price)
+
+        if price_dec is None:
+            # якщо немає ціни — такий рядок не віддаємо на фронт
+            logger.warning(
+                "parse_components_sheet: empty/invalid price on row %s (name=%r)",
+                r,
+                name,
+            )
+            continue
+
+        item = {
+            "name": name,
+            "unit": unit,
+            "color": color,
+            "price_eur": str(price_dec),
+        }
+        items.append(item)
+
+        names_set.add(name)
+        if unit:
+            units_set.add(unit)
+        if color:
+            colors_set.add(color)
+
+    result: Dict[str, Any] = {
+        "sheet_name": sheet_name,
+        "items": items,
+        "names": sorted(names_set),
+        "units": sorted(units_set),
+        "colors": sorted(colors_set),
+    }
+    return result

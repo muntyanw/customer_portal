@@ -6,14 +6,16 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from apps.integrations.google_colors import get_fabric_color_codes
+from apps.sheet_config import sheetName, sheetConfigs, sheetConfig
 
 from apps.integrations.google_sheets import (
     parse_sheet_price_section,
+    parse_components_sheet,
 )
+
 
 from apps.integrations.google_sheets_core import (
     list_sheet_titles,
-    _download_workbook,
 )
 
 import logging
@@ -53,7 +55,14 @@ def systems_list(request):
     force = _flag(request.query_params.get("force_refresh"))
     try:
         titles = list_sheet_titles(url, force_refresh=force)
-        return Response({"systems": titles})
+        
+        filtered_titles = [
+            t for t in titles
+            if sheetConfigs.get(sheetName(t), sheetConfig()).display != 0
+        ]
+
+        
+        return Response({"systems": filtered_titles})
     except Exception as e:
         logger.error("systems_list failed: %s", e, exc_info=True)
         return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -202,3 +211,33 @@ def system_config(request):
 
     cfg = get_system_cfg(system)
     return Response({"system": system, "config": cfg})
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def components_list(request):
+    """
+    GET /api/v1/pricing/components-list?url=...&sheet=Комплектація&force_refresh=1
+
+    EN: Return list of components from 'Комплектація' sheet
+        + distinct names/units/colors for selects.
+    UA: Повертає список комплектуючих з аркуша 'Комплектація'
+        + унікальні назви/одиниці/кольори для селектів.
+    """
+    url = request.query_params.get("url")
+    if not url:
+        return Response({"detail": "Missing url"}, status=status.HTTP_400_BAD_REQUEST)
+
+    sheet = (request.query_params.get("sheet") or "Комплектація").strip()
+    force = _flag(request.query_params.get("force_refresh"))
+
+    try:
+        parsed = parse_components_sheet(
+            google_sheet_url=url,
+            sheet_name=sheet,
+            force_refresh=force,
+        )
+        return Response(parsed, status=status.HTTP_200_OK)
+    except Exception as e:
+        logger.error("components_list failed: %s", e, exc_info=True)
+        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)

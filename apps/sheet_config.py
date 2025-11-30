@@ -30,6 +30,7 @@ class sheetName(str, Enum):
 @dataclass
 class sheetConfig:
     gbDiffWidthMm: Optional[int] = None
+    display: Optional[int] = 1
 
 
 # ---------------------------------------------
@@ -57,7 +58,7 @@ sheetConfigs: dict[sheetName, sheetConfig] = {
     sheetName.vidkr32yiLouvolitte: sheetConfig(gbDiffWidthMm=35),
     sheetName.vidkr47yiDvyhunAboLouvolit: sheetConfig(gbDiffWidthMm=50),
 
-    sheetName.komplektatsiya: sheetConfig(gbDiffWidthMm=None),
+    sheetName.komplektatsiya: sheetConfig(gbDiffWidthMm=None, display = 0),
 }
 
 

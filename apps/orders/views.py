@@ -9,6 +9,11 @@ from apps.accounts.roles import is_manager
 import json
 from decimal import Decimal, InvalidOperation
 from django.http import HttpResponseForbidden
+from django.conf import settings
+
+from .models import Order, OrderComponentItem
+from .utils_components import parse_components_from_post
+from django.urls import reverse
 
 class OrderForm(forms.ModelForm):
     class Meta:
@@ -34,14 +39,39 @@ def _to_decimal(value, default="0"):
 @login_required
 def order_list(request):
     """
-    Customer бачить тільки свої замовлення.
-    Manager бачить усі.
+    EN: List of orders with roller items.
+    UA: Список замовлень з тканинними ролетами.
     """
-    if is_manager(request.user):
-        qs = Order.objects.all().order_by("-created_at")
-    else:
-        qs = Order.objects.filter(customer=request.user).order_by("-created_at")
-    return render(request, "orders/list.html", {"orders": qs})
+    qs = (
+        Order.objects
+        .filter(items__isnull=False)   # related_name для позиций ролет
+        .distinct()
+        .order_by("-created_at")
+    )
+    context = {
+        "orders": qs,
+        "list_mode": "rollers",  # флаг для шаблона
+    }
+    return render(request, "orders/order_list.html", context)
+
+
+@login_required
+def order_components_list(request):
+    """
+    EN: List of orders that have components.
+    UA: Список замовлень, у яких є комплектуючі.
+    """
+    qs = (
+        Order.objects
+        .filter(component_items__isnull=False)  # related_name для комплектующих
+        .distinct()
+        .order_by("-created_at")
+    )
+    context = {
+        "orders": qs,
+        "list_mode": "components",
+    }
+    return render(request, "orders/order_list.html", context)
 
 @login_required
 def order_create(request):
@@ -313,4 +343,78 @@ def order_delete(request, pk: int):
 
     # GET → страница подтверждения (если хочешь)
     return render(request, "orders/delete_confirm.html", {"order": order})
+
+
+
+@login_required
+def order_components_builder(request, pk):
+    """
+    EN: Builder for order components (sheet 'Комплектація').
+    UA: Білдер комплектуючих для замовлення (аркуш 'Комплектація').
+    """
+    order = get_object_or_404(Order, pk=pk)
+
+    # EN: URL to Google Sheets price (Комплектація)
+    # UA: URL до Google Sheets прайсу (Комплектація)
+    PRICE_SHEET_URL = getattr(settings, "COMPONENTS_PRICE_SHEET_URL", "")
+
+    if request.method == "POST":
+        components = parse_components_from_post(request.POST)
+
+        # EN: Replace all existing components with new list
+        # UA: Повністю замінюємо поточний список комплектуючих новим
+        OrderComponentItem.objects.filter(order=order).delete()
+
+        bulk = []
+        for row in components:
+            bulk.append(
+                OrderComponentItem(
+                    order=order,
+                    name=row["name"],
+                    color=row["color"],
+                    unit=row["unit"],
+                    price_eur=row["price_eur"],
+                    quantity=row["quantity"],
+                )
+            )
+
+        if bulk:
+            OrderComponentItem.objects.bulk_create(bulk)
+
+        messages.success(request, "Комплектуючі для замовлення збережено.")
+
+        # EN: Redirect back to builder or to order detail — adjust as needed
+        # UA: Редірект назад у білдер або на сторінку замовлення — за потреби зміни
+        return redirect(
+            reverse("orders:order_components_builder", kwargs={"pk": order.pk})
+        )
+
+    # ---------- GET: формируем components_json для фронта ----------
+
+    # EN: Load existing components for edit mode
+    # UA: Завантажуємо існуючі комплектуючі (режим редагування)
+    items = (
+      order.component_items.all()
+      .order_by("id")
+    )
+
+    components_payload = []
+    for item in items:
+        components_payload.append(
+            {
+                "name": item.name,
+                "color": item.color,
+                "unit": item.unit,
+                "price_eur": str(item.price_eur),
+                "quantity": str(item.quantity),
+            }
+        )
+
+    context = {
+        "order": order,
+        "PRICE_SHEET_URL": PRICE_SHEET_URL,
+        "components_json": json.dumps(components_payload, ensure_ascii=False),
+    }
+
+    return render(request, "orders/components_builder.html", context)
 

@@ -1,0 +1,512 @@
+{% extends 'core/dashboard_base.html' %}
+
+{% block dashboard_title %}
+  Нове замовлення
+{% endblock %}
+
+{% block dashboard_heading %}
+  Комплектуючі для замовлення №{{ order.id|default:'null' }}
+{% endblock %}
+
+{% block head_extra %}
+  {{ block.super }}
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+  <style>
+    .order-total-bar {
+      position: sticky;
+      bottom: 0;
+      z-index: 1030;
+      background: var(--bs-body-bg);
+      border-top: 1px solid var(--bs-border-color);
+    }
+    .component-card .price-box .kv {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      font-size: 0.9rem;
+      color: var(--bs-secondary-color);
+    }
+    .component-card .price-box .sum {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      font-weight: 600;
+      font-size: 1.05rem;
+    }
+  </style>
+{% endblock %}
+
+{% block dashboard_content %}
+  <form method="post" id="componentsOrderForm" novalidate>
+    {% csrf_token %}
+
+    <div class="mb-3">
+      <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
+        <div class="fw-semibold" style="display: none;">Джерело прайсу</div>
+        <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="small">Відкрити прайс (Комплектація)</a>
+      </div>
+      <input type="url"
+             class="form-control"
+             id="componentsPriceUrl"
+             name="price_url"
+             value="{{ PRICE_SHEET_URL }}"
+             required
+             style="display: none;" />
+    </div>
+
+    <!-- Контейнер для карток комплектуючих -->
+    <div id="componentsContainer" class="d-flex flex-column gap-3"></div>
+
+    <div class="d-grid mt-2">
+      <button type="button" class="btn btn-outline-primary" id="addComponentRow">
+        <i class="bi bi-plus-lg me-1"></i> Додати комплектуючу
+      </button>
+    </div>
+
+    <!-- Підсумок по замовленню -->
+    <div class="order-total-bar mt-3 p-3 rounded-3 shadow-sm">
+      <div class="d-flex justify-content-between align-items-center">
+        <div class="fw-semibold">Разом по комплектуючих, €</div>
+        <div id="componentsOrderTotal" class="fs-5 fw-bold">0.00</div>
+      </div>
+    </div>
+
+    <div class="d-grid mt-3">
+      <button type="submit" class="btn btn-success btn-lg">Зберегти замовлення</button>
+    </div>
+  </form>
+
+  {# Шаблон однієї картки комплектуючої #}
+  <template id="component-item-template">
+    <div class="component-card card shadow-sm" data-index>
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="fw-semibold">
+            Позиція <span class="pos-index">1</span>
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-danger remove-row">
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
+
+        <div class="row g-2 mb-2">
+          <div class="col-md-6">
+            <label class="form-label small mb-1">Найменування</label>
+            <select class="form-select form-select-sm component-name"
+                    data-field="name"
+                    required>
+              <option value="" selected disabled>— Оберіть найменування —</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small mb-1">Колір</label>
+            <select class="form-select form-select-sm component-color"
+                    data-field="color">
+              <option value="">— Будь-який колір —</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small mb-1">Од. вим.</label>
+            <input type="text"
+                   class="form-control form-control-sm component-unit"
+                   data-field="unit"
+                   readonly />
+          </div>
+        </div>
+
+        <div class="row g-2 align-items-end mb-2">
+          <div class="col-md-3">
+            <label class="form-label small mb-1">Ціна за одиницю, €</label>
+            <input type="text"
+                   class="form-control form-control-sm text-end component-price"
+                   data-field="price_eur"
+                   readonly />
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small mb-1">Кількість</label>
+            <input type="number"
+                   min="0"
+                   step="0.001"
+                   class="form-control form-control-sm text-end component-qty"
+                   data-field="quantity"
+                   value="1" />
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small mb-1">Сума по позиції, €</label>
+            <div class="form-control form-control-sm text-end bg-light component-subtotal">
+              0.00
+            </div>
+          </div>
+        </div>
+
+        <!-- Приховані інпути для сабміту (буде налаштовано в JS) -->
+        <div class="d-none hidden-fields">
+          <input type="hidden" data-field="name" />
+          <input type="hidden" data-field="color" />
+          <input type="hidden" data-field="unit" />
+          <input type="hidden" data-field="price_eur" />
+          <input type="hidden" data-field="quantity" />
+        </div>
+      </div>
+    </div>
+  </template>
+{% endblock %}
+
+{% block body_extra %}
+  {{ block.super }}
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
+  <script>
+    // EN: Global builder context from Django
+    // UA: Глобальний контекст білдера з Django
+    const builderOrderId = {{ order.id|default:"null" }};
+    const builderComponents = {{ components_json|safe|default:"[]" }};
+
+    const componentsPriceUrlInput = $('#componentsPriceUrl');
+    const $componentsContainer = $('#componentsContainer');
+
+    // EN: Data cache from /api/v1/pricing/components-list
+    // UA: Кеш даних з /api/v1/pricing/components-list
+    let componentsData = null;           // { items, names, units, colors }
+    let componentsItemsByName = new Map(); // name -> items[]
+
+    // ---------- Helpers ----------
+
+    function money(x) {
+      return (Math.round(parseFloat(x || 0) * 100) / 100).toFixed(2);
+    }
+
+    function getCsrf() {
+      const m = document.querySelector('meta[name="csrf-token"]');
+      if (m && m.content) return m.content;
+      const match = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/);
+      return match ? decodeURIComponent(match[1]) : '';
+    }
+
+    function componentItemTemplate(index) {
+      const tpl = document.getElementById('component-item-template');
+      const node = tpl.content.cloneNode(true);
+      const $node = $(node);
+
+      $node.find('.pos-index').text(index + 1);
+      $node.find('[data-index]').attr('data-index', index);
+
+      // UA: Прописуємо name для hidden-полів: components[IDX][field]
+      // EN: Set name attributes for hidden inputs: components[IDX][field]
+      $node.find('.hidden-fields [data-field]').each(function () {
+        const field = this.getAttribute('data-field');
+        this.name = `components[${index}][${field}]`;
+      });
+
+      return node;
+    }
+
+    // ---------- Select2 init ----------
+
+    function initSelectsForComponentCard($card) {
+      $card.find('.component-name').select2({
+        width: '100%',
+        dropdownParent: $card
+      });
+
+      $card.find('.component-color').select2({
+        width: '100%',
+        dropdownParent: $card,
+        allowClear: true,
+        placeholder: '— Будь-який колір —'
+      });
+    }
+
+    // ---------- Loading components from API ----------
+
+    async function loadComponentsList() {
+      if (componentsData) return componentsData;
+
+      const url = componentsPriceUrlInput.val();
+      if (!url) {
+        throw new Error('No price URL for components');
+      }
+
+      showGlobalLoader();
+      const resp = await fetch(
+        `/api/v1/pricing/components-list?url=${encodeURIComponent(url)}`
+      );
+      hideGlobalLoader();
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: 'Error' }));
+        throw new Error(err.detail || 'Не вдалося завантажити комплектуючі');
+      }
+
+      const data = await resp.json();
+      componentsData = data;
+
+      // build name -> items map
+      componentsItemsByName = new Map();
+      (data.items || []).forEach((item) => {
+        const name = item.name || '';
+        if (!componentsItemsByName.has(name)) {
+          componentsItemsByName.set(name, []);
+        }
+        componentsItemsByName.get(name).push(item);
+      });
+
+      return data;
+    }
+
+    // ---------- Fill selects for card ----------
+
+    async function fillNamesForComponentCard($card, preselectName) {
+      if (!componentsData) {
+        await loadComponentsList();
+      }
+      const $sel = $card.find('.component-name');
+      $sel.empty();
+      $sel.append('<option value="" selected disabled>— Оберіть найменування —</option>');
+      (componentsData.names || []).forEach((name) => {
+        $sel.append(new Option(name, name));
+      });
+
+      if (preselectName && (componentsData.names || []).includes(preselectName)) {
+        $sel.val(preselectName);
+      } else {
+        $sel.val(null);
+      }
+      $sel.trigger('change');
+    }
+
+    function fillColorsForComponentCard($card, name, preselectColor) {
+      const $sel = $card.find('.component-color');
+      $sel.empty();
+      $sel.append('<option value="">— Будь-який колір —</option>');
+
+      let colors = [];
+      if (name && componentsItemsByName.has(name)) {
+        const items = componentsItemsByName.get(name);
+        const set = new Set();
+        items.forEach((it) => {
+          if (it.color) set.add(it.color);
+        });
+        colors = Array.from(set).sort();
+      } else {
+        colors = componentsData ? (componentsData.colors || []) : [];
+      }
+
+      colors.forEach((color) => {
+        $sel.append(new Option(color, color));
+      });
+
+      if (preselectColor && colors.includes(preselectColor)) {
+        $sel.val(preselectColor);
+      } else {
+        $sel.val('');
+      }
+      $sel.trigger('change');
+    }
+
+    function autoFillUnitAndPrice($card) {
+      const name = $card.find('.component-name').val() || '';
+      const color = $card.find('.component-color').val() || '';
+
+      let unit = '';
+      let price = '';
+
+      if (componentsItemsByName.has(name)) {
+        const items = componentsItemsByName.get(name);
+        // EN: Try exact match by color first, then fallback to first
+        // UA: Спочатку пробуємо знайти за кольором, потім перший елемент
+        let candidate = items.find((it) => (it.color || '') === (color || ''));
+        if (!candidate) candidate = items[0];
+
+        if (candidate) {
+          unit = candidate.unit || '';
+          price = candidate.price_eur || '';
+        }
+      }
+
+      $card.find('.component-unit').val(unit);
+      $card.find('.component-price').val(price ? money(price) : '');
+
+      updateHiddenFieldsFromCard($card);
+      recalcComponentsPrice();
+    }
+
+    // ---------- Read / write card values ----------
+
+    function readComponentCardValues($card) {
+      return {
+        name: $card.find('.component-name').val() || '',
+        color: $card.find('.component-color').val() || '',
+        unit: $card.find('.component-unit').val() || '',
+        price_eur: $card.find('.component-price').val() || '',
+        quantity: $card.find('.component-qty').val() || '1'
+      };
+    }
+
+    function updateHiddenFieldsFromCard($card) {
+      const idx = $card.attr('data-index');
+      const values = readComponentCardValues($card);
+      const $hiddenContainer = $card.find('.hidden-fields');
+
+      $hiddenContainer.find('[data-field="name"]').val(values.name);
+      $hiddenContainer.find('[data-field="color"]').val(values.color);
+      $hiddenContainer.find('[data-field="unit"]').val(values.unit);
+      $hiddenContainer.find('[data-field="price_eur"]').val(values.price_eur);
+      $hiddenContainer.find('[data-field="quantity"]').val(values.quantity);
+    }
+
+    function recalcComponentsPrice() {
+      let sumTotal = 0;
+
+      $componentsContainer.find('.component-card').each(function () {
+        const $card = $(this);
+        const price = parseFloat($card.find('.component-price').val() || '0');
+        const qty = parseFloat($card.find('.component-qty').val() || '0');
+
+        const subtotal = price * qty;
+        $card.find('.component-subtotal').text(money(subtotal));
+        sumTotal += subtotal;
+
+        // keep hidden fields in sync
+        updateHiddenFieldsFromCard($card);
+      });
+
+      $('#componentsOrderTotal').text(money(sumTotal));
+    }
+
+    // ---------- Add / remove rows ----------
+
+    async function addComponentRowWithData(initial) {
+      const idx = $componentsContainer.children().length;
+      $componentsContainer.append(componentItemTemplate(idx));
+      const $card = $componentsContainer.find('.component-card').last();
+      $card.attr('data-index', idx);
+
+      initSelectsForComponentCard($card);
+
+      await loadComponentsList();
+      await fillNamesForComponentCard($card, initial?.name || null);
+      fillColorsForComponentCard($card, initial?.name || null, initial?.color || null);
+
+      if (initial?.unit) {
+        $card.find('.component-unit').val(initial.unit);
+      }
+      if (initial?.price_eur) {
+        $card.find('.component-price').val(money(initial.price_eur));
+      }
+      if (initial?.quantity) {
+        $card.find('.component-qty').val(initial.quantity);
+      }
+
+      // якщо нема явної ціни — спробуємо взяти з прайсу
+      if (!initial?.price_eur && initial?.name) {
+        autoFillUnitAndPrice($card);
+      } else {
+        updateHiddenFieldsFromCard($card);
+        recalcComponentsPrice();
+      }
+    }
+
+    $('#addComponentRow').on('click', async function () {
+      await addComponentRowWithData(null);
+    });
+
+    $componentsContainer.on('click', '.remove-row', function () {
+      $(this).closest('.component-card').remove();
+
+      // Перенумерация позиций
+      $componentsContainer.find('.component-card').each(function (i) {
+        const $card = $(this);
+        $card.attr('data-index', i);
+        $card.find('.pos-index').text(i + 1);
+        $card.find('.hidden-fields [data-field]').each(function () {
+          const field = this.getAttribute('data-field');
+          this.name = `components[${i}][${field}]`;
+        });
+      });
+
+      recalcComponentsPrice();
+    });
+
+    // ---------- Events ----------
+
+    $componentsContainer.on('change', '.component-name', function () {
+      const $card = $(this).closest('.component-card');
+      const name = $(this).val() || '';
+      fillColorsForComponentCard($card, name, null);
+      autoFillUnitAndPrice($card);
+    });
+
+    $componentsContainer.on('change', '.component-color', function () {
+      const $card = $(this).closest('.component-card');
+      autoFillUnitAndPrice($card);
+    });
+
+    $componentsContainer.on('input', '.component-qty', function () {
+      const v = parseFloat(this.value || '0');
+      if (isNaN(v) || v < 0) this.value = 0;
+      updateHiddenFieldsFromCard($(this).closest('.component-card'));
+      recalcComponentsPrice();
+    });
+
+    // ---------- Submit validation ----------
+
+    $('#componentsOrderForm').on('submit', function (e) {
+      let ok = true;
+
+      const $cards = $componentsContainer.find('.component-card');
+      if ($cards.length === 0) {
+        ok = false;
+      }
+
+      $cards.each(function () {
+        const $c = $(this);
+        const name = $c.find('.component-name').val();
+        const qty = parseFloat($c.find('.component-qty').val() || '0');
+
+        if (!name || qty <= 0) {
+          ok = false;
+          if (!name) {
+            $c.find('.component-name').addClass('is-invalid');
+          }
+          if (qty <= 0) {
+            $c.find('.component-qty').addClass('is-invalid');
+          }
+        } else {
+          $c.find('.component-name, .component-qty').removeClass('is-invalid');
+        }
+      });
+
+      if (!ok) {
+        e.preventDefault();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        window.showToast('Заповніть найменування та кількість для кожної комплектуючої', 'warning');
+      }
+    });
+
+    // ---------- Init ----------
+
+    (async function () {
+      try {
+        await loadComponentsList();
+
+        if (Array.isArray(builderComponents) && builderComponents.length > 0) {
+          // EN: Edit mode — restore existing components
+          // UA: Редагування існуючого замовлення — відновлюємо позиції
+          for (const item of builderComponents) {
+            await addComponentRowWithData(item);
+          }
+          recalcComponentsPrice();
+        } else {
+          // EN: New order – start with single empty card
+          // UA: Нове замовлення — одна порожня позиція
+          $('#addComponentRow').trigger('click');
+        }
+      } catch (e) {
+        console.error(e);
+        window.showToast('Не вдалося завантажити комплектуючі з прайсу', 'danger');
+      }
+    })();
+  </script>
+{% endblock %}
