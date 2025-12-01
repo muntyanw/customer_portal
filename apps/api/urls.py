@@ -1,5 +1,6 @@
 from django.urls import path, include
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from .v1 import pricing_views
 
 urlpatterns = [
     path("v1/", include("apps.api.v1.urls")),

@@ -2,6 +2,7 @@
 from django.db import models
 from django.conf import settings
 from django.core.validators import MinValueValidator
+from decimal import Decimal
 
 class Order(models.Model):
     NEW = "new"
@@ -21,6 +22,14 @@ class Order(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=NEW)
     attachment = models.FileField(upload_to="attachments/", blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    # NEW: курс EUR на момент створення замовлення
+    eur_rate_at_creation = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        default=Decimal("0"),
+        help_text="Курс EUR/UAH на момент створення замовлення",
+    )
 
     def __str__(self):
         return f"#{self.pk} {self.title}"
@@ -436,3 +445,44 @@ class OrderComponentItem(models.Model):
     def __str__(self) -> str:
         return f"{self.name} ({self.color}) – {self.price_eur} € x {self.quantity}"
 
+
+class CurrencyRate(models.Model):
+    """
+    EN: Store current currency rates for the project.
+    UA: Зберігає актуальні курси валют для проєкту.
+    """
+
+    CURRENCY_CHOICES = [
+        ("EUR", "Euro"),
+        # за потреби можна додати інші валюти
+    ]
+
+    currency = models.CharField(
+        max_length=3,
+        choices=CURRENCY_CHOICES,
+        unique=True,
+        verbose_name="Валюта",
+    )
+    rate_uah = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        verbose_name="Курс до UAH",
+        help_text="Скільки UAH за 1 одиницю валюти",
+    )
+    source = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name="Джерело",
+        help_text="Наприклад, NBU, manual",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Оновлено",
+    )
+
+    class Meta:
+        verbose_name = "Курс валюти"
+        verbose_name_plural = "Курси валют"
+
+    def __str__(self):
+        return f"{self.currency}: {self.rate_uah} UAH"

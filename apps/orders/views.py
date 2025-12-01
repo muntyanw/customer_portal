@@ -8,17 +8,14 @@ from .models import Order, OrderItem
 from apps.accounts.roles import is_manager
 import json
 from decimal import Decimal, InvalidOperation
-from django.http import HttpResponseForbidden
+from django.contrib.admin.views.decorators import staff_member_required
 from django.conf import settings
 
 from .models import Order, OrderComponentItem
 from .utils_components import parse_components_from_post
 from django.urls import reverse
-
-class OrderForm(forms.ModelForm):
-    class Meta:
-        model = Order
-        fields = ["title", "description", "attachment"]
+from .services_currency import get_current_eur_rate, update_eur_rate_from_nbu
+from django.views.decorators.http import require_POST
         
         
 def _get(lst, idx, default=""):
@@ -73,22 +70,6 @@ def order_components_list(request):
     }
     return render(request, "orders/order_list.html", context)
 
-@login_required
-def order_create(request):
-    """
-    Створювати може будь-який аутентифікований користувач.
-    Customer — створює для себе; Manager теж може створити собі (або окрему форму зробимо пізніше).
-    """
-    if request.method == "POST":
-        form = OrderForm(request.POST, request.FILES)
-        if form.is_valid():
-            obj = form.save(commit=False)
-            obj.customer = request.user
-            obj.save()
-            return redirect("orders:list")
-    else:
-        form = OrderForm()
-    return render(request, "orders/create.html", {"form": form})
 
 @login_required
 def order_detail(request, pk: int):
@@ -145,7 +126,10 @@ def order_builder(request, pk=None):
     if request.method == "POST":
         # Если ордера нет — создаём
         if order is None:
-            order = Order.objects.create(customer=request.user)
+            order = Order.objects.create(
+                customer=request.user,
+                eur_rate_at_creation=get_current_eur_rate(),
+            )
 
         # Для менеджера можно добавить присвоение customer
         profile = getattr(request.user, "customerprofile", None)
@@ -354,10 +338,6 @@ def order_components_builder(request, pk):
     """
     order = get_object_or_404(Order, pk=pk)
 
-    # EN: URL to Google Sheets price (Комплектація)
-    # UA: URL до Google Sheets прайсу (Комплектація)
-    PRICE_SHEET_URL = getattr(settings, "COMPONENTS_PRICE_SHEET_URL", "")
-
     if request.method == "POST":
         components = parse_components_from_post(request.POST)
 
@@ -417,4 +397,45 @@ def order_components_builder(request, pk):
     }
 
     return render(request, "orders/components_builder.html", context)
+
+
+@login_required
+def order_components_builder_new(request):
+    """
+    EN: Create new order and go to components builder.
+    UA: Створює нове замовлення і переходить у білдер комплектуючих.
+    """
+    order = Order.objects.create(
+        customer=request.user,        # ✔ обязателен, иначе IntegrityError по customer_id
+        title="Замовлення (комплектуючі)",  # любой не пустой заголовок
+        description="",
+        status=Order.NEW,
+        eur_rate_at_creation=get_current_eur_rate(),
+    )
+    return redirect("orders:order_components_builder", pk=order.pk)
+
+
+@staff_member_required  # EN: only staff can update; UA: тільки staff-користувачі можуть оновлювати
+@require_POST
+def update_eur_rate_view(request):
+    """
+    EN: Update EUR rate from NBU and redirect back.
+    UA: Оновлює курс EUR з НБУ та повертає назад.
+    """
+    try:
+        obj = update_eur_rate_from_nbu()
+        messages.success(
+            request,
+            f"Курс EUR оновлено: {obj.rate_uah} грн (джерело: {obj.source})"
+        )
+    except Exception as e:
+        messages.error(
+            request,
+            f"Не вдалося оновити курс EUR: {e}"
+        )
+
+    # EN: redirect back where user came from; UA: повертаємось туди, звідки прийшли
+    next_url = request.META.get("HTTP_REFERER") or reverse("core:dashboard")
+    return redirect(next_url)
+
 

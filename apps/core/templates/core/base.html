@@ -54,9 +54,32 @@
 
           <ul class="navbar-nav ms-auto">
             {% if request.user.is_authenticated %}
+
+              {# Блок курсу EUR #}
+              <li class="nav-item d-flex align-items-center ms-lg-3">
+                <span class="badge rounded-pill bg-warning text-dark me-2 px-3 py-2">
+                  <i class="bi bi-currency-exchange me-1"></i>
+                  Курс EUR:
+                  <span class="fw-bold ms-1">{{ eur_rate|default:"0.00" }}</span>
+                  <span class="ms-1">₴</span>
+                </span>
+
+                {% if request.user.is_staff %}
+                  <form action="{% url 'orders:update_eur_rate' %}" method="post" class="d-inline mb-0">
+                    {% csrf_token %}
+                    <button type="submit"
+                            class="btn btn-sm btn-outline-light d-flex align-items-center px-3 py-1">
+                      <i class="bi bi-arrow-clockwise me-1"></i>
+                      Оновити курс
+                    </button>
+                  </form>
+                {% endif %}
+              </li>
+
               <li class="nav-item">
                 <a class="nav-link" href="{% url 'core:dashboard' %}">Кабінет</a>
               </li>
+              
               <li class="nav-item dropdown">
                 <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                   <span class="me-2">{{ request.user.email }}</span>

@@ -5,7 +5,7 @@
 {% endblock %}
 
 {% block dashboard_heading %}
-  Комплектуючі для замовлення №{{ order.id|default:'null' }}
+  Комплектуючі, замовлення №{{ order.id|default:'null' }}
 {% endblock %}
 
 {% block head_extra %}
@@ -46,22 +46,14 @@
         <div class="fw-semibold" style="display: none;">Джерело прайсу</div>
         <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="small">Відкрити прайс (Комплектація)</a>
       </div>
-      <input type="url"
-             class="form-control"
-             id="componentsPriceUrl"
-             name="price_url"
-             value="{{ PRICE_SHEET_URL }}"
-             required
-             style="display: none;" />
+      <input type="url" class="form-control" id="componentsPriceUrl" name="price_url" value="{{ PRICE_SHEET_URL }}" required style="display: none;" />
     </div>
 
     <!-- Контейнер для карток комплектуючих -->
     <div id="componentsContainer" class="d-flex flex-column gap-3"></div>
 
     <div class="d-grid mt-2">
-      <button type="button" class="btn btn-outline-primary" id="addComponentRow">
-        <i class="bi bi-plus-lg me-1"></i> Додати комплектуючу
-      </button>
+      <button type="button" class="btn btn-outline-primary" id="addComponentRow"><i class="bi bi-plus-lg me-1"></i> Додати комплектуючу</button>
     </div>
 
     <!-- Підсумок по замовленню -->
@@ -85,58 +77,40 @@
           <div class="fw-semibold">
             Позиція <span class="pos-index">1</span>
           </div>
-          <button type="button" class="btn btn-sm btn-outline-danger remove-row">
-            <i class="bi bi-trash"></i>
-          </button>
+          <button type="button" class="btn btn-sm btn-outline-danger remove-row"><i class="bi bi-trash"></i></button>
         </div>
 
         <div class="row g-2 mb-2">
           <div class="col-md-6">
             <label class="form-label small mb-1">Найменування</label>
-            <select class="form-select form-select-sm component-name"
-                    data-field="name"
-                    required>
+            <select class="form-select form-select-sm component-name" data-field="name" required>
               <option value="" selected disabled>— Оберіть найменування —</option>
             </select>
           </div>
           <div class="col-md-3">
             <label class="form-label small mb-1">Колір</label>
-            <select class="form-select form-select-sm component-color"
-                    data-field="color">
+            <select class="form-select form-select-sm component-color" data-field="color">
               <option value="">— Будь-який колір —</option>
             </select>
           </div>
-          <div class="col-md-3">
+          <div class="col-md-1">
             <label class="form-label small mb-1">Од. вим.</label>
-            <input type="text"
-                   class="form-control form-control-sm component-unit"
-                   data-field="unit"
-                   readonly />
+            <input type="text" class="form-control form-control-sm component-unit" data-field="unit" readonly disabled />
+          </div>
+          <div class="col-md-1">
+            <label class="form-label small mb-1">Ціна за од., €</label>
+            <input type="text" class="form-control form-control-sm text-end component-price" data-field="price_eur" readonly disabled />
+          </div>
+          <div class="col-md-1">
+            <label class="form-label small mb-1">Кількість</label>
+            <input type="number" min="0" step="0.001" class="form-control form-control-sm text-end component-qty" data-field="quantity" value="1" />
           </div>
         </div>
 
         <div class="row g-2 align-items-end mb-2">
           <div class="col-md-3">
-            <label class="form-label small mb-1">Ціна за одиницю, €</label>
-            <input type="text"
-                   class="form-control form-control-sm text-end component-price"
-                   data-field="price_eur"
-                   readonly />
-          </div>
-          <div class="col-md-3">
-            <label class="form-label small mb-1">Кількість</label>
-            <input type="number"
-                   min="0"
-                   step="0.001"
-                   class="form-control form-control-sm text-end component-qty"
-                   data-field="quantity"
-                   value="1" />
-          </div>
-          <div class="col-md-3">
             <label class="form-label small mb-1">Сума по позиції, €</label>
-            <div class="form-control form-control-sm text-end bg-light component-subtotal">
-              0.00
-            </div>
+            <div class="form-control form-control-sm text-end bg-light component-subtotal">0.00</div>
           </div>
         </div>
 
