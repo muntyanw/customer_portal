@@ -67,7 +67,7 @@
               {% if list_mode == 'components' %}
                 {# Для замовлень з комплектуючими #}
                 <a class="btn btn-sm btn-outline-primary"
-                  href="{% url 'orders:components_builder' o.id %}">
+                  href="{% url 'orders:order_components_builder' o.id %}">
                   <i class="bi bi-eye me-1"></i> Переглянути
                 </a>
               {% else %}

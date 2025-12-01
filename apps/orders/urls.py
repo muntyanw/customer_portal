@@ -5,39 +5,34 @@ from . import views
 app_name = "orders"
 
 urlpatterns = [
-    # ----- Ролети -----
+    # список ролетів
     path("", views.order_list, name="list"),
-    #path("create/", views.order_create, name="create"),
 
-    # билдер ролет
+    # список замовлень з комплектуючими
+    path("components/", views.order_components_list, name="components_list"),
+
+    # білдер ролетів
     path("builder/", views.order_builder, name="builder"),
     path("builder/<int:pk>/", views.order_builder, name="builder_edit"),
 
-    path("<int:pk>/", views.order_detail, name="detail"),
-    path("<int:pk>/edit/", views.order_update, name="update"),
-    path("<int:pk>/delete/", views.order_delete, name="delete"),
-
-    # ----- Комплектуючі -----
-    # список заказов с комплектующими
-    path("components/", views.order_components_list, name="components_list"),
-
-    # создать новый заказ (с комплектующими) и перейти в билдер
+    # 🔹 створити нове замовлення під комплектуючі
     path(
         "components/builder/",
         views.order_components_builder_new,
         name="components_builder_create",
     ),
 
-    # редактировать/просматривать комплектующие для конкретного заказа
+    # 🔹 редагувати комплектуючі для конкретного замовлення
     path(
         "components/builder/<int:pk>/",
         views.order_components_builder,
-        name="components_builder",
+        name="order_components_builder",   # <-- ЭТО имя использует redirect(...)
     ),
+
+    # стандартні CRUD для Order
     
-     path(
-        "currency/update-eur/",
-        views.update_eur_rate_view,
-        name="update_eur_rate",
-    ),
+    path("<int:pk>/", views.order_detail, name="detail"),
+    path("<int:pk>/edit/", views.order_update, name="update"),
+    path("<int:pk>/delete/", views.order_delete, name="delete"),
+    path("currency/update-eur/", views.update_eur_rate_view, name="update_eur_rate"),
 ]
