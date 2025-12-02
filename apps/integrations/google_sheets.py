@@ -343,10 +343,9 @@ def parse_sheet_price_section(
     real_width_mm = width_mm
     gb_width_mm = width_mm
     if cg.gbDiffWidthMm:
-        gb_width_mm = width_mm + cg.gbDiffWidthMm
         if gabarit_width_flag:
             real_width_mm = width_mm - cg.gbDiffWidthMm
-            gb_width_mm = width_mm
+            gb_width_mm = width_mm - cg.gbDiffWidthMm
 
     idx = pick_width_band(width_bands, real_width_mm)
     if idx is None:
@@ -397,10 +396,13 @@ def parse_sheet_price_section(
         result["comment_system_red"] = get_str_values(
             ws, header_row - 9, header_row - 9, 1, 1
         )
+        
+        result["comment_system_red"] += "<br/> Кліпса кріплення для верхньої планки ПВХ, Верхня планка ПВХ зі скотчем (монтаж без свердління) існує тільки в білому і коричневому кольорах!"
+        
         result["comment_system_green"] = get_str_values(
             ws, header_row - 8, header_row - 6, 1, 1
         )
-        result["metal_cord_fix_price_eur"] = get_money_value(
+        result["cord_pvc_tension_price_eur"] = get_money_value(
             ws, header_row - 3, col_letter_to_index("D")
         )
         result["cord_copper_barrel_price_eur"] = get_money_value(
@@ -409,11 +411,15 @@ def parse_sheet_price_section(
         result["magnets_price_eur"] = get_money_value(
             ws, header_row - 1, col_letter_to_index("D")
         )
+        
         result["top_pvc_clip_pair_price_eur"] = get_money_value(
             ws, header_row - 3, col_letter_to_index("N")
         )
-        result["op_pvc_bar_tape_price_eur"] = get_money_value(  # как у тебя
+        result["top_pvc_bar_tape_price_eur_mp"] = get_money_value(
             ws, header_row - 2, col_letter_to_index("N")
+        )
+        result["bottom_wide_bar_price_eur_mp"] = get_money_value(
+            ws, header_row - 1, col_letter_to_index("N")
         )
 
     if sheet_name == sheetName.vidkr19yiBestaDn:
@@ -436,7 +442,7 @@ def parse_sheet_price_section(
         result["top_pvc_clip_pair_price_eur"] = get_money_value(
             ws, header_row - 2, col_letter_to_index("D")
         )
-        result["top_bar_scotch_price_eur"] = get_money_value(
+        result["top_bar_scotch_price_eur_mp"] = get_money_value(
             ws, header_row - 1, col_letter_to_index("D")
         )
 

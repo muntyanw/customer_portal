@@ -207,7 +207,7 @@ class OrderItem(models.Model):
         default=0,
         help_text="Довжина скотчу на верхню планку (без свердління), м.п.",
     )
-    top_bar_scotch_price_eur = models.DecimalField(
+    top_bar_scotch_price_eur_mp = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=0,

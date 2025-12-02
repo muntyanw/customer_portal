@@ -302,7 +302,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name='orderitem',
-            name='top_bar_scotch_price_eur',
+            name='top_bar_scotch_price_eur_mp',
             field=models.DecimalField(decimal_places=2, default=0, help_text='Ціна скотчу на верхню планку, EUR/м.п.', max_digits=12),
         ),
         migrations.AddField(

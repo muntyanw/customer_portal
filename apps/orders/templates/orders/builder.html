@@ -166,7 +166,7 @@
           }
         }, 600)
       })
-      $card.find('.gabarit-width-flag').on('change', function () {
+      $card.find('.gabarit-width-flag .form-check-input').on('change', function () {
         if (Number($w_mm.val()) > 0 && Number($h_mm.val()) > 0) {
           previewCard($card)
         }
@@ -347,7 +347,7 @@
       return data
     }
 
-    async function previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabaritWidth }) {
+    async function previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabarit_width_flag }) {
       $('.load_gif').show()
       showGlobalLoader()
       const resp = await fetch('/api/v1/pricing/system-preview', {
@@ -361,7 +361,7 @@
           fabric_color_code: fabric_color_code,
           width_mm: w,
           gabarit_height_mm: h,
-          gabarit_width_flag: gabaritWidth
+          gabarit_width_flag: gabarit_width_flag
         })
       })
       hideGlobalLoader()
@@ -489,7 +489,7 @@
         h: $card.find('.h-mm').val() || '',
         w: $card.find('.w-mm').val() || '',
         qty: $card.find('.qty').val() || '1',
-        gw: $card.find('.gabarit-width-flag').is(':checked'),
+        gw: $card.find('.gabarit-width-flag .form-check-input').is(':checked'),
         qtyPriceOptions:qtyPriceOptions
       }
     }
@@ -503,7 +503,7 @@
       const h = parseInt($card.find('.h-mm').val() || '0', 10)
       const w = parseInt($card.find('.w-mm').val() || '0', 10)
       const magnets = $card.find('.magnets').is(':checked')
-      const gabaritWidth = $card.find('.gabarit-width-flag').is(':checked')
+      const gabarit_width_flag = $card.find('.gabarit-width-flag .form-check-input').is(':checked')
       const qty = Math.max(1, parseInt($card.find('.qty').val() || '1', 10))
 
       if (!system || !section || !fabric || !fabric_color_code || !h || !w) {
@@ -511,7 +511,7 @@
       }
 
       try {
-        const data = await previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabaritWidth })
+        const data = await previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabarit_width_flag })
         pricesCache[$card.find('.pos-index')] = data
         renderPriceOptions($card, 0,preSelectsPriceOptions)
       } catch (err) {
@@ -699,7 +699,7 @@
       defaultChecked: false,
     },
     {
-      key: "top_bar_scotch_price_eur",
+      key: "top_bar_scotch_price_eur_mp",
       label: "Скотч на верхню планку для встановлення без свердління, за м.п.",
       unit: "м.п.",
       type: "extra",
@@ -814,6 +814,7 @@
           const $total = $row.find('.price')
 
           const unitEur = Number($unit.text() || 0)
+
           const qty = Number($qty.text() || 0)
           const totalEur = unitEur * qty
 
@@ -834,7 +835,7 @@
       $('#orderTotal').text(money(sumTotal)).hide()
       $('#orderTotalUah').text(eurToUah(sumTotal))
     }
-
+    
 
    function checkPriceOption(el, optionName, optionVal) {
       const $el = $(el)
@@ -853,11 +854,9 @@
       if (el.checked) {
         // qty для опции = qty позиции
         const qty = commonQty > 0 ? commonQty : 1
-        let unitEurEffective = unitEur
+        const gb = Number($card.find('.gb_width_mm').val() || 0)
+        const unitEurEffective = calcOptionUnitEur(optionName, optionVal, gb)
 
-        if (optionName.includes('_mp')) {
-          unitEurEffective = unitEur * (gb_width_mm / 1000)
-        }
 
         const totalEur = unitEurEffective * qty
 
@@ -921,10 +920,9 @@
       // включаем чекбокс
       $block.find('.form-check-input').prop('checked', true)
 
-      let unitEurEffective = Number(optionPrice)
-      if (optionName.includes('_mp')) {
-        unitEurEffective = Number(optionPrice) * (gb_width_mm / 1000)
-      }
+      const gb = Number($card.find('.gb_width_mm').val() || 0)
+      const unitEurEffective = calcOptionUnitEur(optionName, optionPrice, gb)
+
       const totalEur = unitEurEffective * optionQty
 
       $hidden.val(money(totalEur))
@@ -950,6 +948,17 @@
       setOneOption($card, optionName, optionQty, optionPrice, price)
     }
 
+    function calcOptionUnitEur(optionName, optionPrice, gb_width_mm) {
+      // UA: якщо опція за м.п.
+      // EN: if price is per linear meter
+      if (optionName.includes("_mp")) {
+        return Number(optionPrice) * (Number(gb_width_mm) / 1000)
+      }
+      // UA: за штуку
+      // EN: per piece
+      return Number(optionPrice)
+    }
+
 
    function renderOnePriceOption($card, data, option, commonQty, preSelectsPriceOptions = {}) {
       const optionName = option.key
@@ -965,9 +974,11 @@
       }
       if (Number.isNaN(optionQty)) optionQty = 0
 
-      const unitEur = Number(optionPrice)
+      {% comment %} const gb = Number($card.find('.gb_width_mm').val() || 0)
+      const unitEur = calcOptionUnitEur(optionName, optionPrice, gb)
+
       const unitEurFormatted = money(unitEur)
-      const unitUahFormatted = eurToUah(unitEur)
+      const unitUahFormatted = eurToUah(unitEur) {% endcomment %}
 
       let checkedAttr = ""
       let disabledAttr = "disabled"
@@ -982,16 +993,16 @@
           + `<div class="d-flex align-items-center justify-content-between gap-2">`
           +   `<div class="d-flex align-items-center gap-2">`
           +     `<input class="form-check-input price-option mt-0" type="checkbox"`
-          +       ` onchange="checkPriceOption(this, '${optionName}', '${unitEurFormatted}')" ${checkedAttr} />`
+          +       ` onchange="checkPriceOption(this, '${optionName}', '${optionPrice}')" ${checkedAttr} />`
           +     `<div class="d-flex flex-column">`
           +       `<span class="fw-semibold option-title">${option.label}</span>`
           +     `</div>`
           +   `</div>`
           +   `<div class="text-end">`
           +     `<span class="badge rounded-pill text-bg-primary">`
-          +       `<span class="price" style="display:none;">${unitEurFormatted}</span>`
+          +       `<span class="price" style="display:none;">${optionPrice}</span>`
           +       `&nbsp;&nbsp;`
-          +       `<span class="price-uah">${unitUahFormatted}</span>`
+          +       `<span class="price-uah">${eurToUah(optionPrice)}</span>`
           +     `</span>`
           +   `</div>`
           + `</div>`
@@ -1001,12 +1012,12 @@
             `<div class="d-flex align-items-center justify-content-between mt-2">`
             + `<div class="btn-group btn-group-sm" role="group" aria-label="Кількість">`
             +   `<button type="button" class="btn btn-outline-secondary qty-button qty-minus"`
-            +     ` onclick="javascript:changeQty(this, '${optionName}', ${unitEur}, 0, -1)" ${disabledAttr}>`
+            +     ` onclick="javascript:changeQty(this, '${optionName}', ${optionPrice}, 0, -1)" ${disabledAttr}>`
             +     `<i class="bi bi-dash"></i>`
             +   `</button>`
             +   `<span class="option-qty-value px-2">${optionQty}</span>`
             +   `<button type="button" class="btn btn-outline-secondary qty-button qty-plus"`
-            +     ` onclick="javascript:changeQty(this, '${optionName}', ${unitEur}, 0, 1)" ${disabledAttr}>`
+            +     ` onclick="javascript:changeQty(this, '${optionName}', ${optionPrice}, 0, 1)" ${disabledAttr}>`
             +     `<i class="bi bi-plus"></i>`
             +   `</button>`
             + `</div>`
@@ -1023,7 +1034,7 @@
 
       // если у нас уже есть qty > 0 (редактирование заказа) — сразу создаём строку в таблице
       if (optionQty > 0) {
-        setOneOption($card, optionName, optionQty, unitEur, 0)
+        setOneOption($card, optionName, optionQty, optionPrice, 0)
       }
     }
 
