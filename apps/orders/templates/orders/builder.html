@@ -45,6 +45,7 @@
 {% block dashboard_content %}
   <form method="post" id="orderForm" novalidate>
     {% csrf_token %}
+    <input type="hidden" name="eur_rate_at_creation" class="eur_rate_at_creation" />
 
     <div class="mb-3">
       <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
@@ -64,8 +65,15 @@
     <!-- Підсумок по замовленню -->
     <div class="order-total-bar mt-3 p-3 rounded-3 shadow-sm">
       <div class="d-flex justify-content-between align-items-center">
-        <div class="fw-semibold">Разом по замовленню, €</div>
-        <div id="orderTotal" class="fs-5 fw-bold">0.00</div>
+        <div class="fw-semibold">Разом по замовленню</div>
+        <div class="text-end">
+          <div class="fs-6" style="display:none;">
+            <span id="orderTotal">0.00</span>
+          </div>
+          <div class="">
+            <span id="orderTotalUah">0.00</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -85,22 +93,45 @@
   <script>
     // EN: Global builder context from Django
     // UA: Глобальний контекст білдера з Django
-    const builderOrderId = {{ order.id|default:"null" }};
-    const builderItems = {{ items_json|safe|default:"[]" }};
+    const builderOrderId = {{ order.id|default:"null" }}
+    const builderItems = {{ items_json|safe|default:"[]" }}
+    const eur_rate = parseFloat(
+      '{{ eur_rate|default:"0.00" }}'
+        .replace(/\s/g, '')
+        .replace(',', '.')
+    )
 
     const systemConfigCache = new Map() // system -> config
+
     // ---------- Helpers ----------
     function money(x) {
       return (Math.round(parseFloat(x || 0) * 100) / 100).toFixed(2)
     }
-    
+
+    // UA: Конвертація EUR → UAH (тільки для фронта)
+    // EN: EUR → UAH conversion (frontend-only)
+    function eurToUahRaw(x) {
+      return Number(x || 0) * Number(eur_rate || 0)
+    }
+    function eurToUah(x) {
+      return money(eurToUahRaw(x))
+    }
+
+    // UA: Записуємо курс, який піде на бекенд
+    // EN: Save rate that will be sent to backend
+    document.addEventListener('DOMContentLoaded', function () {
+      document.querySelectorAll('.eur_rate_at_creation').forEach(function (el) {
+        el.value = eur_rate
+      })
+    })
+
     function getCsrf() {
       const m = document.querySelector('meta[name="csrf-token"]')
       if (m && m.content) return m.content
       const match = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/)
       return match ? decodeURIComponent(match[1]) : ''
     }
-    
+
     function itemTemplate(index) {
       const tpl = document.getElementById('item-template')
       const node = tpl.content.cloneNode(true)
@@ -110,11 +141,11 @@
       $(node).find('[data-index]').attr('data-index', index)
       return node
     }
-    
+
     // ---------- State / cache ----------
     const $container = $('#itemsContainer')
     const priceUrlInput = $('#priceUrl')
-    
+
     let systemsCache = null // список вкладок (систем)
     let pricesCache = {}
     const sectionsCache = new Map() // key: system -> [sections]
@@ -140,22 +171,54 @@
           previewCard($card)
         }
       })
-      
+
     }
 
-    function removePriceOptions($card){
-        priceOptionsConfig.forEach((option) => {
-            $card.find('.' +  option.key).remove()
-        })
+    // UA: Прибирає всі додаткові опції з картки (і чекбокси, і рядки в таблиці)
+    // EN: Remove all extra options from card (option cards + table rows)
+    function removePriceOptions($card) {
+      // 1) карточки с чекбоксами
+      priceOptionsConfig.forEach((option) => {
+        $card.find('.op-card.' + option.key).remove()
+      })
+
+      // 2) строки в таблице манифеста
+      priceOptionsConfig.forEach((option) => {
+        $card.find('.price-options-manifest .' + option.key + '-row').remove()
+      })
     }
 
-    function clearCard($card){
-      $card.find('.comment_system_red').html("")
-      $card.find('.comment_system_green').html("")
+    // UA: Повністю очищає картку позиції (без видалення самої позиції)
+    // EN: Fully reset card state (without removing the card itself)
+    function clearCard($card) {
+      // комментарии
+      $card.find('.comment_system_red').empty()
+      $card.find('.comment_system_green').empty()
+
+      // габариты и количество
       $card.find('.h-mm').val(0)
       $card.find('.w-mm').val(0)
       $card.find('.qty').val(1)
+      $card.find('.gb_width_mm').val(0)
+
+      // базовые цены в price-box (EUR + UAH)
+      const $priceBox = $card.find('.price-box')
+      $priceBox.find('.base').text('0.00')
+      $priceBox.find('.base-uah').text('0.00')
+      $priceBox.find('.surcharge').text('0.00')
+      $priceBox.find('.surcharge-uah').text('0.00')
+      $priceBox.find('.subtotal-input').text('0.00')
+      $priceBox.find('.subtotal-uah').text('0.00')
+
+      // скрытые поля для базы/надбавки/итога (на бекенд идут только EUR)
+      $card.find('input[name="base_price_eur"]').val('0')
+      $card.find('input[name="surcharge_height_eur"]').val('0')
+      $card.find('input[name="subtotal_eur"]').val('0')
+
+      // все дополнительные опции (карточки + строки в таблице)
       removePriceOptions($card)
+
+      // пересчёт общего итога
       recalcPrice()
     }
 
@@ -163,23 +226,24 @@
     async function changeSystemSheet($card){
         clearCard($card)
         const system = $card.find('.system-sheet').val()
-      
+
         const $sec = $card.find('.table-section')
         const $fab = $card.find('.fabric')
         const $fabColor = $card.find('.fabric-color-code')
-      
+
         $sec.empty().append('<option value="" selected disabled>— Оберіть колір системи —</option>')
         $fab.empty().append('<option value="">Спочатку оберіть колір системи…</option>')
         $fabColor.empty().append('<option value="">Спочатку оберіть колір системи…</option>')
-      
+
         $sec.val(null).trigger('change')
         $fab.val(null).trigger('change')
         $fabColor.val(null).trigger('change')
-      
+
         if (!system) return
-      
+
         try {
-          await loadSectionsForSystem(system)
+          let data = await loadSectionsForSystem(system)
+          enableCheckGabarit($card, data.GbDiffWidthMm, false)
           fillSectionsForCard($card, system, null)
         } catch (e) {
           window.showToast('Не вдалося завантажити секції для системи', 'danger')
@@ -220,7 +284,7 @@
           }
         }
       })
-      
+
       $table_section.on('select2:select', function (e) {
         clearCard($card)
       })
@@ -242,7 +306,7 @@
 
 
     }
-    
+
     async function loadSystems() {
       const url = priceUrlInput.val()
       showGlobalLoader()
@@ -253,10 +317,10 @@
       systemsCache = data.systems || data.sheets || []
       return systemsCache
     }
-    
+
     async function loadSectionsForSystem(system) {
       if (sectionsCache.has(system)) return sectionsCache.get(system)
-    
+
       const url = priceUrlInput.val()
       showGlobalLoader()
       const resp = await fetch(`/api/v1/pricing/system-fabrics?url=${encodeURIComponent(url)}&system=${encodeURIComponent(system)}`)
@@ -264,14 +328,15 @@
       if (!resp.ok) throw new Error('Cannot load sections')
       const data = await resp.json()
       const sections = data.sections || []
+      sections.GbDiffWidthMm = data.GbDiffWidthMm
       sectionsCache.set(system, sections)
       return sections
     }
-    
+
     async function loadFabricsForSection(system, section) {
       const key = `${system}|||${section}`
       if (fabricsCache.has(key)) return fabricsCache.get(key)
-    
+
       const url = priceUrlInput.val()
       showGlobalLoader()
       const resp = await fetch(`/api/v1/pricing/system-fabrics?url=${encodeURIComponent(url)}&system=${encodeURIComponent(system)}&section=${encodeURIComponent(section)}`)
@@ -281,7 +346,7 @@
       fabricsCache.set(key, data)
       return data
     }
-    
+
     async function previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabaritWidth }) {
       $('.load_gif').show()
       showGlobalLoader()
@@ -307,7 +372,7 @@
       $('.load_gif').hide()
       return resp.json()
     }
-    
+
     async function loadFabricColors(fabricName) {
       if (!fabricName) return { color_codes: [] }
 
@@ -326,7 +391,7 @@
       fabricColorsCache.set(fabricName, data)
       return data
     }
-    
+
     function fillFabricColorsForCard($card, codes, preselect) {
       const $sel = $card.find('.fabric-color-code')
       $sel.empty()
@@ -341,7 +406,7 @@
       }
       $sel.trigger('change')
     }
-    
+
     function setLoadingFabrics($card, isLoading) {
       const $fab = $card.find('.fabric')
       if (isLoading) {
@@ -349,7 +414,7 @@
         $fab.trigger('change')
       }
     }
-    
+
     async function fillSystems($card, preselectSystem) {
       const $sys = $card.find('.system-sheet')
       $sys.empty()
@@ -364,20 +429,20 @@
       }
       $sys.trigger('change')
     }
-    
+
     async function fillSectionsForCard($card, system, preselectSection) {
       const $sec = $card.find('.table-section')
       $sec.empty()
       $sec.append('<option value="" selected disabled>— Оберіть колір системи —</option>')
-    
+
       const sections = sectionsCache.get(system) || []
       sections.forEach((s) => {
         const t = typeof s === 'string' ? s : s.title || 'Секція'
         $sec.append(new Option(t, t))
       })
-    
+
       $sec.prop('disabled', false)
-    
+
       if (preselectSection) {
         $sec.val(preselectSection)
       } else {
@@ -385,7 +450,7 @@
       }
       //$sec.trigger('change')
     }
-    
+
     async function fillFabricsForCard($card, system, section, preselectFabric) {
       if (!system || !section) {
         return
@@ -394,7 +459,7 @@
       try {
         const data = await loadFabricsForSection(system, section)
         const $fab = $card.find('.fabric')
-        $fab.empty()
+        $fab.empty().append('<option value="" selected disabled>— Оберіть тканину —</option>')
         ;(data.fabrics || []).forEach((f) => $fab.append(new Option(f.name, f.name)))
         if (preselectFabric) {
           $fab.val(preselectFabric)
@@ -409,11 +474,11 @@
         setLoadingFabrics($card, false)
       }
     }
-    
+
     function readCardValues($card) {
       let qtyPriceOptions = {}
       priceOptionsConfig.forEach((option) => {
-      qtyPriceOptions[option.key] = $card
+        qtyPriceOptions[option.key] = $card
           .find('[name="' + option.key.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty") + '"]').val()
       });
       return {
@@ -428,7 +493,7 @@
         qtyPriceOptions:qtyPriceOptions
       }
     }
-    
+
     async function previewCard($card, preSelectsPriceOptions = {}) {
       const url = priceUrlInput.val()
       const system = $card.find('.system-sheet').val()
@@ -440,11 +505,11 @@
       const magnets = $card.find('.magnets').is(':checked')
       const gabaritWidth = $card.find('.gabarit-width-flag').is(':checked')
       const qty = Math.max(1, parseInt($card.find('.qty').val() || '1', 10))
-    
+
       if (!system || !section || !fabric || !fabric_color_code || !h || !w) {
         return
       }
-    
+
       try {
         const data = await previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabaritWidth })
         pricesCache[$card.find('.pos-index')] = data
@@ -455,7 +520,7 @@
         window.showToast(err.message || 'Помилка розрахунку', 'danger')
       }
     }
-    
+
     function copySelectOptionsFromPrevCard($card, selectClass) {
       const $prev = $card.prev('.item-card')
       if ($prev.length === 0) {
@@ -476,13 +541,13 @@
     }
 
     let changingProgrammatically = false
-    
+
     async function addRowWithData(item) {
       const idx = $container.children().length
       $container.append(itemTemplate(idx))
       const $card = $container.find('.item-card').last()
 
-      changingProgrammatically = true      
+      changingProgrammatically = true
 
       initSelectsForCard($card)
 
@@ -506,10 +571,6 @@
       if (item.height_gabarit_mm) $card.find('.h-mm').val(item.height_gabarit_mm)
       if (item.width_fabric_mm) $card.find('.w-mm').val(item.width_fabric_mm)
 
-      if (item.gabarit_width_flag) {
-        $card.find('.gabarit-width-flag .form-check-input').prop('checked', true)
-      }
-
       // 5) количество
       $card.find('.qty').val(item.quantity || 1)
 
@@ -524,6 +585,8 @@
           }
       });
 
+      preSelectsPriceOptions.gabarit_width_flag = item.gabarit_width_flag
+
       await previewCard($card, preSelectsPriceOptions)
 
       changingProgrammatically = false
@@ -533,13 +596,13 @@
     $('#addRow').on('click', async function () {
       const $prev = $container.find('.item-card').last()
       const prevVals = $prev.length ? readCardValues($prev) : null
-    
+
       const idx = $container.children().length
       $container.append(itemTemplate(idx))
       const $card = $container.find('.item-card').last()
-    
+
       initSelectsForCard($card)
-    
+
       if (!systemsCache) {
           try {
               await loadSystems()
@@ -549,25 +612,25 @@
           }
       }
       fillSystems($card, prevVals?.system)
-    
+
       if (prevVals && prevVals.system) {
         try {
           await loadSectionsForSystem(prevVals.system)
           fillSectionsForCard($card, prevVals.system, prevVals.section)
-    
+
           if (prevVals.section) {
             await fillFabricsForCard($card, prevVals.system, prevVals.section, prevVals.fabric)
-    
+
             if (prevVals.fabric_color_code) {
               copySelectOptionsFromPrevCard($card, ".fabric-color-code")
               $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag').prop('disabled', false)
               $card.find('.gabarit-width-flag .form-check-input').prop('disabled', false)
             }
-    
+
             if (prevVals.h) $card.find('.h-mm').val(prevVals.h)
             if (prevVals.w) $card.find('.w-mm').val(prevVals.w)
             if (prevVals.qty) $card.find('.qty').val(prevVals.qty)
-    
+
             $card.find('.gabarit-width-flag .form-check-input').prop('checked', !prevVals.gw)
 
             await previewCard($card, prevVals.qtyPriceOptions)
@@ -578,12 +641,12 @@
         }
       }
     })
-    
+
     $container.on('click', '.remove-row', function () {
       $(this).closest('.item-card').remove()
       recalcPrice()
     })
-    
+
     $container.on('change', '.qty', function () {
       const v = parseInt(this.value || '1', 10)
       if (isNaN(v) || v < 1) this.value = 1
@@ -596,8 +659,8 @@
     {
       key: "magnets_price_eur",
       label: "Фіксація магнітами",
-      unit: "шт",           
-      type: "extra",        
+      unit: "шт",
+      type: "extra",
       defaultChecked: false,
     },
     {
@@ -695,232 +758,339 @@
     },
   ];
 
-    
-    function recalcPrice() {
+    // UA: Створює або повертає рядок опції в таблиці манифесту
+    // EN: Create or get option row in manifest table
+    function ensureOptionRow($card, optionName, labelText) {
+      const $tbody = $card.find('.price-options-manifest')
+      let $row = $tbody.find('.' + optionName + '-row')
+      if ($row.length === 0) {
+        $row = $(`
+          <tr class="${optionName}-row">
+            <td class="label">${labelText}</td>
+            <td class="text-end">
+              <span class="man-price-one" style="display:none;">0.00</span> 
+              <div class="">
+                <span class="man-price-one-uah">0.00</span>
+              </div>
+            </td>
+            <td class="text-center">
+              <span class="man-qty">0</span>
+            </td>
+            <td class="text-end">
+              <span class="price" style="display:none;">0.00</span>
+              <div class="">
+                <span class="price-uah">0.00</span>
+              </div>
+            </td>
+          </tr>
+        `)
+        $tbody.append($row)
+      }
+      return $row
+    }
+
+
+   function recalcPrice() {
       let sumTotal = 0
-      $('.item-card').each(function (i, card) {
+
+      $('.item-card').each(function (_, card) {
         const $card = $(card)
         let sum = 0
-        const gb_width_mm = Number($card.find('.gb_width_mm').val()) || 0
 
-        sum += Number($card.find('.base').text() || 0) + Number($card.find('.surcharge').text() || 0)
+        // база + надбавка
+        const base = Number($card.find('.base').text() || 0)
+        const surcharge = Number($card.find('.surcharge').text() || 0)
 
+        sum += base + surcharge
+
+        // опции: только те, что имеют строку в таблице
         priceOptionsConfig.forEach((opt) => {
           const nameOption = opt.key
-          const optionQtyName = nameOption.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
-          const optionQty = Number($card.find('[name="' + optionQtyName + '"]').val())
-          if(optionQty>0){
-            const $priceMan = $card.find(`.price-options-manifest .${nameOption} .price`);
-            const $qtyMan = $card.find(`.price-options-manifest .${nameOption} .man-qty`);
-            const $priceOneMan = $card.find(`.price-options-manifest .${nameOption} .man-price-one`);
+          const $row = $card.find('.price-options-manifest .' + nameOption + '-row')
+          if ($row.length === 0) return
 
-            $priceMan.text(money(Number($priceOneMan.text()) * Number($qtyMan.text())))
+          const $unit = $row.find('.man-price-one')
+          const $qty = $row.find('.man-qty')
+          const $total = $row.find('.price')
 
-            sum += Number($priceMan.text()) || 0
-          }
+          const unitEur = Number($unit.text() || 0)
+          const qty = Number($qty.text() || 0)
+          const totalEur = unitEur * qty
+
+          $total.text(money(totalEur))
+          $row.find('.man-price-one-uah').text(eurToUah(unitEur))
+          $row.find('.price-uah').text(eurToUah(totalEur))
+
+          sum += totalEur
         })
-        
+
+        // subtotal по позиции
         $card.find('.subtotal-input').text(money(sum))
+        $card.find('.subtotal-uah').text(eurToUah(sum))
+
         sumTotal += sum
       })
-      
-      $('#orderTotal').text(money(Number(sumTotal)))
+
+      $('#orderTotal').text(money(sumTotal)).hide()
+      $('#orderTotalUah').text(eurToUah(sumTotal))
     }
 
-    function checkPriceOption(el, optionName, optionVal) {
-        const $el = $(el);
-        const $card = $el.closest('.item-card')
-        const $block = $el.closest('.op-card')
-        const $hidden = $block.find('.price-hidden')
-        const $hiddenQty = $block.find('.qty-hidden')
-        const $blockValQty = $block.find('.option-qty-value')
-        const $priceEl = $block.find(`.${optionName} .price`)
-        const $buttons = $block.find(`.qty-button`)
-        const $priceMan = $card.find(`.price-options-manifest .${optionName} .price`)
-        const $qtyMan = $card.find(`.price-options-manifest .${optionName} .man-qty`)
-        const $priceOneMan = $card.find(`.price-options-manifest .${optionName} .man-price-one`)
-        const commonQty = $card.find(`.qty`).val() 
 
-        if (el.checked) {
-            const price = money(Number(optionVal) * Number(commonQty))
-            $hidden.val(price)
-            $hiddenQty.val(Number(commonQty))
-            $blockValQty.text(Number(commonQty))
-            $priceEl.text(Number(optionVal))
-            $buttons.prop('disabled', false)
-            const gb_width_mm = Number($card.find('.gb_width_mm').val()) || 0
-            if(optionName.includes("_mp")){
-                $priceMan.text(money(Number(price * (gb_width_mm/1000))))
-                $priceOneMan.text(money(Number(optionVal) * (gb_width_mm/1000)))
-                $qtyMan.text(money(Number(commonQty)))
-            }else{
-                $priceMan.text(price)
-                $priceOneMan.text(Number(optionVal))
-                $qtyMan.text(Number(commonQty))
-            }
-            
-        } else {
-            $buttons.prop('disabled', true)
-            $hidden.val(0)
-            $hiddenQty.val(0)
-            $blockValQty.text(0)
-            $priceEl.text(0)
-            $priceMan.text(0)
-            $qtyMan.text(0)
+   function checkPriceOption(el, optionName, optionVal) {
+      const $el = $(el)
+      const $card = $el.closest('.item-card')
+      const $block = $el.closest('.op-card')
+      const $hidden = $block.find('.price-hidden')
+      const $hiddenQty = $block.find('.qty-hidden')
+      const $blockValQty = $block.find('.option-qty-value')
+      const $buttons = $block.find('.qty-button')
+      const labelText = $block.find('.option-title').text()
+      const commonQty = Number($card.find('.qty').val() || 1)
+
+      const gb_width_mm = Number($card.find('.gb_width_mm').val() || 0)
+      const unitEur = Number(optionVal)
+
+      if (el.checked) {
+        // qty для опции = qty позиции
+        const qty = commonQty > 0 ? commonQty : 1
+        let unitEurEffective = unitEur
+
+        if (optionName.includes('_mp')) {
+          unitEurEffective = unitEur * (gb_width_mm / 1000)
         }
 
-        recalcPrice()
+        const totalEur = unitEurEffective * qty
+
+        // скрытые поля (в EUR)
+        $hidden.val(money(totalEur))
+        $hiddenQty.val(qty)
+        $blockValQty.text(qty)
+        $buttons.prop('disabled', false)
+
+        // строка в таблице
+        const $row = ensureOptionRow($card, optionName, labelText)
+        $row.find('.man-price-one').text(money(unitEurEffective))
+        $row.find('.man-price-one-uah').text(eurToUah(unitEurEffective))
+        $row.find('.man-qty').text(qty)
+        $row.find('.price').text(money(totalEur))
+        $row.find('.price-uah').text(eurToUah(totalEur))
+
+      } else {
+        // сброс
+        $buttons.prop('disabled', true)
+        $hidden.val(0)
+        $hiddenQty.val(0)
+        $blockValQty.text(0)
+
+        // убираем строку опции из таблицы
+        $card.find('.price-options-manifest .' + optionName + '-row').remove()
+      }
+
+      recalcPrice()
     }
+
 
     function changeQty(el, optionName, optionPrice, price, diffQty){
       const $card = $(el).closest('.item-card')
       let optionQty = Number($card.find(`[name="${optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")}"]`).val())
       optionQty = optionQty + Number(diffQty)
-      
+
       setOneOption($card, optionName, optionQty, optionPrice, price)
       recalcPrice()
     }
 
-    function setOneOption($card, optionName, optionQty, optionPrice, price){
+    function setOneOption($card, optionName, optionQty, optionPrice, pricePerItemEur) {
+      const $block = $card.find('.op-card.' + optionName)
+      const $hidden = $block.find('.price-hidden')
+      const $hiddenQty = $block.find('.qty-hidden')
+      const $blockValQty = $block.find('.option-qty-value')
+      const labelText = $block.find('.option-title').text()
+      const gb_width_mm = Number($card.find('.gb_width_mm').val() || 0)
 
-      $card.find(`[name="${optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")}"]`).val(optionQty)
-      $card.find(`.${optionName} .form-check-input`).prop('checked', true)
-      $card.find(`.${optionName} .option-qty-value`).text(optionQty)
-      $card.find(`.price-options-manifest .${optionName} .man-price-one`).text(optionPrice)
-      $card.find(`.price-options-manifest .${optionName} .man-qty`).text(optionQty)
-      $card.find(`.price-options-manifest .${optionName} .price`).text(price)
+      if (optionQty <= 0) {
+        // выключаем опцию
+        $block.find('.form-check-input').prop('checked', false)
+        $hidden.val(0)
+        $hiddenQty.val(0)
+        $blockValQty.text(0)
+        $card.find('.price-options-manifest .' + optionName + '-row').remove()
+        recalcPrice()
+        return
+      }
 
+      // включаем чекбокс
+      $block.find('.form-check-input').prop('checked', true)
+
+      let unitEurEffective = Number(optionPrice)
+      if (optionName.includes('_mp')) {
+        unitEurEffective = Number(optionPrice) * (gb_width_mm / 1000)
+      }
+      const totalEur = unitEurEffective * optionQty
+
+      $hidden.val(money(totalEur))
+      $hiddenQty.val(optionQty)
+      $blockValQty.text(optionQty)
+
+      const $row = ensureOptionRow($card, optionName, labelText)
+      $row.find('.man-price-one').text(money(unitEurEffective))
+      $row.find('.man-price-one-uah').text(eurToUah(unitEurEffective))
+      $row.find('.man-qty').text(optionQty)
+      $row.find('.price').text(money(totalEur))
+      $row.find('.price-uah').text(eurToUah(totalEur))
+
+      recalcPrice()
     }
 
-    function renderOnePriceOption($card, data, option, commonQty, preSelectsPriceOptions = {}){
+    function changeQty(el, optionName, optionPrice, price, diffQty) {
+      const $card = $(el).closest('.item-card')
+      const qtyName = optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
+      let optionQty = Number($card.find(`[name="${qtyName}"]`).val() || 0)
+      optionQty = optionQty + Number(diffQty)
+      $card.find(`[name="${qtyName}"]`).val(optionQty)
+      setOneOption($card, optionName, optionQty, optionPrice, price)
+    }
+
+
+   function renderOnePriceOption($card, data, option, commonQty, preSelectsPriceOptions = {}) {
       const optionName = option.key
       const optionQtyName = optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
-      const optionPrice = preSelectsPriceOptions[optionName] ||data[optionName]
+      const optionPrice = preSelectsPriceOptions[optionName] || data[optionName]
+      if (!optionPrice) return
+
       let optionQty = 0
-      if(preSelectsPriceOptions[optionQtyName]){
+      if (preSelectsPriceOptions[optionQtyName]) {
         optionQty = Number(preSelectsPriceOptions[optionQtyName])
-      }else{
-        optionQty = Number($card.find(`[name="${optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")}"]`).val())
+      } else {
+        optionQty = Number($card.find(`[name="${optionQtyName}"]`).val() || 0)
       }
-      if(Number.isNaN(optionQty)){
-        optionQty = 0
+      if (Number.isNaN(optionQty)) optionQty = 0
+
+      const unitEur = Number(optionPrice)
+      const unitEurFormatted = money(unitEur)
+      const unitUahFormatted = eurToUah(unitEur)
+
+      let checkedAttr = ""
+      let disabledAttr = "disabled"
+      if (optionQty > 0 || commonQty > 0) {
+        checkedAttr = "checked"
+        disabledAttr = ""
       }
-      const gb_width_mm = Number($card.find('.gb_width_mm').val()) || 0
-      if (optionPrice) {
 
-        let check = ""
-        let price = 0
-        let dis = "diabled"
-        if (optionQty > 0) {
-          dis = ""
-          if(commonQty > 0) optionQty = commonQty
-          check = 'checked'
-          
-          if(optionName.includes("_mp")){
-              price = money(Number(optionPrice * (gb_width_mm/1000)))
-          }else{
-              price = money(Number(optionPrice))
-          }
-        }
+      if ($card.find('.' + optionName).length === 0) {
+        let htmlPriceOption =
+          `<div class="op-card ${optionName} price-option-card border rounded-3 mb-2 bg-light-subtle">`
+          + `<div class="d-flex align-items-center justify-content-between gap-2">`
+          +   `<div class="d-flex align-items-center gap-2">`
+          +     `<input class="form-check-input price-option mt-0" type="checkbox"`
+          +       ` onchange="checkPriceOption(this, '${optionName}', '${unitEurFormatted}')" ${checkedAttr} />`
+          +     `<div class="d-flex flex-column">`
+          +       `<span class="fw-semibold option-title">${option.label}</span>`
+          +     `</div>`
+          +   `</div>`
+          +   `<div class="text-end">`
+          +     `<span class="badge rounded-pill text-bg-primary">`
+          +       `<span class="price" style="display:none;">${unitEurFormatted}</span>`
+          +       `&nbsp;&nbsp;`
+          +       `<span class="price-uah">${unitUahFormatted}</span>`
+          +     `</span>`
+          +   `</div>`
+          + `</div>`
 
-        if ($card.find('.' + optionName).length === 0) {
-
-            let htmlPriceOption = 
-              `<div class="op-card ${optionName} price-option-card border rounded-3 mb-2 bg-light-subtle">`
-            +   `<div class="d-flex align-items-center justify-content-between gap-2">`
-            +     `<div class="d-flex align-items-center gap-2">`
-            +       `<input class="form-check-input price-option mt-0" type="checkbox"`
-            +         ` onchange="checkPriceOption(this, '${optionName}', '${money(Number(optionPrice))}')" ${check} />`
-            +       `<div class="d-flex flex-column">`
-            +         `<span class="fw-semibold option-title">${option.label}</span>`
-            +       `</div>`
-            +     `</div>`
-            +     `<div class="text-end">`
-            +       `<span class="price-chip badge rounded-pill text-bg-primary">`
-            +         `<span class="price">${money(Number(optionPrice))}</span> грн`
-            +       `</span>`
-            +     `</div>`
-            +   `</div>`
-
-            if(option.changeQty){
-                htmlPriceOption +=
-                    `<div class="d-flex align-items-center justify-content-between mt-2">`
-                +     `<div class="qty-controls btn-group btn-group-sm" role="group" aria-label="Кількість">`
-                +       `<button type="button" class="btn btn-outline-secondary qty-button qty-minus" onclick="javascript:changeQty(this, '${optionName}', ${optionPrice},${price}, -1)" ${dis}>`
-                +         `<i class="bi bi-dash"></i>`
-                +       `</button>`
-                +       `<span class="option-qty-value px-2">${optionQty}</span>`
-                +       `<button type="button" class="btn btn-outline-secondary qty-button qty-plus" onclick="javascript:changeQty(this, '${optionName}', ${optionPrice},${price}, 1)" ${dis}>`
-                +         `<i class="bi bi-plus"></i>`
-                +       `</button>`
-                +     `</div>`
-                +   `</div>`
-            }
-            htmlPriceOption +=
-              `<input class="price-hidden" type="hidden" name="${optionName}" value="${price}" />`
-            + `<input class="qty-hidden" type="hidden" name="${optionQtyName}" value="${optionQty}" />`
+        if (option.changeQty) {
+          htmlPriceOption +=
+            `<div class="d-flex align-items-center justify-content-between mt-2">`
+            + `<div class="btn-group btn-group-sm" role="group" aria-label="Кількість">`
+            +   `<button type="button" class="btn btn-outline-secondary qty-button qty-minus"`
+            +     ` onclick="javascript:changeQty(this, '${optionName}', ${unitEur}, 0, -1)" ${disabledAttr}>`
+            +     `<i class="bi bi-dash"></i>`
+            +   `</button>`
+            +   `<span class="option-qty-value px-2">${optionQty}</span>`
+            +   `<button type="button" class="btn btn-outline-secondary qty-button qty-plus"`
+            +     ` onclick="javascript:changeQty(this, '${optionName}', ${unitEur}, 0, 1)" ${disabledAttr}>`
+            +     `<i class="bi bi-plus"></i>`
+            +   `</button>`
             + `</div>`
-
-            $card.find('.op-card-list').append(htmlPriceOption);
-
-            $card.find('.price-options-manifest').append(
-                  `<div class="kv ${optionName}">`
-                + `<span style="width: 300px;">${option.label}</span><span class="man-price-one">${optionPrice}</span><span class="man-qty">${optionQty}</span><span class="price">${price}</span>` 
-                + `</div>`
-            );
-        }else{
-          if(optionQty){
-              setOneOption($card, optionName, optionQty, optionPrice, price)
-          }
+            + `</div>`
         }
+
+        htmlPriceOption +=
+          `<input class="price-hidden" type="hidden" name="${optionName}" value="0" />`
+          + `<input class="qty-hidden" type="hidden" name="${optionQtyName}" value="${optionQty}" />`
+          + `</div>`
+
+        $card.find('.op-card-list').append(htmlPriceOption)
+      }
+
+      // если у нас уже есть qty > 0 (редактирование заказа) — сразу создаём строку в таблице
+      if (optionQty > 0) {
+        setOneOption($card, optionName, optionQty, unitEur, 0)
       }
     }
-    
-    function renderPriceOptions($card,commonQty, preSelectsPriceOptions = {}) {
+
+    function enableCheckGabarit($card, GbDiffWidthMm, checked){
+      if (GbDiffWidthMm) {
+        $card.find('.gabarit-width-flag').show()
+        $card.find('.gabarit-width-flag .form-check-input').prop('disabled', false)
+      } else {
+        $card.find('.gabarit-width-flag').hide()
+        $card.find('.gabarit-width-flag .form-check-input').prop('disabled', true)
+      }
+      $card.find('.gabarit-width-flag .form-check-input').prop('checked', checked)
+    }
+
+
+    function renderPriceOptions($card, commonQty, preSelectsPriceOptions = {}) {
       let numberCard = $card.find('.pos-index')
       let data = pricesCache[numberCard]
-      if(!data){
+      if (!data) {
         previewCard($card)
         return
       }
 
-      if(data.comment_system_red){
+      if (data.comment_system_red) {
         $card.find('.comment_system_red').html(data.comment_system_red)
       }
-      if(data.comment_system_green){
+      if (data.comment_system_green) {
         $card.find('.comment_system_green').html(data.comment_system_green)
       }
 
-      if(data.GbDiffWidthMm){
-        $card.find('.gabarit-width-flag').show()
-        $card.find('.gabarit-width-flag .form-check-input').prop('disabled', false)
-      }else{
-        $card.find('.gabarit-width-flag .form-check-input').hide()
-        $card.find('.gabarit-width-flag .form-check-input').prop('disabled', true)
-      }
+      enableCheckGabarit($card, data.GbDiffWidthMm, preSelectsPriceOptions.gabarit_width_flag)
 
-      let qty = $card.find('.qty').val()
-      let addMoney = 0
-    
-      $card.find('.base').text(money(Number(data.base_price_eur || 0) * qty))
-      $card.find('.base-input').text(money(Number(data.base_price_eur || 0) * qty))
-      $card.find('.surcharge').text(money(Number(data.surcharge_height_eur || 0) * qty))
-      $card.find('.surcharge-input').text(money(Number(data.surcharge_height_eur || 0) * qty))
+      let qty = Number($card.find('.qty').val() || 1)
+
+      const baseOne = Number(data.base_price_eur || 0)
+      const surchargeOne = Number(data.surcharge_height_eur || 0)
+      const baseTotal = baseOne * qty
+      const surchargeTotal = surchargeOne * qty
+
+      // EUR
+      $card.find('.base').text(money(baseTotal))
+      $card.find('.base-input').val(money(baseTotal))
+
+      $card.find('.surcharge').text(money(surchargeTotal))
+      $card.find('.surcharge-input').val(money(surchargeTotal))
+
+      // UAH сразу при превью
+      $card.find('.base-uah').text(eurToUah(baseTotal))
+      $card.find('.surcharge-uah').text(eurToUah(surchargeTotal))
+
       $card.find('.gb_width_mm').val((Number(data.gb_width_mm || 0)))
-    
+
       priceOptionsConfig.forEach((option) => {
-          renderOnePriceOption($card, data, option, commonQty, preSelectsPriceOptions);
+        renderOnePriceOption($card, data, option, commonQty, preSelectsPriceOptions);
       })
 
       recalcPrice()
     }
-           
+
+
     $container.on('change', '.table-section', async function () {
       const $card = $(this).closest('.item-card')
       const system = $card.find('.system-sheet').val()
       const section = $(this).val()
-    
+
       $card.find('.base,.surcharge,.magnets-price,.subtotal').text('0.00')
+      $card.find('.base-uah,.surcharge-uah,.subtotal-uah').text('0.00')
       if (!system || !section) {
         return
       }
@@ -931,12 +1101,12 @@
 
       const $card = $(this).closest('.item-card')
       const fabric = $(this).val()
-    
+
       if (!fabric) {
         fillFabricColorsForCard($card, [], null)
         return
       }
-    
+
       try {
         const data = await loadFabricColors(fabric)
         fillFabricColorsForCard($card, data.color_codes || [], null)
@@ -944,10 +1114,10 @@
         window.showToast(e.message || 'Не вдалося завантажити кольори тканини', 'danger')
         fillFabricColorsForCard($card, [], null)
       }
-    
+
       previewCard($card)
     })
-    
+
     $('#orderForm').on('submit', function (e) {
       let ok = true
       $container.find('.item-card').each(function () {
@@ -956,7 +1126,7 @@
         const sec = $c.find('.table-section').val()
         const fab = $c.find('.fabric').val()
         const fabc = $c.find('.fabric-color-code').val()
-    
+
         if (!sys || !sec || !fab || !fabc) {
           ok = false
           if (!sys) $c.find('.system-sheet').addClass('is-invalid')
@@ -973,7 +1143,7 @@
         window.showToast('Оберіть систему, колір системи, тканину та колір тканини для кожної позиції', 'warning')
       }
     })
-    
+
      // ---------- Ініціалізація ----------
     ;(async function () {
       try {

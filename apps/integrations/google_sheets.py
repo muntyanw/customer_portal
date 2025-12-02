@@ -206,6 +206,12 @@ def parse_sheet_price_section(
 
     result["sheet_name"] = sheet_name or ""
     result["sections"] = all_sections or None
+    
+    cg = getConfigBySheetName(sheet_name)
+    if cg.gbDiffWidthMm:
+        result["GbDiffWidthMm"] = cg.gbDiffWidthMm
+    else:
+        result["GbDiffWidthMm"] = 0
 
     if not section_title:
         return result
@@ -335,16 +341,12 @@ def parse_sheet_price_section(
         return result
 
     real_width_mm = width_mm
-    cg = getConfigBySheetName(sheet_name)
     gb_width_mm = width_mm
     if cg.gbDiffWidthMm:
         gb_width_mm = width_mm + cg.gbDiffWidthMm
         if gabarit_width_flag:
             real_width_mm = width_mm - cg.gbDiffWidthMm
             gb_width_mm = width_mm
-        result["GbDiffWidthMm"] = cg.gbDiffWidthMm
-    else:
-        result["GbDiffWidthMm"] = 0
 
     idx = pick_width_band(width_bands, real_width_mm)
     if idx is None:

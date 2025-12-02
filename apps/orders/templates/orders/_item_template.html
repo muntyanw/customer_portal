@@ -85,6 +85,7 @@
               </div>
             </div>
 
+            <!-- ВАЖНО: скрытые поля только в EUR, бек их не меняем -->
             <input type="hidden" name="base_price_eur" class="base-input" />
             <input type="hidden" name="gb_width_mm" class="gb_width_mm" />
             <input type="hidden" name="surcharge_height_eur" class="surcharge-input" />
@@ -95,18 +96,59 @@
         <div class="row mt-3">
           <div class="col-12 col-md-5">
             <div class="price-box border rounded-3 p-3">
-              <div class="price-options-manifest">
-                <div class="kv">
-                  <span>Система</span><span class="base">0.00</span>
-                </div>
-                <div class="kv">
-                  <span>Допис висоти</span><span class="surcharge">0.00</span>
-                </div>
+              <div class="table-responsive">
+                <table class="table table-sm mb-0 align-middle">
+                  <thead>
+                    <tr>
+                      <th class="w-50">Позиція</th>
+                      <th class="text-end">
+                        Ціна од.
+                      </th>
+                      <th class="text-center">К-ть</th>
+                      <th class="text-end">
+                        Разом
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody class="price-options-manifest">
+                    <!-- Базовая часть (система) -->
+                    <tr class="system-row">
+                      <td>Система</td>
+                      <td class="text-end">
+                        <span class="base" style="display:none;">0.00</span> 
+                        <div class="">
+                          <span class="base-uah">0.00</span>
+                        </div>
+                      </td>
+                      <td class="text-center"></td>
+                      <td class="text-end"></td>
+                    </tr>
+
+                    <!-- Надбавка за высоту -->
+                    <tr class="surcharge-row">
+                      <td>Допис висоти</td>
+                      <td class="text-end">
+                        <span class="surcharge" style="display:none;">0.00</span>
+                        <div class="">
+                          <span class="surcharge-uah">0.00</span>
+                        </div>
+                      </td>
+                      <td class="text-center"></td>
+                      <td class="text-end"></td>
+                    </tr>
+
+                    <!-- Строки опций будут добавляться JS ТОЛЬКО при чекбоксе -->
+                  </tbody>
+                </table>
               </div>
+
               <hr class="my-2" />
-              <div class="sum">
+              <div class="d-flex justify-content-between">
                 <span>Ціна позиції</span>
-                <span class="subtotal-input">0.00</span>
+                <span class="text-end">
+                  <span class="subtotal-input" style="display:none;">0.00</span>
+                  <span class="subtotal-uah ms-2">0.00</span>
+                </span>
               </div>
             </div>
           </div>
