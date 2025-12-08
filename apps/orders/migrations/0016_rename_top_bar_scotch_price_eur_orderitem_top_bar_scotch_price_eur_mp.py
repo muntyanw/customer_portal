@@ -10,9 +10,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RenameField(
-            model_name='orderitem',
-            old_name='top_bar_scotch_price_eur',
-            new_name='top_bar_scotch_price_eur_mp',
-        ),
+        # migrations.RenameField(
+        #     model_name='orderitem',
+        #     old_name='top_bar_scotch_price_eur',
+        #     new_name='top_bar_scotch_price_eur_mp',
+        # ),
     ]

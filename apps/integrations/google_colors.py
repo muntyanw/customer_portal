@@ -13,6 +13,11 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.oauth2.service_account import Credentials
 
+from googleapiclient.errors import HttpError
+from google.auth.exceptions import TransportError
+from httplib2 import ServerNotFoundError
+
+
 
 def _get_sheets_service():
     creds = Credentials.from_service_account_file(
@@ -132,7 +137,7 @@ def _get_fabric_colors_values_with_cache() -> Optional[list]:
         _save_cached_values(values, fetched_at=now)
         return values
 
-    except (HttpError, OSError, IOError, ConnectionError):
+    except (HttpError, OSError, IOError, ConnectionError, TransportError, ServerNotFoundError) as e:
         # Google недоступний — намагаємося повернути кеш, якщо він є
         if cached_values is not None:
             return cached_values

@@ -148,6 +148,8 @@ def order_builder(request, pk=None):
         w_list = request.POST.getlist("width_fabric_mm")
 
         gw_flags = request.POST.getlist("gabarit_width_flag")
+        GbDiffWidthMm = request.POST.getlist("GbDiffWidthMm")
+        gb_width_mm = request.POST.getlist("gb_width_mm")
 
         base_prices = request.POST.getlist("base_price_eur")
         sur_prices = request.POST.getlist("surcharge_height_eur")
@@ -202,6 +204,8 @@ def order_builder(request, pk=None):
                 width_fabric_mm=int(_get(w_list, idx, "0")),
                 gabarit_width_flag=_get(gw_flags, idx) in ("on", "true", "1"),
                 base_price_eur=_to_decimal(_get(base_prices, idx)),
+                gb_width_mm=_to_decimal(_get(gb_width_mm, idx)),
+                GbDiffWidthMm=_to_decimal(_get(GbDiffWidthMm, idx)),
                 surcharge_height_eur=_to_decimal(_get(sur_prices, idx)),
                 magnets_price_eur=_to_decimal(_get(magnets_price_eur, idx)),
                 magnets_qty=_to_decimal(_get(magnets_qty, idx)),
@@ -262,6 +266,8 @@ def order_builder(request, pk=None):
                 "width_fabric_mm": it.width_fabric_mm,
                 "gabarit_width_flag": it.gabarit_width_flag,
                 "base_price_eur": float(it.base_price_eur),
+                "GbDiffWidthMm": float(it.GbDiffWidthMm),
+                "gb_width_mm": float(it.gb_width_mm),
                 "surcharge_height_eur": float(it.surcharge_height_eur),
                 
                 "magnets_price_eur": float(it.magnets_price_eur),

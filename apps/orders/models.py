@@ -62,6 +62,8 @@ class OrderItem(models.Model):
     # Numeric input
     height_gabarit_mm = models.PositiveIntegerField()    # габаритна висота, мм
     width_fabric_mm = models.PositiveIntegerField()      # введена ширина, мм (зараз = по тканині; логіку можна змінити пізніше)
+    GbDiffWidthMm = models.PositiveIntegerField(default=0)      
+    gb_width_mm = models.PositiveIntegerField(default=0)      
 
     # Info
     roll_height_info = models.CharField(
@@ -71,9 +73,9 @@ class OrderItem(models.Model):
     )
 
     # Flags / options (basic)
-    gabarit_width_flag = models.BooleanField(default=False)   # галочка "Габаритна ширина (+4мм)" / "ширина габаритна"
-    bottom_fixation = models.BooleanField(default=False)      # нижня фіксація (логічний прапорець, без ціни поки)
-    pvc_plank = models.BooleanField(default=False)            # планка ПВХ зі скотчем (логічний прапорець, без ціни поки)
+    gabarit_width_flag = models.BooleanField(default=False)
+    bottom_fixation = models.BooleanField(default=False)
+    pvc_plank = models.BooleanField(default=False)
 
     # Control side
     control_side = models.CharField(

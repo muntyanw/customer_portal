@@ -31,14 +31,15 @@ class sheetName(str, Enum):
 class sheetConfig:
     gbDiffWidthMm: Optional[int] = None
     display: Optional[int] = 1
+    exist_control_side: Optional[int] = 1
 
 
 # ---------------------------------------------
 # Глобальный словарь с конфигами
 # ---------------------------------------------
 sheetConfigs: dict[sheetName, sheetConfig] = {
-    sheetName.falshi: sheetConfig(gbDiffWidthMm=4),
-    sheetName.falshiDn: sheetConfig(gbDiffWidthMm=20),
+    sheetName.falshi: sheetConfig(gbDiffWidthMm=4, exist_control_side=0),
+    sheetName.falshiDn: sheetConfig(gbDiffWidthMm=20, exist_control_side=0),
 
     sheetName.vidkr19yiBesta: sheetConfig(gbDiffWidthMm=35),
     sheetName.vidkr19yiBestaDn: sheetConfig(gbDiffWidthMm=35),

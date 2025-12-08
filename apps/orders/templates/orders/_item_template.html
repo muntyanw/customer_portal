@@ -48,8 +48,23 @@
         </div>
 
         <div class="col-12 col-md-3">
+          <div class="control_side d-none mb-2">
+            <label class="form-label"><strong>Сторона керування</strong></label>
+            <select name="control_side" class="form-select">
+              <option value="">— Не вказано —</option>
+              <option value="left">Ліворуч</option>
+              <option value="right">Праворуч</option>
+            </select>
+            <br />
+          </div>
+
+          <label class="form-label"><strong>Кількість виробів</strong></label>
+          <input type="number" name="quantity" class="form-control qty" min="1" step="1" value="1" disabled />
+        </div>
+
+        <div class="col-12 col-md-3">
           <label class="form-label"><strong>Габаритна висота, мм</strong></label>
-          <input type="number" min="0" name="height_gabarit_mm" class="form-control h-mm" placeholder="введіть мм" disabled />
+          <input type="number" min="0" name="height_gabarit_mm" class="form-control h-mm mb-2" placeholder="введіть мм" disabled />
           <br />
           <label class="form-label"><strong>Ширина, мм</strong></label>
           <input type="number" min="0" name="width_fabric_mm" class="form-control w-mm" placeholder="введіть мм" disabled />
@@ -57,99 +72,69 @@
             <label class="form-label">Це габаритна ширина</label>
             <input class="form-check-input bottom-fixation" type="checkbox" name="gabarit_width_flag" disabled />
           </div>
+      </div>
+
+      <div class="row">
+        <div class="col-12 col-md-12 op-card-list mt-4">
+          <input type="hidden" name="base_price_eur" class="base-input" />
+          <input type="hidden" name="gb_width_mm" class="gb_width_mm" />
+          <input type="hidden" name="surcharge_height_eur" class="surcharge-input" />
+          <input type="hidden" name="subtotal_eur" class="subtotal-input" />
         </div>
+      </div>
 
-        <div class="col-12 col-md-3">
-          <label class="form-label"><strong>Кількість виробів</strong></label>
-          <input type="number" name="quantity" class="form-control qty" min="1" step="1" value="1" disabled />
-        </div>
+      <div class="row mt-3">
+        <div class="col-12 col-md-5">
+          <div class="price-box border rounded-3 p-3">
+            <div class="table-responsive">
+              <table class="table table-sm mb-0 align-middle">
+                <thead>
+                  <tr>
+                    <th class="w-50">Позиція</th>
+                    <th class="text-end">Ціна од.</th>
+                    <th class="text-center">К-ть</th>
+                    <th class="text-end">Разом</th>
+                  </tr>
+                </thead>
+                <tbody class="price-options-manifest">
+                  <!-- Базовая часть (система) -->
+                  <tr class="system-row">
+                    <td>Система</td>
+                    <td class="text-end">
+                      <span class="base" style="display:none;">0.00</span>
+                      <div class="">
+                        <span class="base-uah">0.00</span>
+                      </div>
+                    </td>
+                    <td class="text-center"></td>
+                    <td class="text-end"></td>
+                  </tr>
 
-        <div class="row">
-          <div class="col-12 col-md-12 op-card-list">
-            <label class="form-label control_side d-none"><strong>Сторона керування</strong></label>
-            <select name="control_side" class="form-select control-side d-none">
-              <option value="">— Не вказано —</option>
-              <option value="left">Ліва</option>
-              <option value="right">Права</option>
-              <option value="none">Без керування / пружина</option>
-            </select>
+                  <!-- Надбавка за высоту -->
+                  <tr class="surcharge-row">
+                    <td>Допис висоти</td>
+                    <td class="text-end">
+                      <span class="surcharge" style="display:none;">0.00</span>
+                      <div class="">
+                        <span class="surcharge-uah">0.00</span>
+                      </div>
+                    </td>
+                    <td class="text-center"></td>
+                    <td class="text-end"></td>
+                  </tr>
 
-            <div class="mt-2">
-              <div class="form-check d-none">
-                <input class="form-check-input bottom-fixation" type="checkbox" name="bottom_fixation" id="bf_" />
-                <label class="form-check-label" for="bf_">Нижня фіксація</label>
-              </div>
-              <div class="form-check d-none">
-                <input class="form-check-input pvc-plank" type="checkbox" name="pvc_plank" id="pvc_" />
-                <label class="form-check-label" for="pvc_">Планка ПВХ зі скотчем</label>
-              </div>
+                  <!-- Строки опций будут добавляться JS ТОЛЬКО при чекбоксе -->
+                </tbody>
+              </table>
             </div>
 
-            <!-- ВАЖНО: скрытые поля только в EUR, бек их не меняем -->
-            <input type="hidden" name="base_price_eur" class="base-input" />
-            <input type="hidden" name="gb_width_mm" class="gb_width_mm" />
-            <input type="hidden" name="surcharge_height_eur" class="surcharge-input" />
-            <input type="hidden" name="subtotal_eur" class="subtotal-input" />
-          </div>
-        </div>
-
-        <div class="row mt-3">
-          <div class="col-12 col-md-5">
-            <div class="price-box border rounded-3 p-3">
-              <div class="table-responsive">
-                <table class="table table-sm mb-0 align-middle">
-                  <thead>
-                    <tr>
-                      <th class="w-50">Позиція</th>
-                      <th class="text-end">
-                        Ціна од.
-                      </th>
-                      <th class="text-center">К-ть</th>
-                      <th class="text-end">
-                        Разом
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody class="price-options-manifest">
-                    <!-- Базовая часть (система) -->
-                    <tr class="system-row">
-                      <td>Система</td>
-                      <td class="text-end">
-                        <span class="base" style="display:none;">0.00</span> 
-                        <div class="">
-                          <span class="base-uah">0.00</span>
-                        </div>
-                      </td>
-                      <td class="text-center"></td>
-                      <td class="text-end"></td>
-                    </tr>
-
-                    <!-- Надбавка за высоту -->
-                    <tr class="surcharge-row">
-                      <td>Допис висоти</td>
-                      <td class="text-end">
-                        <span class="surcharge" style="display:none;">0.00</span>
-                        <div class="">
-                          <span class="surcharge-uah">0.00</span>
-                        </div>
-                      </td>
-                      <td class="text-center"></td>
-                      <td class="text-end"></td>
-                    </tr>
-
-                    <!-- Строки опций будут добавляться JS ТОЛЬКО при чекбоксе -->
-                  </tbody>
-                </table>
-              </div>
-
-              <hr class="my-2" />
-              <div class="d-flex justify-content-between">
-                <span>Ціна позиції</span>
-                <span class="text-end">
-                  <span class="subtotal-input" style="display:none;">0.00</span>
-                  <span class="subtotal-uah ms-2">0.00</span>
-                </span>
-              </div>
+            <hr class="my-2" />
+            <div class="d-flex justify-content-between">
+              <span>Ціна позиції</span>
+              <span class="text-end">
+                <span class="subtotal-input" style="display:none;">0.00</span>
+                <span class="subtotal-uah ms-2">0.00</span>
+              </span>
             </div>
           </div>
         </div>

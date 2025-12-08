@@ -142,37 +142,51 @@
       return node
     }
 
-    // ---------- State / cache ----------
     const $container = $('#itemsContainer')
     const priceUrlInput = $('#priceUrl')
 
-    let systemsCache = null // список вкладок (систем)
+    let systemsCache = null
     let pricesCache = {}
-    const sectionsCache = new Map() // key: system -> [sections]
-    const fabricsCache = new Map() // key: system|section -> {fabrics, width_bands, magnets_price_eur}
+    const sectionsCache = new Map() 
+    const fabricsCache = new Map() 
     const fabricColorsCache = new Map()
 
     let debounceTimer
-    function setEventsFromGabarits($card){
-      $w_mm = $card.find('.w-mm')
-      $h_mm = $card.find('.h-mm')
+    function setEventsFromGabarits($card) {
+      const $w_mm = $card.find('.w-mm')
+      const $h_mm = $card.find('.h-mm')
+
       $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag').prop('disabled', false)
-      $card.find('.gabarit-width-flag').prop('disabled', false)
-      $card.find('.h-mm, .w-mm').on('input', function () {
-        clearTimeout(debounceTimer)
-        debounceTimer = setTimeout(() => {
+      $card.find('.gabarit-width-flag .form-check-input').prop('disabled', false)
+
+      function setDebounce(fn) {
+        const prevTimer = $card.data('gabaritsDebounceTimer')
+        if (prevTimer) {
+          clearTimeout(prevTimer)
+        }
+        const t = setTimeout(fn, 600)
+        $card.data('gabaritsDebounceTimer', t)
+      }
+
+      $card.find('.h-mm, .w-mm')
+        .off('input.gabarits')
+        .on('input.gabarits', function () {
+          setDebounce(() => {
+            if (Number($w_mm.val()) > 0 && Number($h_mm.val()) > 0) {
+              previewCard($card)
+            }
+          })
+        })
+
+      $card.find('.gabarit-width-flag .form-check-input')
+        .off('change.gabarits')
+        .on('change.gabarits', function () {
           if (Number($w_mm.val()) > 0 && Number($h_mm.val()) > 0) {
             previewCard($card)
           }
-        }, 600)
-      })
-      $card.find('.gabarit-width-flag .form-check-input').on('change', function () {
-        if (Number($w_mm.val()) > 0 && Number($h_mm.val()) > 0) {
-          previewCard($card)
-        }
-      })
-
+        })
     }
+
 
     // UA: Прибирає всі додаткові опції з картки (і чекбокси, і рядки в таблиці)
     // EN: Remove all extra options from card (option cards + table rows)
@@ -243,6 +257,11 @@
 
         try {
           let data = await loadSectionsForSystem(system)
+          if(data.exist_control_side){
+            $card.find('.control_side').removeClass('d-none')
+          }else{
+            $card.find('.control_side').addClass('d-none')
+          }
           enableCheckGabarit($card, data.GbDiffWidthMm, false)
           fillSectionsForCard($card, system, null)
         } catch (e) {
@@ -329,6 +348,7 @@
       const data = await resp.json()
       const sections = data.sections || []
       sections.GbDiffWidthMm = data.GbDiffWidthMm
+      sections.exist_control_side = data.exist_control_side
       sectionsCache.set(system, sections)
       return sections
     }
@@ -478,18 +498,23 @@
     function readCardValues($card) {
       let qtyPriceOptions = {}
       priceOptionsConfig.forEach((option) => {
-        qtyPriceOptions[option.key] = $card
-          .find('[name="' + option.key.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty") + '"]').val()
+        let optionQtyName = option.key.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
+        let qty = $card.find('[name="' + optionQtyName + '"]').val()
+        if(qty!=undefined){
+          qtyPriceOptions[optionQtyName] = $card.find('[name="' + optionQtyName + '"]').val()
+        }
       });
       return {
         system: $card.find('.system-sheet').val() || '',
         section: $card.find('.table-section').val() || '',
         fabric: $card.find('.fabric').val() || '',
         fabric_color_code: $card.find('.fabric-color-code').val() || '',
-        h: $card.find('.h-mm').val() || '',
-        w: $card.find('.w-mm').val() || '',
+        //h: $card.find('.h-mm').val() || '',
+        //w: $card.find('.w-mm').val() || '',
         qty: $card.find('.qty').val() || '1',
-        gw: $card.find('.gabarit-width-flag .form-check-input').is(':checked'),
+        //gw: $card.find('.gabarit-width-flag .form-check-input').is(':checked'),
+        control_side_exist: !$card.find('.control_side select').hasClass("d-none"),
+        control_side: $card.find('.control_side select').val(),
         qtyPriceOptions:qtyPriceOptions
       }
     }
@@ -506,6 +531,11 @@
       const gabarit_width_flag = $card.find('.gabarit-width-flag .form-check-input').is(':checked')
       const qty = Math.max(1, parseInt($card.find('.qty').val() || '1', 10))
 
+      if(Object.keys(preSelectsPriceOptions).length > 0){
+        renderPriceOptions($card, 0, preSelectsPriceOptions)
+        return
+      }
+
       if (!system || !section || !fabric || !fabric_color_code || !h || !w) {
         return
       }
@@ -513,7 +543,7 @@
       try {
         const data = await previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabarit_width_flag })
         pricesCache[$card.find('.pos-index')] = data
-        renderPriceOptions($card, 0,preSelectsPriceOptions)
+        renderPriceOptions($card, 0, preSelectsPriceOptions)
       } catch (err) {
         $card.find('.h-mm').val(0)
         $card.find('.w-mm').val(0)
@@ -570,6 +600,13 @@
       /// 3) размеры
       if (item.height_gabarit_mm) $card.find('.h-mm').val(item.height_gabarit_mm)
       if (item.width_fabric_mm) $card.find('.w-mm').val(item.width_fabric_mm)
+      if(item.control_side){
+        $card.find('.control_side').removeClass("d-none")
+        if (item.control_side) $card.find('.control_side select').val(item.control_side)
+      }else{
+        $card.find('.control_side').addClass("d-none")
+      }
+      
 
       // 5) количество
       $card.find('.qty').val(item.quantity || 1)
@@ -584,6 +621,13 @@
             preSelectsPriceOptions[option.key.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")] = qty
           }
       });
+
+      preSelectsPriceOptions.base_price_eur = item.base_price_eur
+      preSelectsPriceOptions.comment_system_red = ""
+      preSelectsPriceOptions.comment_system_green = ""
+      preSelectsPriceOptions.gb_width_mm = item.gb_width_mm
+      preSelectsPriceOptions.GbDiffWidthMm = item.GbDiffWidthMm
+
 
       preSelectsPriceOptions.gabarit_width_flag = item.gabarit_width_flag
 
@@ -627,11 +671,19 @@
               $card.find('.gabarit-width-flag .form-check-input').prop('disabled', false)
             }
 
-            if (prevVals.h) $card.find('.h-mm').val(prevVals.h)
-            if (prevVals.w) $card.find('.w-mm').val(prevVals.w)
+            //if (prevVals.h) $card.find('.h-mm').val(prevVals.h)
+            //if (prevVals.w) $card.find('.w-mm').val(prevVals.w)
             if (prevVals.qty) $card.find('.qty').val(prevVals.qty)
 
-            $card.find('.gabarit-width-flag .form-check-input').prop('checked', !prevVals.gw)
+            //$card.find('.gabarit-width-flag .form-check-input').prop('checked', !prevVals.gw)
+            $cside = $card.find('.control_side select')
+            if(prevVals.control_side_exist){
+              $card.find('.control_side').removeClass("d-none")
+              $cside.val(prevVals.control_side)
+            }else{
+              $card.find('.control_side').addClass("d-none")
+            }
+            
 
             await previewCard($card, prevVals.qtyPriceOptions)
 
@@ -960,15 +1012,14 @@
     }
 
 
-   function renderOnePriceOption($card, data, option, commonQty, preSelectsPriceOptions = {}) {
+   function renderOnePriceOption($card, optionPrice, option, commonQty, preSelectoptionQty) {
       const optionName = option.key
       const optionQtyName = optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
-      const optionPrice = preSelectsPriceOptions[optionName] || data[optionName]
       if (!optionPrice) return
 
       let optionQty = 0
-      if (preSelectsPriceOptions[optionQtyName]) {
-        optionQty = Number(preSelectsPriceOptions[optionQtyName])
+      if (preSelectoptionQty) {
+        optionQty = Number(preSelectoptionQty)
       } else {
         optionQty = Number($card.find(`[name="${optionQtyName}"]`).val() || 0)
       }
@@ -1053,42 +1104,44 @@
     function renderPriceOptions($card, commonQty, preSelectsPriceOptions = {}) {
       let numberCard = $card.find('.pos-index')
       let data = pricesCache[numberCard]
-      if (!data) {
+      if (!data && Object.keys(preSelectsPriceOptions).length == 0) {
         previewCard($card)
         return
       }
 
-      if (data.comment_system_red) {
-        $card.find('.comment_system_red').html(data.comment_system_red)
+      if (preSelectsPriceOptions.comment_system_red || data?.comment_system_red) {
+        $card.find('.comment_system_red').html(preSelectsPriceOptions.comment_system_red ?? data?.comment_system_red)
       }
-      if (data.comment_system_green) {
-        $card.find('.comment_system_green').html(data.comment_system_green)
+      if (preSelectsPriceOptions.comment_system_green || data?.comment_system_green) {
+        $card.find('.comment_system_green').html(preSelectsPriceOptions.comment_system_green ?? data?.comment_system_green)
       }
 
-      enableCheckGabarit($card, data.GbDiffWidthMm, preSelectsPriceOptions.gabarit_width_flag)
+      let GbDiffWidthMm = preSelectsPriceOptions.GbDiffWidthMm  ?? data?.GbDiffWidthMm
+      enableCheckGabarit($card, GbDiffWidthMm, preSelectsPriceOptions.gabarit_width_flag)
 
       let qty = Number($card.find('.qty').val() || 1)
 
-      const baseOne = Number(data.base_price_eur || 0)
-      const surchargeOne = Number(data.surcharge_height_eur || 0)
+      const baseOne = Number(data?.base_price_eur || preSelectsPriceOptions.base_price_eur || 0)
+      const surchargeOne = Number(data?.surcharge_height_eur || preSelectsPriceOptions.surcharge_height_eur || 0)
       const baseTotal = baseOne * qty
       const surchargeTotal = surchargeOne * qty
 
-      // EUR
       $card.find('.base').text(money(baseTotal))
       $card.find('.base-input').val(money(baseTotal))
 
       $card.find('.surcharge').text(money(surchargeTotal))
       $card.find('.surcharge-input').val(money(surchargeTotal))
 
-      // UAH сразу при превью
       $card.find('.base-uah').text(eurToUah(baseTotal))
       $card.find('.surcharge-uah').text(eurToUah(surchargeTotal))
 
-      $card.find('.gb_width_mm').val((Number(data.gb_width_mm || 0)))
+      $card.find('.gb_width_mm').val((Number(preSelectsPriceOptions.gb_width_mm || data?.gb_width_mm || 0)))
 
       priceOptionsConfig.forEach((option) => {
-        renderOnePriceOption($card, data, option, commonQty, preSelectsPriceOptions);
+        const optionName = option.key
+        const optionQtyName = optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
+        const price = preSelectsPriceOptions[optionName] ?? (data ? data[optionName]:undefined)
+        renderOnePriceOption($card, price, option, commonQty, preSelectsPriceOptions[optionQtyName]);
       })
 
       recalcPrice()
@@ -1144,8 +1197,11 @@
           if (!sec) $c.find('.table-section').addClass('is-invalid')
           if (!fab) $c.find('.fabric').addClass('is-invalid')
           if (!fabc) $c.find('.fabric-color-code').addClass('is-invalid')
+          if(!$c.find('.control_side').hasClass("d-none")){
+              if (!$c.find('.control_side select').val()) $c.find('.control_side select').addClass('is-invalid')
+          }
         } else {
-          $c.find('.system-sheet,.table-section,.fabric,.fabric-color-code').removeClass('is-invalid')
+          $c.find('.system-sheet,.table-section,.fabric,.fabric-color-code,.control_side select').removeClass('is-invalid')
         }
       })
       if (!ok) {

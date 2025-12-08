@@ -212,6 +212,8 @@ def parse_sheet_price_section(
         result["GbDiffWidthMm"] = cg.gbDiffWidthMm
     else:
         result["GbDiffWidthMm"] = 0
+        
+    result["exist_control_side"] = cg.exist_control_side
 
     if not section_title:
         return result
@@ -568,7 +570,7 @@ def parse_sheet_price_section(
             ws, header_row - 1, col_letter_to_index("D")
         )
         result["bottom_wide_bar_price_eur_mp"] = get_money_value(
-            ws, header_row - 3, col_letter_to_index("N")
+            ws, header_row - 1, col_letter_to_index("N")
         )
         
     if sheet_name == sheetName.vidkr47yiDvyhunAboLouvolit:
