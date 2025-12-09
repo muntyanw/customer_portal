@@ -164,217 +164,9 @@ def pick_width_band(width_bands: List[str], width_mm: int) -> Optional[int]:
     return None
 
 
-# ========= PARSE ONE PRICE SECTION =========
-def parse_sheet_price_section(
-    google_sheet_url: str,
-    sheet_name: str,
-    section_title: str,
-    *,
-    gabarit_width_flag: Optional[bool] = None,
-    width_mm: int = None,
-    fabric_name: str = None,
-    gabarit_height_mm: int = None,
-) -> Dict:
-    """
-    UA: Парсить ТІЛЬКИ вибрану секцію на вказаному листі.
-    EN: Parse ONLY selected section on given sheet.
-
-    Структура як у "Фальш-ролети":
-      - зверху блоку: заголовок "Фальш-ролети, біла система" тощо;
-      - далі кілька пояснювальних рядків;
-      - рядок заголовків з "Тканина", "Висота рулону / тканини", "Габаритна висота ...";
-      - наступний рядок: ширинні смуги;
-      - далі: тканини до пустого рядка або наступного заголовку-секції.
-      Може бути кілька таких під-таблиць (коли ширини не вміщаються в один блок).
-    """
-    result = {}
-
-    wb = _download_workbook(google_sheet_url, force_refresh=False)
-    if sheet_name not in wb.sheetnames:
-        raise ValueError(f"Sheet '{sheet_name}' not found in workbook")
-
-    ws = wb[sheet_name]
-
-    all_sections = find_sections_by_headers(
-        ws,
-        title_prefix="",
-        min_merged_width=0,
-        search_cols=6,
-        case_insensitive=True,
-        sheet_name=sheet_name,
-    )
-
-    result["sheet_name"] = sheet_name or ""
-    result["sections"] = all_sections or None
+def fillOptions(sheet_name, result, ws, header_row):
     
-    cg = getConfigBySheetName(sheet_name)
-    if cg.gbDiffWidthMm:
-        result["GbDiffWidthMm"] = cg.gbDiffWidthMm
-    else:
-        result["GbDiffWidthMm"] = 0
-        
-    result["exist_control_side"] = cg.exist_control_side
-
-    if not section_title:
-        return result
-
-    wanted_norm = _norm_title(section_title)
-    target = next(
-        (s for s in all_sections if _norm_title(s["title"]) == wanted_norm),
-        None,
-    )
-    if not target:
-        raise ValueError(f"Section '{section_title}' not found on sheet '{sheet_name}'")
-
-    sections_sorted = sorted(all_sections, key=lambda x: (x["row"], x["col"]))
-
-    idx_section = sections_sorted.index(target)
-    start_row = target["row"]
-    end_row = (
-        sections_sorted[idx_section + 1]["row"] - 1
-        if idx_section + 1 < len(sections_sorted)
-        else ws.max_row
-    )
-
-    # 2) Find ALL header rows inside section
-    #    (support one or multiple header blocks "Тканина / Висота / Габарит...")
-    header_rows: List[int] = []
-    for r in range(start_row, min(end_row, ws.max_row) + 1):
-        vals = _row_values(ws, r)
-        joined = " ".join([x or "" for x in vals]).lower()
-        if "тканина" in joined and "висота" in joined and "габарит" in joined:
-            header_rows.append(r)
-
-    if not header_rows:
-        raise RuntimeError(
-            f"Header row not found in section '{section_title}' on sheet '{sheet_name}'"
-        )
-
-    # Для сумісності далі використовуємо перший заголовок як "основний"
-    header_rows = sorted(header_rows)
-    header_row = header_rows[0]
-
-    # 3) Determine width bands and fabrics (support multiple sub-tables)
-    #    Ми НЕ дублюємо парсинг: кожен рядок читається рівно один раз,
-    #    а ціни по одній тканині з різних під-таблиць просто додаються в кінець.
-    all_width_bands: List[Any] = []
-
-    fabrics_map: Dict[str, Dict] = {}  # key: name.lower()
-    fabric_order: List[str] = []  # to preserve first-seen order
-
-    for i_hr, hr in enumerate(header_rows):
-        header_vals = _row_values(ws, hr)
-
-        # Find the first "ширина" column in this header block
-        width_hdr_idx = None
-        for i, v in enumerate(header_vals):
-            if isinstance(v, str) and "ширина" in v.lower():
-                width_hdr_idx = i
-                break
-        if width_hdr_idx is None:
-            # Fallback: after third column
-            width_hdr_idx = 3
-
-        width_row = hr + 1
-        width_row_vals = _row_values(ws, width_row)
-        width_bands_part = [v for v in width_row_vals[width_hdr_idx:] if v]
-        all_width_bands.extend(width_bands_part)
-
-        # границя поточної під-таблиці: до наступного header_row або end_row
-        next_header_row = (
-            header_rows[i_hr + 1] if i_hr + 1 < len(header_rows) else end_row + 1
-        )
-
-        # 5) Fabrics list for this sub-table
-        r = width_row + 1
-        while r < next_header_row and r <= end_row:
-            vals = _row_values(ws, r)
-
-            # порожній рядок — кінець даних поточної під-таблиці
-            if not any(vals):
-                break
-
-            name = (vals[0] or "").strip() if len(vals) > 0 else ""
-            if not name:
-                r += 1
-                continue
-
-            roll_h = _to_decimal(vals[1]) if len(vals) > 1 else None
-            gabarit_limit = _to_decimal(vals[2]) if len(vals) > 2 else None
-
-            price_cells = vals[width_hdr_idx:]
-            prices_part = [
-                (_to_decimal(pc) if _to_decimal(pc) is not None else None)
-                for pc in price_cells
-            ]
-
-            key = name.lower()
-
-            if key not in fabrics_map:
-                fabrics_map[key] = {
-                    "name": name,
-                    "roll_height_mm": int(roll_h) if roll_h is not None else None,
-                    "gabarit_limit_mm": (
-                        int(gabarit_limit) if gabarit_limit is not None else None
-                    ),
-                    "prices_by_band": prices_part,
-                }
-                fabric_order.append(key)
-            else:
-                f = fabrics_map[key]
-                # дозаповнюємо висоту/габарит, якщо раніше були None
-                if f["roll_height_mm"] is None and roll_h is not None:
-                    f["roll_height_mm"] = int(roll_h)
-                if f["gabarit_limit_mm"] is None and gabarit_limit is not None:
-                    f["gabarit_limit_mm"] = int(gabarit_limit)
-                # додаємо нові ціни в кінець діапазону
-                f["prices_by_band"].extend(prices_part)
-
-            r += 1
-
-    fabrics: List[Dict] = [fabrics_map[k] for k in fabric_order]
-    width_bands = all_width_bands
-
-    result["section_title"] = section_title or ""
-    result["fabrics"] = fabrics or None
-    result["section"] = target or ""
-
-    if not width_mm or not gabarit_height_mm:
-        return result
-
-    real_width_mm = width_mm
-    gb_width_mm = width_mm
-    if cg.gbDiffWidthMm:
-        if gabarit_width_flag:
-            real_width_mm = width_mm - cg.gbDiffWidthMm
-            gb_width_mm = width_mm - cg.gbDiffWidthMm
-
-    idx = pick_width_band(width_bands, real_width_mm)
-    if idx is None:
-        raise ValueError("Ширина поза діапазонами прайсу")
-
-    fabric = next(
-        (f for f in fabrics if f["name"].lower() == fabric_name.lower()),
-        None,
-    )
-    if not fabric:
-        raise ValueError("Тканину не знайдено у вибраній секції")
-
-    base_cell = fabric["prices_by_band"][idx]
-    if base_cell is None:
-        raise ValueError("Ціна відсутня у вибраній смузі")
-
-    base = Q(base_cell)
-
-    limit = fabric["gabarit_limit_mm"] or 0
-    if gabarit_height_mm <= limit:
-        surcharge = Q("0.00")
-    else:
-        over = gabarit_height_mm - limit
-        steps = (over + 99) // 100  # кожні 10см, заокруглення догори
-        surcharge = round_money(base * Q("0.10") * Q(int(steps)))
-
-    # 6) Extra magnets price (for Falshi sheet only)
+        # 6) Extra magnets price (for Falshi sheet only)
     if sheet_name == sheetName.falshi:
         result["magnets_price_eur"] = get_money_value(
             ws, header_row - 1, col_letter_to_index("D")
@@ -609,7 +401,225 @@ def parse_sheet_price_section(
             ws, header_row - 1, col_letter_to_index("X")
         )
         
-       
+    return result
+        
+        
+# ========= PARSE ONE PRICE SECTION =========
+def parse_sheet_price_section(
+    google_sheet_url: str,
+    sheet_name: str,
+    section_title: str,
+    *,
+    gabarit_width_flag: Optional[bool] = None,
+    width_mm: int = None,
+    fabric_name: str = None,
+    gabarit_height_mm: int = None,
+) -> Dict:
+    """
+    UA: Парсить ТІЛЬКИ вибрану секцію на вказаному листі.
+    EN: Parse ONLY selected section on given sheet.
+
+    Структура як у "Фальш-ролети":
+      - зверху блоку: заголовок "Фальш-ролети, біла система" тощо;
+      - далі кілька пояснювальних рядків;
+      - рядок заголовків з "Тканина", "Висота рулону / тканини", "Габаритна висота ...";
+      - наступний рядок: ширинні смуги;
+      - далі: тканини до пустого рядка або наступного заголовку-секції.
+      Може бути кілька таких під-таблиць (коли ширини не вміщаються в один блок).
+    """
+    result = {}
+
+    wb = _download_workbook(google_sheet_url, force_refresh=False)
+    if sheet_name not in wb.sheetnames:
+        raise ValueError(f"Sheet '{sheet_name}' not found in workbook")
+
+    ws = wb[sheet_name]
+
+    all_sections = find_sections_by_headers(
+        ws,
+        title_prefix="",
+        min_merged_width=0,
+        search_cols=6,
+        case_insensitive=True,
+        sheet_name=sheet_name,
+    )
+
+    result["sheet_name"] = sheet_name or ""
+    result["sections"] = all_sections or None
+    
+    cg = getConfigBySheetName(sheet_name)
+    if cg.gbDiffWidthMm:
+        result["GbDiffWidthMm"] = cg.gbDiffWidthMm
+    else:
+        result["GbDiffWidthMm"] = 0
+        
+    result["exist_control_side"] = cg.exist_control_side
+
+    if not section_title:
+        return result
+
+    wanted_norm = _norm_title(section_title)
+    target = next(
+        (s for s in all_sections if _norm_title(s["title"]) == wanted_norm),
+        None,
+    )
+    if not target:
+        raise ValueError(f"Section '{section_title}' not found on sheet '{sheet_name}'")
+
+    sections_sorted = sorted(all_sections, key=lambda x: (x["row"], x["col"]))
+
+    idx_section = sections_sorted.index(target)
+    start_row = target["row"]
+    end_row = (
+        sections_sorted[idx_section + 1]["row"] - 1
+        if idx_section + 1 < len(sections_sorted)
+        else ws.max_row
+    )
+
+    # 2) Find ALL header rows inside section
+    #    (support one or multiple header blocks "Тканина / Висота / Габарит...")
+    header_rows: List[int] = []
+    for r in range(start_row, min(end_row, ws.max_row) + 1):
+        vals = _row_values(ws, r)
+        joined = " ".join([x or "" for x in vals]).lower()
+        if "тканина" in joined and "висота" in joined and "габарит" in joined:
+            header_rows.append(r)
+
+    if not header_rows:
+        raise RuntimeError(
+            f"Header row not found in section '{section_title}' on sheet '{sheet_name}'"
+        )
+
+    # Для сумісності далі використовуємо перший заголовок як "основний"
+    header_rows = sorted(header_rows)
+    header_row = header_rows[0]
+
+    # 3) Determine width bands and fabrics (support multiple sub-tables)
+    #    Ми НЕ дублюємо парсинг: кожен рядок читається рівно один раз,
+    #    а ціни по одній тканині з різних під-таблиць просто додаються в кінець.
+    all_width_bands: List[Any] = []
+
+    fabrics_map: Dict[str, Dict] = {}  # key: name.lower()
+    fabric_order: List[str] = []  # to preserve first-seen order
+
+    for i_hr, hr in enumerate(header_rows):
+        header_vals = _row_values(ws, hr)
+
+        # Find the first "ширина" column in this header block
+        width_hdr_idx = None
+        for i, v in enumerate(header_vals):
+            if isinstance(v, str) and "ширина" in v.lower():
+                width_hdr_idx = i
+                break
+        if width_hdr_idx is None:
+            # Fallback: after third column
+            width_hdr_idx = 3
+
+        width_row = hr + 1
+        width_row_vals = _row_values(ws, width_row)
+        width_bands_part = [v for v in width_row_vals[width_hdr_idx:] if v]
+        all_width_bands.extend(width_bands_part)
+
+        # границя поточної під-таблиці: до наступного header_row або end_row
+        next_header_row = (
+            header_rows[i_hr + 1] if i_hr + 1 < len(header_rows) else end_row + 1
+        )
+
+        # 5) Fabrics list for this sub-table
+        r = width_row + 1
+        while r < next_header_row and r <= end_row:
+            vals = _row_values(ws, r)
+
+            # порожній рядок — кінець даних поточної під-таблиці
+            if not any(vals):
+                break
+
+            name = (vals[0] or "").strip() if len(vals) > 0 else ""
+            if not name:
+                r += 1
+                continue
+
+            roll_h = _to_decimal(vals[1]) if len(vals) > 1 else None
+            gabarit_limit = _to_decimal(vals[2]) if len(vals) > 2 else None
+
+            price_cells = vals[width_hdr_idx:]
+            prices_part = [
+                (_to_decimal(pc) if _to_decimal(pc) is not None else None)
+                for pc in price_cells
+            ]
+
+            key = name.lower()
+
+            if key not in fabrics_map:
+                fabrics_map[key] = {
+                    "name": name,
+                    "roll_height_mm": int(roll_h) if roll_h is not None else None,
+                    "gabarit_limit_mm": (
+                        int(gabarit_limit) if gabarit_limit is not None else None
+                    ),
+                    "prices_by_band": prices_part,
+                }
+                fabric_order.append(key)
+            else:
+                f = fabrics_map[key]
+                # дозаповнюємо висоту/габарит, якщо раніше були None
+                if f["roll_height_mm"] is None and roll_h is not None:
+                    f["roll_height_mm"] = int(roll_h)
+                if f["gabarit_limit_mm"] is None and gabarit_limit is not None:
+                    f["gabarit_limit_mm"] = int(gabarit_limit)
+                # додаємо нові ціни в кінець діапазону
+                f["prices_by_band"].extend(prices_part)
+
+            r += 1
+
+    fabrics: List[Dict] = [fabrics_map[k] for k in fabric_order]
+    width_bands = all_width_bands
+
+    result["section_title"] = section_title or ""
+    result["fabrics"] = fabrics or None
+    result["section"] = target or ""
+    
+    result = fillOptions(sheet_name, result, ws, header_row)
+
+    if not width_mm or not gabarit_height_mm:
+        return result
+
+    real_width_mm = width_mm
+    gb_width_mm = width_mm
+    if cg.gbDiffWidthMm:
+        if gabarit_width_flag:
+            real_width_mm = width_mm - cg.gbDiffWidthMm
+            gb_width_mm = width_mm - cg.gbDiffWidthMm
+
+    idx = pick_width_band(width_bands, real_width_mm)
+    if idx is None:
+        raise ValueError("Ширина поза діапазонами прайсу")
+
+    fabric = next(
+        (f for f in fabrics if f["name"].lower() == fabric_name.lower()),
+        None,
+    )
+    if not fabric:
+        raise ValueError("Тканину не знайдено у вибраній секції")
+
+    base_cell = fabric["prices_by_band"][idx]
+    if base_cell is None:
+        raise ValueError("Ціна відсутня у вибраній смузі")
+
+    base = Q(base_cell)
+
+    limit = fabric["gabarit_limit_mm"] or 0
+    if gabarit_height_mm <= limit:
+        surcharge = Q("0.00")
+    else:
+        over = gabarit_height_mm - limit
+        steps = (over + 99) // 100  # кожні 10см, заокруглення догори
+        surcharge = round_money(base * Q("0.10") * Q(int(steps)))
+        
+    if gabarit_height_mm > limit and gb_width_mm > limit:
+        raise ValueError("Габарітна ширина та висота не можуть бути одночасно більше габарітноі висоти рулону")
+
+
         
     result["gabarit_limit_mm"] = limit or None
     result["gb_width_mm"] = gb_width_mm or None

@@ -256,7 +256,7 @@
         if (!system) return
 
         try {
-          let data = await loadSectionsForSystem(system)
+          let data = await loadSectionsForSystem(system, $card)
           if(data.exist_control_side){
             $card.find('.control_side').removeClass('d-none')
           }else{
@@ -312,6 +312,9 @@
 
         setEventsFromGabarits($card)
 
+        const $w_mm = $card.find('.w-mm')
+        const $h_mm = $card.find('.h-mm')
+
         if (!changingProgrammatically) {
           if (Number($w_mm.val()) > 0 && Number($h_mm.val()) > 0) {
             previewCard($card)
@@ -337,7 +340,7 @@
       return systemsCache
     }
 
-    async function loadSectionsForSystem(system) {
+    async function loadSectionsForSystem(system, $card) {
       if (sectionsCache.has(system)) return sectionsCache.get(system)
 
       const url = priceUrlInput.val()
@@ -346,6 +349,8 @@
       hideGlobalLoader()
       if (!resp.ok) throw new Error('Cannot load sections')
       const data = await resp.json()
+      let posIndex = Number($card.find('.pos-index').text())
+      pricesCache[posIndex] = data
       const sections = data.sections || []
       sections.GbDiffWidthMm = data.GbDiffWidthMm
       sections.exist_control_side = data.exist_control_side
@@ -450,15 +455,51 @@
       $sys.trigger('change')
     }
 
+    const SYSTEM_COLORS = [
+      'біла',
+      'коричнева',
+      'графіт',
+      'золотий дуб',
+      'сіра'
+
+    ]
+
+    function extractColorFromTitle(title) {
+      if (!title) return null
+
+      const lowerTitle = title.toLowerCase()
+
+      for (const color of SYSTEM_COLORS) {
+        if (lowerTitle.includes(color.toLowerCase())) {
+          return color
+        }
+      }
+
+      return null
+    }
+
+
     async function fillSectionsForCard($card, system, preselectSection) {
       const $sec = $card.find('.table-section')
       $sec.empty()
       $sec.append('<option value="" selected disabled>— Оберіть колір системи —</option>')
 
       const sections = sectionsCache.get(system) || []
+
       sections.forEach((s) => {
-        const t = typeof s === 'string' ? s : s.title || 'Секція'
-        $sec.append(new Option(t, t))
+        const originalTitle = typeof s === 'string' ? s : (s.title || 'Секція')
+
+        const colorTitle = extractColorFromTitle(originalTitle)
+
+        const optionText = colorTitle || originalTitle
+
+        const option = new Option(optionText, originalTitle)
+
+        // if (typeof s === 'object') {
+        //   $(option).data('row', s.row).data('col', s.col)
+        // }
+
+        $sec.append(option)
       })
 
       $sec.prop('disabled', false)
@@ -468,8 +509,9 @@
       } else {
         $sec.val(null)
       }
-      //$sec.trigger('change')
+      // $sec.trigger('change')
     }
+
 
     async function fillFabricsForCard($card, system, section, preselectFabric) {
       if (!system || !section) {
@@ -488,6 +530,9 @@
         }
         $fab.prop('disabled', false)
         $fab.trigger('change')
+        let posIndex = Number($card.find('.pos-index').text())
+        pricesCache[posIndex] = data
+        previewCard($card)
       } catch (e) {
         window.showToast('Не вдалося завантажити тканини для секції', 'danger')
       } finally {
@@ -495,11 +540,12 @@
       }
     }
 
-    function readCardValues($card) {
+    function readCardValues($card, typeOperation) {
       let qtyPriceOptions = {}
       priceOptionsConfig.forEach((option) => {
         let optionQtyName = option.key.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
         let qty = $card.find('[name="' + optionQtyName + '"]').val()
+        qtyPriceOptions[option.key] = $card.find(`.${option.key} .price-uah`).text()
         if(qty!=undefined){
           qtyPriceOptions[optionQtyName] = $card.find('[name="' + optionQtyName + '"]').val()
         }
@@ -513,7 +559,7 @@
         //w: $card.find('.w-mm').val() || '',
         qty: $card.find('.qty').val() || '1',
         //gw: $card.find('.gabarit-width-flag .form-check-input').is(':checked'),
-        control_side_exist: !$card.find('.control_side select').hasClass("d-none"),
+        control_side_exist: !$card.find('.control_side').hasClass("d-none"),
         control_side: $card.find('.control_side select').val(),
         qtyPriceOptions:qtyPriceOptions
       }
@@ -531,18 +577,19 @@
       const gabarit_width_flag = $card.find('.gabarit-width-flag .form-check-input').is(':checked')
       const qty = Math.max(1, parseInt($card.find('.qty').val() || '1', 10))
 
-      if(Object.keys(preSelectsPriceOptions).length > 0){
-        renderPriceOptions($card, 0, preSelectsPriceOptions)
+      if (!system || !section){
         return
       }
 
-      if (!system || !section || !fabric || !fabric_color_code || !h || !w) {
+      if (!fabric || !fabric_color_code || !h || !w) {
+        renderPriceOptions($card, 0, preSelectsPriceOptions)
         return
       }
 
       try {
         const data = await previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabarit_width_flag })
-        pricesCache[$card.find('.pos-index')] = data
+        let posIndex = Number($card.find('.pos-index').text())
+        pricesCache[posIndex] = data
         renderPriceOptions($card, 0, preSelectsPriceOptions)
       } catch (err) {
         $card.find('.h-mm').val(0)
@@ -582,7 +629,7 @@
       initSelectsForCard($card)
 
       await fillSystems($card, item.system_sheet)
-      await loadSectionsForSystem(item.system_sheet)
+      await loadSectionsForSystem(item.system_sheet, $card)
       await fillSectionsForCard($card, item.system_sheet, item.table_section)
       await fillFabricsForCard($card, item.system_sheet, item.table_section, item.fabric_name)
 
@@ -659,7 +706,7 @@
 
       if (prevVals && prevVals.system) {
         try {
-          await loadSectionsForSystem(prevVals.system)
+          await loadSectionsForSystem(prevVals.system, $card)
           fillSectionsForCard($card, prevVals.system, prevVals.section)
 
           if (prevVals.section) {
@@ -684,6 +731,7 @@
               $card.find('.control_side').addClass("d-none")
             }
             
+            setEventsFromGabarits($card)
 
             await previewCard($card, prevVals.qtyPriceOptions)
 
@@ -1102,7 +1150,7 @@
 
 
     function renderPriceOptions($card, commonQty, preSelectsPriceOptions = {}) {
-      let numberCard = $card.find('.pos-index')
+      let numberCard = Number($card.find('.pos-index').text())
       let data = pricesCache[numberCard]
       if (!data && Object.keys(preSelectsPriceOptions).length == 0) {
         previewCard($card)
