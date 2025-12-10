@@ -527,8 +527,8 @@ class Transaction(models.Model):
     DEBIT = "debit"
     CREDIT = "credit"
     TYPE_CHOICES = [
-        (DEBIT, "Дебет"),
-        (CREDIT, "Кредит"),
+        (DEBIT, "Пришло від клієнта"),
+        (CREDIT, "Уход клієнту"),
     ]
 
     customer = models.ForeignKey(
@@ -544,7 +544,14 @@ class Transaction(models.Model):
         related_name="transactions",
     )
     type = models.CharField(max_length=16, choices=TYPE_CHOICES)
+    # Сума зберігається в EUR, вводимо в UAH, перераховуємо по курсу на момент транзакції.
     amount = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    eur_rate = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        default=Decimal("0"),
+        help_text="Курс EUR/UAH на момент транзакції",
+    )
     description = models.TextField(blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -565,6 +572,17 @@ class Transaction(models.Model):
     @property
     def signed_amount(self):
         return self.amount if self.type == self.DEBIT else -self.amount
+
+    @property
+    def amount_uah(self):
+        """Сума в гривнях за зафіксованим курсом (попередньо конвертована з EUR)."""
+        rate = Decimal(self.eur_rate or 0)
+        if not rate:
+            # Лише як fallback, якщо курс не заповнено.
+            from .services_currency import get_current_eur_rate
+
+            rate = get_current_eur_rate()
+        return (Decimal(self.amount or 0) * rate).quantize(Decimal("0.01"))
 
 
 class CurrencyRate(models.Model):

@@ -53,6 +53,6 @@ class OrderStatusLogAdmin(admin.ModelAdmin):
 
 @admin.register(Transaction)
 class TransactionAdmin(admin.ModelAdmin):
-    list_display = ("id", "customer", "type", "amount", "order", "created_by", "created_at")
+    list_display = ("id", "customer", "type", "amount", "eur_rate", "order", "created_by", "created_at")
     list_filter = ("type", "created_at")
     search_fields = ("customer__email", "customer__username")

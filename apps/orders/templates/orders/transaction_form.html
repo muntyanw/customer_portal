@@ -13,6 +13,7 @@
         <div class="row g-3">
           <div class="col-md-6">
             <label class="form-label">Клієнт</label>
+            <input type="text" class="form-control form-control-sm mb-2" id="customerSearch" placeholder="Почніть вводити ПІБ, телефон або email">
             {{ form.customer }}
           </div>
           <div class="col-md-3">
@@ -20,8 +21,9 @@
             {{ form.type }}
           </div>
           <div class="col-md-3">
-            <label class="form-label">Сума, EUR</label>
+            <label class="form-label">Сума, грн</label>
             {{ form.amount }}
+            <div class="form-text">Зберігаємо в EUR за курсом {{ current_rate|default:"-" }} грн</div>
           </div>
         </div>
 
@@ -43,4 +45,51 @@
       </form>
     </div>
   </div>
+
+  <script>
+    (function() {
+      const searchInput = document.getElementById("customerSearch");
+      const select = document.querySelector("select[data-customer-picker]");
+      if (!searchInput || !select) return;
+      const options = Array.from(select.options);
+
+      const expandList = () => {
+        // показуємо список як лістбокс, щоб одразу бачити варіанти
+        const visible = options.filter((opt) => !opt.hidden);
+        const size = Math.min(Math.max(visible.length, 2), 10);
+        select.size = size;
+        select.dataset.open = "true";
+      };
+
+      const collapseList = () => {
+        select.size = 1;
+        delete select.dataset.open;
+      };
+
+      const filter = () => {
+        const query = (searchInput.value || "").trim().toLowerCase();
+        options.forEach((opt) => {
+          if (!opt.value) {
+            opt.hidden = false;
+            return;
+          }
+          const parts = opt.text.toLowerCase().split("·").map((p) => p.trim()).filter(Boolean);
+          const matches = !query || parts.some((part) => part.includes(query));
+          // обраний залишаємо видимим, щоб його було видно навіть при іншому фільтрі
+          opt.hidden = matches ? false : (select.value !== opt.value);
+        });
+        expandList();
+      };
+
+      searchInput.addEventListener("input", filter);
+      searchInput.addEventListener("focus", filter);
+      select.addEventListener("focus", expandList);
+      const blurTimeout = () => setTimeout(() => collapseList(), 150);
+      searchInput.addEventListener("blur", blurTimeout);
+      select.addEventListener("blur", blurTimeout);
+
+      // початковий стан — звужений
+      collapseList();
+    })();
+  </script>
 {% endblock %}

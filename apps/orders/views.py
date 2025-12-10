@@ -99,19 +99,25 @@ def compute_balance(user):
     )
 
     tx_qs = _transactions_scope(user)
-    tx_total_eur = tx_qs.aggregate(
+    tx_total_uah = tx_qs.aggregate(
         total=Sum(
-            ExpressionWrapper(
-                Case(
-                    When(type=Transaction.DEBIT, then=F("amount")),
-                    default=-F("amount"),
-                    output_field=DecimalField(max_digits=12, decimal_places=2),
+            Case(
+                When(
+                    type=Transaction.DEBIT,
+                    then=ExpressionWrapper(
+                        F("amount") * F("eur_rate"),
+                        output_field=DecimalField(max_digits=18, decimal_places=4),
+                    ),
                 ),
-                output_field=DecimalField(max_digits=12, decimal_places=2),
+                default=ExpressionWrapper(
+                    -F("amount") * F("eur_rate"),
+                    output_field=DecimalField(max_digits=18, decimal_places=4),
+                ),
+                output_field=DecimalField(max_digits=18, decimal_places=4),
             )
         )
     )["total"] or Decimal("0")
-    tx_total_uah = (tx_total_eur * Decimal(current_rate or 0)).quantize(Decimal("0.01"))
+    tx_total_uah = Decimal(tx_total_uah).quantize(Decimal("0.01"))
 
     return tx_total_uah - orders_sum_uah
 
@@ -126,11 +132,50 @@ class TransactionForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["customer"].widget.attrs.update({"class": "form-select"})
+        self.current_rate = get_current_eur_rate()
+        rate_decimal = Decimal(self.current_rate or 0)
+        self.current_rate = rate_decimal.quantize(Decimal("0.0001")) if rate_decimal else rate_decimal
+        User = get_user_model()
+        self.fields["customer"].queryset = (
+            User.objects.select_related("customerprofile")
+            .order_by("customerprofile__full_name", "email")
+        )
+
+        def _label(u):
+            profile = getattr(u, "customerprofile", None)
+            full_name = getattr(profile, "full_name", "") or u.get_full_name() or u.username
+            phone = getattr(profile, "phone", "") or ""
+            contact_email = getattr(profile, "contact_email", "") or u.email
+            parts = [full_name]
+            if phone:
+                parts.append(phone)
+            if contact_email:
+                parts.append(contact_email)
+            return " · ".join(parts)
+
+        self.fields["customer"].label_from_instance = _label
+        self.fields["customer"].widget.attrs.update({"class": "form-select", "data-customer-picker": "true"})
         self.fields["type"].widget.attrs.update({"class": "form-select"})
         self.fields["order"].widget.attrs.update({"class": "form-select"})
-        self.fields["amount"].widget.attrs.update({"class": "form-control", "step": "0.01", "min": "0"})
+        self.fields["amount"].label = "Сума, грн"
+        self.fields["amount"].widget.attrs.update(
+            {"class": "form-control", "step": "0.01", "min": "0", "inputmode": "decimal"}
+        )
         self.fields["description"].widget.attrs.update({"class": "form-control"})
+
+    def clean_amount(self):
+        amount_uah = self.cleaned_data.get("amount") or Decimal("0")
+        rate = Decimal(self.current_rate or 0)
+        if rate <= 0:
+            raise forms.ValidationError("Немає актуального курсу EUR для конвертації.")
+        return (amount_uah / rate).quantize(Decimal("0.01"))
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        obj.eur_rate = Decimal(self.current_rate or 0)
+        if commit:
+            obj.save()
+        return obj
 
 @login_required
 def order_list(request):
@@ -569,6 +614,10 @@ def transaction_create(request):
         messages.error(request, "Створювати транзакції може лише менеджер.")
         return redirect("orders:list")
 
+    current_rate = get_current_eur_rate()
+    if Decimal(current_rate or 0) <= 0:
+        messages.warning(request, "Немає актуального курсу EUR. Оновіть курс перед створенням транзакції.")
+
     initial = {}
     if "customer" in request.GET:
         initial["customer"] = request.GET.get("customer")
@@ -584,7 +633,7 @@ def transaction_create(request):
     else:
         form = TransactionForm(initial=initial)
 
-    return render(request, "orders/transaction_form.html", {"form": form})
+    return render(request, "orders/transaction_form.html", {"form": form, "current_rate": current_rate})
 
 
 @login_required
