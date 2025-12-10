@@ -32,6 +32,22 @@
           </div>
 
           <div class="mb-3">
+            {{ form.phone.label_tag }}
+            {{ form.phone|add_class:"form-control form-control-lg" }}
+            {% if form.phone.errors %}
+              <div class="invalid-feedback d-block">{{ form.phone.errors|striptags }}</div>
+            {% endif %}
+          </div>
+
+          <div class="mb-3">
+            {{ form.full_name.label_tag }}
+            {{ form.full_name|add_class:"form-control form-control-lg" }}
+            {% if form.full_name.errors %}
+              <div class="invalid-feedback d-block">{{ form.full_name.errors|striptags }}</div>
+            {% endif %}
+          </div>
+
+          <div class="mb-3">
             {{ form.password.label_tag }}
             <div class="input-group input-group-lg">
               {{ form.password|add_class:"form-control" }}

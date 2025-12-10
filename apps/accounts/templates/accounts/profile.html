@@ -1,7 +1,7 @@
 {% extends "core/dashboard_base.html" %}
 {% load form_tags %}
 {% block dashboard_title %}Профіль користувача{% endblock %}
-{% block dashboard_heading %}Мій профіль{% endblock %}
+{% block dashboard_heading %}{% if target_user and target_user != request.user %}Профіль клієнта{% else %}Мій профіль{% endif %}{% endblock %}
 
 {% block dashboard_content %}
 <div class="row justify-content-center">
@@ -9,10 +9,14 @@
     <div class="card border-0 shadow-sm rounded-4">
       <div class="card-body p-4">
         <div class="d-flex align-items-center mb-4">
-          <img src="/static/media/avatar.png" class="rounded-circle border me-3" width="72" height="72" alt="avatar">
+          {% if target_user.customerprofile.avatar %}
+            <img src="{{ target_user.customerprofile.avatar.url }}" class="rounded-circle border me-3" width="72" height="72" alt="avatar">
+          {% else %}
+            <img src="/static/media/avatar.png" class="rounded-circle border me-3" width="72" height="72" alt="avatar">
+          {% endif %}
           <div>
-            <h2 class="h5 fw-semibold mb-0">{{ request.user.email }}</h2>
-            {% if is_manager %}
+            <h2 class="h5 fw-semibold mb-0">{{ target_user.email }}</h2>
+            {% if target_user.is_manager %}
               <span class="badge bg-warning text-dark">Manager</span>
             {% else %}
               <span class="badge bg-light text-dark">Customer</span>
@@ -22,24 +26,46 @@
 
         <form method="post" enctype="multipart/form-data" novalidate>
           {% csrf_token %}
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Email</label>
-            <input type="email" class="form-control form-control-lg" value="{{ request.user.email }}" disabled>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Email (логін)</label>
+              {{ form.email|add_class:"form-control form-control-lg" }}
+              {% if form.email.errors %}<div class="invalid-feedback d-block">{{ form.email.errors|striptags }}</div>{% endif %}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Контактний Email</label>
+              {{ form.contact_email|add_class:"form-control form-control-lg" }}
+              {% if form.contact_email.errors %}<div class="invalid-feedback d-block">{{ form.contact_email.errors|striptags }}</div>{% endif %}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">ПІБ</label>
+              {{ form.full_name|add_class:"form-control form-control-lg" }}
+              {% if form.full_name.errors %}<div class="invalid-feedback d-block">{{ form.full_name.errors|striptags }}</div>{% endif %}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Телефон</label>
+              {{ form.phone|add_class:"form-control form-control-lg" }}
+              {% if form.phone.errors %}<div class="invalid-feedback d-block">{{ form.phone.errors|striptags }}</div>{% endif %}
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Примітка</label>
+              {{ form.note|add_class:"form-control" }}
+              {% if form.note.errors %}<div class="invalid-feedback d-block">{{ form.note.errors|striptags }}</div>{% endif %}
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Аватар</label>
+              {{ form.avatar }}
+              {% if form.avatar.errors %}<div class="invalid-feedback d-block">{{ form.avatar.errors|striptags }}</div>{% endif %}
+            </div>
+            {% if can_edit_credit and form.credit_allowed %}
+              <div class="col-12">
+                <div class="form-check mt-2">
+                  {{ form.credit_allowed|add_class:"form-check-input" }}
+                  <label class="form-check-label fw-semibold">Можливий кредит</label>
+                </div>
+              </div>
+            {% endif %}
           </div>
-
-          {% if request.user.customerprofile %}
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Телефон</label>
-            <input type="text" name="phone" class="form-control form-control-lg" 
-                   value="{{ request.user.customerprofile.phone|default:'' }}">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Організація</label>
-            <input type="text" class="form-control form-control-lg" 
-                   value="{{ request.user.customerprofile.organization.name|default:'—' }}" disabled>
-          </div>
-          {% endif %}
 
           <div class="d-grid mt-4">
             <button type="submit" class="btn btn-primary btn-lg">

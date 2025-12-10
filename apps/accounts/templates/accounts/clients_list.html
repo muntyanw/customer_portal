@@ -1,0 +1,65 @@
+{% extends "core/dashboard_base.html" %}
+{% load form_tags %}
+{% block dashboard_title %}Клієнти{% endblock %}
+{% block dashboard_heading %}Клієнти{% endblock %}
+
+{% block dashboard_content %}
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <form method="get" class="d-flex flex-wrap align-items-center gap-2">
+      <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm" placeholder="Пошук (ПІБ, email, телефон)">
+      <button type="submit" class="btn btn-primary btn-sm">Фільтрувати</button>
+      <a href="{% url 'accounts:clients_list' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
+    </form>
+    <div class="ms-auto">
+      <a href="{% url 'accounts:client_create' %}" class="btn btn-success"><i class="bi bi-plus-lg me-1"></i> Створити акаунт</a>
+    </div>
+  </div>
+
+  <div class="table-responsive shadow-sm rounded-3">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th></th>
+          <th><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'email' %}-email{% else %}email{% endif %}">Email</a></th>
+          <th><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'full_name' %}-full_name{% else %}full_name{% endif %}">ПІБ</a></th>
+          <th><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'phone' %}-phone{% else %}phone{% endif %}">Телефон</a></th>
+          <th>Організація</th>
+          <th>Кредит</th>
+          <th>Дії</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in clients %}
+          <tr>
+            <td>
+              {% if u.customerprofile.avatar %}
+                <img src="{{ u.customerprofile.avatar.url }}" alt="avatar" class="rounded-circle" width="40" height="40">
+              {% else %}
+                <span class="badge bg-secondary">—</span>
+              {% endif %}
+            </td>
+            <td>{{ u.email }}</td>
+            <td>{{ u.customerprofile.full_name|default:"—" }}</td>
+            <td>{{ u.customerprofile.phone|default:"—" }}</td>
+            <td>{{ u.customerprofile.organization.name|default:"—" }}</td>
+            <td>
+              <form method="post" class="d-inline-flex align-items-center gap-1">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="toggle_credit">
+                <input type="hidden" name="user_id" value="{{ u.id }}">
+                <input class="form-check-input" type="checkbox" name="credit_allowed" value="1" {% if u.customerprofile.credit_allowed %}checked{% endif %} onchange="this.form.submit()">
+              </form>
+            </td>
+            <td>
+              <a href="{% url 'accounts:profile_other' u.id %}" class="btn btn-sm btn-outline-primary">Редагувати</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5" class="text-center text-muted py-4">Немає клієнтів</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

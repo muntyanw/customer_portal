@@ -10,6 +10,7 @@ urlpatterns = [
 
     # список замовлень з комплектуючими
     path("components/", views.order_components_list, name="components_list"),
+    path("balances/", views.balances_history, name="balances"),
 
     # білдер ролетів
     path("builder/", views.order_builder, name="builder"),
@@ -28,6 +29,9 @@ urlpatterns = [
         views.order_components_builder,
         name="order_components_builder",   # <-- ЭТО имя использует redirect(...)
     ),
+
+    # транзакції
+    path("transactions/new/", views.transaction_create, name="transaction_create"),
 
     # стандартні CRUD для Order
     

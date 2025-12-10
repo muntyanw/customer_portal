@@ -1,0 +1,53 @@
+{% extends "core/dashboard_base.html" %}
+{% load form_tags %}
+{% block dashboard_title %}Новий клієнт{% endblock %}
+{% block dashboard_heading %}Створення клієнта{% endblock %}
+
+{% block dashboard_content %}
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <form method="post" class="row g-3">
+        {% csrf_token %}
+        <div class="col-md-6">
+          <label class="form-label">Email (логін)</label>
+          {{ form.email|add_class:"form-control" }}
+          {% if form.email.errors %}<div class="invalid-feedback d-block">{{ form.email.errors|striptags }}</div>{% endif %}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Контактний Email</label>
+          {{ form.contact_email|add_class:"form-control" }}
+          {% if form.contact_email.errors %}<div class="invalid-feedback d-block">{{ form.contact_email.errors|striptags }}</div>{% endif %}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">ПІБ</label>
+          {{ form.full_name|add_class:"form-control" }}
+          {% if form.full_name.errors %}<div class="invalid-feedback d-block">{{ form.full_name.errors|striptags }}</div>{% endif %}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Телефон</label>
+          {{ form.phone|add_class:"form-control" }}
+          {% if form.phone.errors %}<div class="invalid-feedback d-block">{{ form.phone.errors|striptags }}</div>{% endif %}
+        </div>
+        <div class="col-12">
+          <label class="form-label">Примітка</label>
+          {{ form.note|add_class:"form-control" }}
+          {% if form.note.errors %}<div class="invalid-feedback d-block">{{ form.note.errors|striptags }}</div>{% endif %}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Пароль</label>
+          {{ form.password|add_class:"form-control" }}
+          {% if form.password.errors %}<div class="invalid-feedback d-block">{{ form.password.errors|striptags }}</div>{% endif %}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Підтвердження пароля</label>
+          {{ form.password2|add_class:"form-control" }}
+          {% if form.password2.errors %}<div class="invalid-feedback d-block">{{ form.password2.errors|striptags }}</div>{% endif %}
+        </div>
+        <div class="d-flex justify-content-between mt-3">
+          <a href="{% url 'accounts:clients_list' %}" class="btn btn-outline-secondary">Скасувати</a>
+          <button type="submit" class="btn btn-primary">Створити</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}

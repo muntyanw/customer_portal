@@ -5,21 +5,29 @@ from django.core.validators import MinValueValidator
 from decimal import Decimal
 
 class Order(models.Model):
-    NEW = "new"
-    IN_PROGRESS = "in_progress"
-    DONE = "done"
-    CANCELED = "canceled"
+    STATUS_QUOTE = "quote"  # Прорахунок / чернетка
+    STATUS_IN_WORK = "in_work"  # В роботі
+    STATUS_READY = "ready_for_pickup"  # Готовий до вивозу
+    STATUS_SHIPPED = "shipped"  # Відвантажено
+
     STATUS_CHOICES = [
-        (NEW, "New"),
-        (IN_PROGRESS, "In progress"),
-        (DONE, "Done"),
-        (CANCELED, "Canceled"),
+        (STATUS_QUOTE, "Прорахунок"),
+        (STATUS_IN_WORK, "В роботі"),
+        (STATUS_READY, "Готовий до вивозу"),
+        (STATUS_SHIPPED, "Відвантажено"),
+    ]
+
+    STATUS_FLOW = [
+        STATUS_QUOTE,
+        STATUS_IN_WORK,
+        STATUS_READY,
+        STATUS_SHIPPED,
     ]
 
     customer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="orders")
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=NEW)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_QUOTE)
     attachment = models.FileField(upload_to="attachments/", blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     
@@ -31,8 +39,48 @@ class Order(models.Model):
         help_text="Курс EUR/UAH на момент створення замовлення",
     )
 
+    total_eur = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0"),
+        help_text="Підсумкова сума замовлення в EUR (з націнкою)",
+    )
+    note = models.TextField(blank=True, verbose_name="Примітка")
+
+    eur_rate = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        default=Decimal("0"),
+        help_text="Курс EUR/UAH, що застосовано для цього замовлення",
+    )
+
+    markup_percent = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=Decimal("0"),
+        help_text="Процент націнки, що застосовано до замовлення",
+    )
+
     def __str__(self):
         return f"#{self.pk} {self.title}"
+
+    def next_status(self):
+        try:
+            idx = self.STATUS_FLOW.index(self.status)
+        except ValueError:
+            return None
+        if idx < len(self.STATUS_FLOW) - 1:
+            return self.STATUS_FLOW[idx + 1]
+        return None
+
+    def prev_status(self):
+        try:
+            idx = self.STATUS_FLOW.index(self.status)
+        except ValueError:
+            return None
+        if idx > 0:
+            return self.STATUS_FLOW[idx - 1]
+        return None
     
     
 from django.db import models
@@ -446,6 +494,77 @@ class OrderComponentItem(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name} ({self.color}) – {self.price_eur} € x {self.quantity}"
+
+
+class OrderStatusLog(models.Model):
+    order = models.ForeignKey(
+        "orders.Order",
+        on_delete=models.CASCADE,
+        related_name="status_logs",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Order.STATUS_CHOICES,
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="order_status_changes",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    note = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Order #{self.order_id}: {self.status} @ {self.created_at}"
+
+
+class Transaction(models.Model):
+    DEBIT = "debit"
+    CREDIT = "credit"
+    TYPE_CHOICES = [
+        (DEBIT, "Дебет"),
+        (CREDIT, "Кредит"),
+    ]
+
+    customer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="transactions",
+    )
+    order = models.ForeignKey(
+        "orders.Order",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="transactions",
+    )
+    type = models.CharField(max_length=16, choices=TYPE_CHOICES)
+    amount = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    description = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_transactions",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        sign = "+" if self.type == self.DEBIT else "-"
+        return f"{sign}{self.amount} ({self.get_type_display()})"
+
+    @property
+    def signed_amount(self):
+        return self.amount if self.type == self.DEBIT else -self.amount
 
 
 class CurrencyRate(models.Model):

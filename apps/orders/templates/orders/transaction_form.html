@@ -1,0 +1,46 @@
+{% extends 'core/dashboard_base.html' %}
+
+{% block dashboard_title %}Нова транзакція{% endblock %}
+{% block dashboard_heading %}Нова транзакція{% endblock %}
+
+{% block dashboard_content %}
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <form method="post" class="d-flex flex-column gap-3">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Клієнт</label>
+            {{ form.customer }}
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Тип</label>
+            {{ form.type }}
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Сума, EUR</label>
+            {{ form.amount }}
+          </div>
+        </div>
+
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Замовлення (необов’язково)</label>
+            {{ form.order }}
+          </div>
+          <div class="col-12">
+            <label class="form-label">Коментар</label>
+            {{ form.description }}
+          </div>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mt-3">
+          <a href="{% url 'orders:list' %}" class="btn btn-outline-secondary">Скасувати</a>
+          <button type="submit" class="btn btn-primary">Зберегти</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}

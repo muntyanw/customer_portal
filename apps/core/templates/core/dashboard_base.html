@@ -32,7 +32,11 @@
   <aside class="col-12 col-lg-2">
     <div class="sidebar bg-primary text-white rounded-3 p-3 shadow-sm">
       <div class="d-flex align-items-center mb-3">
-        <img src="/static/media/avatar.png" width="40" height="40" class="rounded-circle me-2" alt="avatar">
+        {% if request.user.customerprofile.avatar %}
+          <img src="{{ request.user.customerprofile.avatar.url }}" width="40" height="40" class="rounded-circle me-2" alt="avatar">
+        {% else %}
+          <img src="/static/media/avatar.png" width="40" height="40" class="rounded-circle me-2" alt="avatar">
+        {% endif %}
         <div>
           <div class="fw-bold">{{ request.user.email }}</div>
           {% if is_manager %}
@@ -58,6 +62,16 @@
         <a class="nav-link text-white {% if request.resolver_match.url_name == 'components_list' %}active{% endif %}"
           href="{% url 'orders:components_list' %}">
           <i class="bi bi-tools me-2"></i>Комплектуючі
+        </a>
+        {% if is_manager %}
+          <a class="nav-link text-white {% if request.resolver_match.url_name == 'clients_list' or request.resolver_match.url_name == 'client_create' or request.resolver_match.url_name == 'profile_other' %}active{% endif %}"
+            href="{% url 'accounts:clients_list' %}">
+            <i class="bi bi-people me-2"></i>Клієнти
+          </a>
+        {% endif %}
+        <a class="nav-link text-white {% if request.resolver_match.url_name == 'balances' %}active{% endif %}"
+          href="{% url 'orders:balances' %}">
+          <i class="bi bi-cash-coin me-2"></i>Баланси
         </a>
         <a class="nav-link text-white {% if request.resolver_match.url_name == 'profile' %}active{% endif %}"
            href="{% url 'accounts:profile' %}">

@@ -46,6 +46,9 @@
   <form method="post" id="orderForm" novalidate>
     {% csrf_token %}
     <input type="hidden" name="eur_rate_at_creation" class="eur_rate_at_creation" />
+    <input type="hidden" name="eur_rate" id="orderEurRateInput" />
+    <input type="hidden" name="total_eur" id="orderTotalInput" value="{{ order.total_eur|default:'0.00' }}" />
+    <input type="hidden" name="status_action" id="statusActionInput" value="save" />
 
     <div class="mb-3">
       <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
@@ -53,6 +56,38 @@
         <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="small">Відкрити прайс</a>
       </div>
       <input type="url" class="form-control" id="priceUrl" name="price_url" value="{{ PRICE_SHEET_URL }}" required style="display: none;" />
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Примітка до замовлення</label>
+      <textarea class="form-control" name="note" rows="3" placeholder="Вкажіть додаткову інформацію..." {% if readonly %}disabled{% endif %}>{{ order.note|default_if_none:"" }}</textarea>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div class="d-flex align-items-center gap-2">
+          <span class="text-muted small text-uppercase">Статус</span>
+          <span class="badge bg-primary">
+            {% if order %}{{ order.get_status_display }}{% else %}Прорахунок{% endif %}
+          </span>
+        </div>
+        <div class="small text-muted">
+          Поточний курс EUR: <strong>{{ eur_rate|default:"0.00" }}</strong>
+        </div>
+      </div>
+      {% if status_logs %}
+        <div class="list-group list-group-flush">
+          {% for log in status_logs %}
+            <div class="list-group-item d-flex justify-content-between align-items-center">
+              <div>
+                <div class="fw-semibold">{{ log.get_status_display }}</div>
+                <div class="small text-muted">{{ log.created_at|date:'d.m.Y H:i' }}</div>
+              </div>
+              {% if log.user %}<div class="small text-muted">{{ log.user }}</div>{% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
     </div>
 
     <!-- Контейнер для карток позицій -->
@@ -64,17 +99,57 @@
 
     <!-- Підсумок по замовленню -->
     <div class="order-total-bar mt-3 p-3 rounded-3 shadow-sm">
-      <div class="d-flex justify-content-between align-items-center">
-        <div class="fw-semibold">Разом по замовленню</div>
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+        <div class="d-flex align-items-center gap-2">
+          <label class="form-label mb-0 small text-uppercase text-secondary" for="orderMarkup">Націнка, %</label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            class="form-control form-control-sm"
+            id="orderMarkup"
+            name="markup_percent"
+            value="{{ order.markup_percent|default:'0' }}"
+          />
+        </div>
         <div class="text-end">
-          <div class="fs-6" style="display:none;">
-            <span id="orderTotal">0.00</span>
+          <div class="small text-secondary">Сума без націнки, грн</div>
+          <div class="fw-semibold">
+            <span id="orderTotalBaseUah">0.00</span>
           </div>
-          <div class="">
+          <div class="small text-secondary mt-2">Сума з націнкою, грн</div>
+          <div class="fw-semibold fs-5">
             <span id="orderTotalUah">0.00</span>
+          </div>
+          <div class="d-none">
+            <span id="orderTotal">{{ order.total_eur|default:'0.00' }}</span>
           </div>
         </div>
       </div>
+      {% if not readonly %}
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          <button type="submit" class="btn btn-primary" data-status-action="save">Зберегти</button>
+          {% if order %}
+            {% if order.status == order.STATUS_QUOTE %}
+              <button type="submit" class="btn btn-success" data-status-action="to_work">В роботу</button>
+            {% endif %}
+            {% if request.user.is_manager %}
+              <div class="ms-auto d-flex gap-2">
+                {% if order.prev_status %}
+                  <button type="submit" class="btn btn-outline-primary" data-status-action="prev">Попередній статус</button>
+                {% endif %}
+                {% if next_status_label %}
+                  <button type="submit" class="btn btn-outline-primary" data-status-action="next">
+                    Наступний статус{% if next_status_label %}: {{ next_status_label }}{% endif %}
+                  </button>
+                {% endif %}
+              </div>
+            {% endif %}
+          {% else %}
+            <button type="submit" class="btn btn-success" data-status-action="to_work">В роботу</button>
+          {% endif %}
+        </div>
+      {% endif %}
     </div>
 
     <div class="d-grid mt-3">
@@ -100,6 +175,11 @@
         .replace(/\s/g, '')
         .replace(',', '.')
     )
+    const markup_initial = parseFloat(
+      '{{ order.markup_percent|default:"0" }}'
+        .replace(/\s/g, '')
+        .replace(',', '.')
+    ) || 0
 
     const systemConfigCache = new Map() // system -> config
 
@@ -123,6 +203,19 @@
       document.querySelectorAll('.eur_rate_at_creation').forEach(function (el) {
         el.value = eur_rate
       })
+      const rateInput = document.getElementById('orderEurRateInput')
+      if (rateInput) {
+        rateInput.value = eur_rate
+      }
+      const markupInput = document.getElementById('orderMarkup')
+      if (markupInput) {
+        markupInput.value = markup_initial
+      }
+      if ({{ readonly|yesno:"true,false" }} ) {
+        $('#orderForm').find('input, select, textarea, button').prop('disabled', true)
+        // allow scrollable preview buttons (none) but keep navigation disabled; re-enable links
+        $('#orderForm').find('a').prop('disabled', false)
+      }
     })
 
     function getCsrf() {
@@ -221,7 +314,7 @@
       $priceBox.find('.base-uah').text('0.00')
       $priceBox.find('.surcharge').text('0.00')
       $priceBox.find('.surcharge-uah').text('0.00')
-      $priceBox.find('.subtotal-input').text('0.00')
+      $priceBox.find('.subtotal-input').text('0.00').val('0')
       $priceBox.find('.subtotal-uah').text('0.00')
 
       // скрытые поля для базы/надбавки/итога (на бекенд идут только EUR)
@@ -890,7 +983,7 @@
     }
 
 
-   function recalcPrice() {
+  function recalcPrice() {
       let sumTotal = 0
 
       $('.item-card').each(function (_, card) {
@@ -926,15 +1019,24 @@
         })
 
         // subtotal по позиции
-        $card.find('.subtotal-input').text(money(sum))
+        $card.find('.subtotal-input').text(money(sum)).val(money(sum))
         $card.find('.subtotal-uah').text(eurToUah(sum))
 
         sumTotal += sum
       })
 
-      $('#orderTotal').text(money(sumTotal)).hide()
-      $('#orderTotalUah').text(eurToUah(sumTotal))
+      const markupPercent = Number($('#orderMarkup').val() || 0)
+      const sumWithMarkup = sumTotal * (1 + markupPercent / 100)
+
+      $('#orderTotalBaseUah').text(eurToUah(sumTotal))
+      $('#orderTotal').text(money(sumTotal)) // hidden EUR base value for backend
+      $('#orderTotalUah').text(eurToUah(sumWithMarkup))
+      $('#orderTotalInput').val(money(sumTotal))
     }
+
+    $('#orderMarkup').on('input change', function () {
+      recalcPrice()
+    })
     
 
    function checkPriceOption(el, optionName, optionVal) {
@@ -1257,6 +1359,11 @@
         window.scrollTo({ top: 0, behavior: 'smooth' })
         window.showToast('Оберіть систему, колір системи, тканину та колір тканини для кожної позиції', 'warning')
       }
+    })
+
+    $('#orderForm').on('click', 'button[data-status-action]', function () {
+      const action = $(this).data('status-action') || 'save'
+      $('#statusActionInput').val(action)
     })
 
      // ---------- Ініціалізація ----------

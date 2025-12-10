@@ -1,17 +1,19 @@
 # apps/orders/views.py
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django import forms
 from django.db import transaction
+from django.db.models import Case, DecimalField, ExpressionWrapper, F, Sum, When
 from django.contrib import messages
-from .models import Order, OrderItem
+from .models import Order, OrderItem, Transaction, OrderStatusLog
 from apps.accounts.roles import is_manager
 import json
 from decimal import Decimal, InvalidOperation
 from django.contrib.admin.views.decorators import staff_member_required
 from django.conf import settings
 
-from .models import Order, OrderComponentItem
+from .models import OrderComponentItem
 from .utils_components import parse_components_from_post
 from django.urls import reverse
 from .services_currency import get_current_eur_rate, update_eur_rate_from_nbu
@@ -33,21 +35,139 @@ def _to_decimal(value, default="0"):
     except (InvalidOperation, AttributeError):
         return Decimal(default)
 
+
+def _orders_scope(user):
+    if is_manager(user):
+        return Order.objects.all()
+    return Order.objects.filter(customer=user)
+
+
+def _transactions_scope(user):
+    if is_manager(user):
+        return Transaction.objects.select_related("customer", "created_by", "order")
+    return Transaction.objects.select_related("customer", "created_by", "order").filter(customer=user)
+
+def _order_rate(order, current_rate: Decimal) -> Decimal:
+    """
+    Pick rate: frozen for робота+, або поточний для прорахунку.
+    """
+    if order.status != Order.STATUS_QUOTE and order.eur_rate:
+        return Decimal(order.eur_rate)
+    return Decimal(current_rate or 0)
+
+
+def _order_base_total(order) -> Decimal:
+    """
+    Return stored total (без націнки). Якщо відсутнє/нульове, рахуємо по items.
+    """
+    stored = Decimal(order.total_eur or 0)
+    if stored > 0:
+        return stored
+    agg = order.items.annotate(
+        line_total=ExpressionWrapper(
+            F("subtotal_eur") * F("quantity"),
+            output_field=DecimalField(max_digits=18, decimal_places=2),
+        )
+    ).aggregate(total=Sum("line_total")).get("total") or Decimal("0")
+    return agg
+
+STATUS_LABELS = dict(Order.STATUS_CHOICES)
+
+
+def _set_order_totals_uah(orders, current_rate: Decimal):
+    """Attach total_uah_display/display_rate to orders for templates."""
+    for o in orders:
+        rate = _order_rate(o, current_rate)
+        total_eur = _order_base_total(o)
+        o.display_rate = rate
+        o.total_uah_display = (total_eur * rate).quantize(Decimal("0.01"))
+    return orders
+
+
+def compute_balance(user):
+    current_rate = get_current_eur_rate()
+    orders_qs = _orders_scope(user).filter(
+        status__in=[
+            Order.STATUS_IN_WORK,
+            Order.STATUS_READY,
+            Order.STATUS_SHIPPED,
+        ]
+    )
+    orders_sum_uah = sum(
+        (_order_base_total(o) * _order_rate(o, current_rate)).quantize(Decimal("0.01"))
+        for o in orders_qs
+    )
+
+    tx_qs = _transactions_scope(user)
+    tx_total_eur = tx_qs.aggregate(
+        total=Sum(
+            ExpressionWrapper(
+                Case(
+                    When(type=Transaction.DEBIT, then=F("amount")),
+                    default=-F("amount"),
+                    output_field=DecimalField(max_digits=12, decimal_places=2),
+                ),
+                output_field=DecimalField(max_digits=12, decimal_places=2),
+            )
+        )
+    )["total"] or Decimal("0")
+    tx_total_uah = (tx_total_eur * Decimal(current_rate or 0)).quantize(Decimal("0.01"))
+
+    return tx_total_uah - orders_sum_uah
+
+
+class TransactionForm(forms.ModelForm):
+    class Meta:
+        model = Transaction
+        fields = ["customer", "type", "amount", "description", "order"]
+        widgets = {
+            "description": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["customer"].widget.attrs.update({"class": "form-select"})
+        self.fields["type"].widget.attrs.update({"class": "form-select"})
+        self.fields["order"].widget.attrs.update({"class": "form-select"})
+        self.fields["amount"].widget.attrs.update({"class": "form-control", "step": "0.01", "min": "0"})
+        self.fields["description"].widget.attrs.update({"class": "form-control"})
+
 @login_required
 def order_list(request):
     """
-    EN: List of orders with roller items.
+    EN: List of roller orders (with positions).
     UA: Список замовлень з тканинними ролетами.
     """
-    qs = (
-        Order.objects
-        .filter(items__isnull=False)   # related_name для позиций ролет
-        .distinct()
+    User = get_user_model()
+    status_filter = request.GET.get("status") or ""
+    customer_filter = request.GET.get("customer") or ""
+    orders_qs = (
+        _orders_scope(request.user)
+        .select_related("customer")
+        .prefetch_related("status_logs")
         .order_by("-created_at")
     )
+
+    if status_filter:
+        orders_qs = orders_qs.filter(status=status_filter)
+
+    if customer_filter and is_manager(request.user):
+        orders_qs = orders_qs.filter(customer_id=customer_filter)
+
+    customers_filter_list = (
+        User.objects.filter(orders__isnull=False).select_related("customerprofile").distinct()
+        if is_manager(request.user) else []
+    )
+    current_rate = get_current_eur_rate()
+    orders_qs = _set_order_totals_uah(orders_qs, current_rate)
+
     context = {
-        "orders": qs,
-        "list_mode": "rollers",  # флаг для шаблона
+        "orders": orders_qs,
+        "statuses": Order.STATUS_CHOICES,
+        "status_filter": status_filter,
+        "customer_filter": customer_filter,
+        "customer_options": customers_filter_list,
+        "list_mode": "rollers",
     }
     return render(request, "orders/order_list.html", context)
 
@@ -58,15 +178,36 @@ def order_components_list(request):
     EN: List of orders that have components.
     UA: Список замовлень, у яких є комплектуючі.
     """
+    User = get_user_model()
+    status_filter = request.GET.get("status") or ""
+    customer_filter = request.GET.get("customer") or ""
+
     qs = (
-        Order.objects
-        .filter(component_items__isnull=False)  # related_name для комплектующих
-        .distinct()
+        _orders_scope(request.user)
+        .select_related("customer")
+        .prefetch_related("status_logs")
         .order_by("-created_at")
     )
+
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    if customer_filter and is_manager(request.user):
+        qs = qs.filter(customer_id=customer_filter)
+
+    customers_filter_list = (
+        User.objects.filter(orders__isnull=False).select_related("customerprofile").distinct()
+        if is_manager(request.user) else []
+    )
+    current_rate = get_current_eur_rate()
+    qs = _set_order_totals_uah(qs, current_rate)
+
     context = {
         "orders": qs,
         "list_mode": "components",
+        "statuses": Order.STATUS_CHOICES,
+        "status_filter": status_filter,
+        "customer_filter": customer_filter,
+        "customer_options": customers_filter_list,
     }
     return render(request, "orders/order_list.html", context)
 
@@ -120,16 +261,28 @@ def order_builder(request, pk=None):
     else:
         order = None
 
+    readonly = bool(order and (not is_manager(request.user) and order.status != Order.STATUS_QUOTE))
+
     # -------------------------------------
     # POST: создание или обновление
     # -------------------------------------
     if request.method == "POST":
+        if readonly:
+            messages.warning(request, "Це замовлення можна лише переглядати.")
+            return redirect("orders:builder_edit", pk=order.pk)
+        action = request.POST.get("status_action") or "save"
         # Если ордера нет — создаём
         if order is None:
+            markup_percent = _to_decimal(request.POST.get("markup_percent"), default="0")
+            current_rate = get_current_eur_rate()
             order = Order.objects.create(
                 customer=request.user,
-                eur_rate_at_creation=get_current_eur_rate(),
+                eur_rate_at_creation=current_rate,
+                eur_rate=current_rate,
+                markup_percent=markup_percent,
+                status=Order.STATUS_QUOTE,
             )
+        order.note = (request.POST.get("note") or "").strip()
 
         # Для менеджера можно добавить присвоение customer
         profile = getattr(request.user, "customerprofile", None)
@@ -243,6 +396,68 @@ def order_builder(request, pk=None):
                 pvc_plank=_get(pvc_planks, idx) in ("on", "true", "1"),
             )
 
+        markup_percent = _to_decimal(request.POST.get("markup_percent"), default=str(order.markup_percent or "0"))
+        eur_rate_value = _to_decimal(
+            request.POST.get("eur_rate"),
+            default=str(order.eur_rate or get_current_eur_rate()),
+        )
+
+        items_total = (
+            order.items.annotate(
+                line_total=ExpressionWrapper(
+                    F("subtotal_eur") * F("quantity"),
+                    output_field=DecimalField(max_digits=18, decimal_places=2),
+                )
+            )
+            .aggregate(total=Sum("line_total"))
+            .get("total")
+            or Decimal("0")
+        )
+
+        total_with_markup = items_total * (Decimal("1") + markup_percent / Decimal("100"))
+
+        order.markup_percent = markup_percent.quantize(Decimal("0.01"))
+        order.eur_rate = eur_rate_value
+        if not order.eur_rate_at_creation:
+            order.eur_rate_at_creation = eur_rate_value
+        order.total_eur = items_total.quantize(Decimal("0.01"))
+        order.save(update_fields=["markup_percent", "eur_rate", "total_eur", "eur_rate_at_creation", "note"])
+
+        new_status = order.status
+        if action == "to_work":
+            new_status = Order.STATUS_IN_WORK
+        elif action == "next" and is_manager(request.user):
+            new_status = order.next_status() or order.status
+        elif action == "prev" and is_manager(request.user):
+            new_status = order.prev_status() or order.status
+
+        if new_status == Order.STATUS_IN_WORK and order.status == Order.STATUS_QUOTE:
+            current_rate = get_current_eur_rate()
+            order.eur_rate = current_rate
+            order.eur_rate_at_creation = current_rate
+            order.save(update_fields=["eur_rate", "eur_rate_at_creation"])
+
+            balance_before = compute_balance(order.customer)
+            projected_balance = balance_before - order.total_eur
+            shortage = projected_balance * -1 if projected_balance < 0 else Decimal("0")
+            profile = getattr(order.customer, "customerprofile", None)
+            credit_allowed = getattr(profile, "credit_allowed", False)
+            if shortage > 0 and not credit_allowed:
+                messages.warning(
+                    request,
+                    f"Оплатіть суму {shortage} для відправки в роботу.",
+                )
+                return redirect("orders:builder_edit", pk=order.pk)
+
+        if new_status and new_status != order.status:
+            order.status = new_status
+            order.save(update_fields=["status"])
+            OrderStatusLog.objects.create(
+                order=order,
+                status=new_status,
+                user=request.user,
+            )
+
         messages.success(request, "Замовлення збережено.")
         return redirect("orders:list")
 
@@ -253,6 +468,7 @@ def order_builder(request, pk=None):
     # Если новый заказ
     if order is None:
         items_json = "[]"
+        next_status_label = STATUS_LABELS.get(Order.STATUS_IN_WORK)
     else:
         # экспорт Items для JS
         items = []
@@ -306,11 +522,23 @@ def order_builder(request, pk=None):
                 "pvc_plank": it.pvc_plank,
             })
         items_json = json.dumps(items)
+        next_code = order.next_status()
+        next_status_label = STATUS_LABELS.get(next_code) if next_code else None
+
+    status_logs = order.status_logs.all() if order else []
+
+    builder_rate = get_current_eur_rate()
+    if order and order.status != Order.STATUS_QUOTE and order.eur_rate:
+        builder_rate = order.eur_rate
 
     return render(request, "orders/builder.html", {
         "order": order,
         "items_json": items_json,
         "PRICE_SHEET_URL": PRICE_SHEET_URL,
+        "status_logs": status_logs,
+        "eur_rate": builder_rate,
+        "next_status_label": next_status_label,
+        "readonly": readonly,
     })
     
     
@@ -333,6 +561,79 @@ def order_delete(request, pk: int):
 
     # GET → страница подтверждения (если хочешь)
     return render(request, "orders/delete_confirm.html", {"order": order})
+
+
+@login_required
+def transaction_create(request):
+    if not is_manager(request.user):
+        messages.error(request, "Створювати транзакції може лише менеджер.")
+        return redirect("orders:list")
+
+    initial = {}
+    if "customer" in request.GET:
+        initial["customer"] = request.GET.get("customer")
+
+    if request.method == "POST":
+        form = TransactionForm(request.POST)
+        if form.is_valid():
+            tx = form.save(commit=False)
+            tx.created_by = request.user
+            tx.save()
+            messages.success(request, "Транзакцію створено.")
+            return redirect("orders:list")
+    else:
+        form = TransactionForm(initial=initial)
+
+    return render(request, "orders/transaction_form.html", {"form": form})
+
+
+@login_required
+def balances_history(request):
+    """
+    EN: Orders + transactions timeline with balance and filters.
+    UA: Історія замовлень і транзакцій з фільтрами.
+    """
+    User = get_user_model()
+    status_filter = request.GET.get("status") or ""
+    customer_filter = request.GET.get("customer") or ""
+    balance_user = request.user
+
+    orders_qs = _orders_scope(request.user).select_related("customer").prefetch_related("status_logs").order_by("-created_at")
+    tx_qs = _transactions_scope(request.user).order_by("-created_at")
+
+    if status_filter:
+        orders_qs = orders_qs.filter(status=status_filter)
+
+    if customer_filter and is_manager(request.user):
+        balance_user = get_object_or_404(User, pk=customer_filter)
+        orders_qs = orders_qs.filter(customer=balance_user)
+        tx_qs = tx_qs.filter(customer=balance_user)
+
+    current_rate = get_current_eur_rate()
+    orders_qs = _set_order_totals_uah(orders_qs, current_rate)
+
+    events = []
+    for o in orders_qs:
+        events.append({"type": "order", "created_at": o.created_at, "object": o})
+    for tx in tx_qs:
+        events.append({"type": "transaction", "created_at": tx.created_at, "object": tx})
+    events.sort(key=lambda x: x["created_at"], reverse=True)
+
+    customers_filter_list = (
+        User.objects.filter(orders__isnull=False).select_related("customerprofile").distinct()
+        if is_manager(request.user) else []
+    )
+
+    context = {
+        "events": events,
+        "statuses": Order.STATUS_CHOICES,
+        "status_filter": status_filter,
+        "customer_filter": customer_filter,
+        "customer_options": customers_filter_list,
+        "balance": compute_balance(balance_user),
+        "balance_user": balance_user,
+    }
+    return render(request, "orders/balances_history.html", context)
 
 
 
@@ -415,8 +716,11 @@ def order_components_builder_new(request):
         customer=request.user,        # ✔ обязателен, иначе IntegrityError по customer_id
         title="Замовлення (комплектуючі)",  # любой не пустой заголовок
         description="",
-        status=Order.NEW,
+        status=Order.STATUS_QUOTE,
         eur_rate_at_creation=get_current_eur_rate(),
+        eur_rate=get_current_eur_rate(),
+        markup_percent=Decimal("0"),
+        total_eur=Decimal("0"),
     )
     return redirect("orders:order_components_builder", pk=order.pk)
 
@@ -443,5 +747,3 @@ def update_eur_rate_view(request):
     # EN: redirect back where user came from; UA: повертаємось туди, звідки прийшли
     next_url = request.META.get("HTTP_REFERER") or reverse("core:dashboard")
     return redirect(next_url)
-
-

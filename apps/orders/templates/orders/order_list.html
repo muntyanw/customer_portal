@@ -1,33 +1,56 @@
 {% extends 'core/dashboard_base.html' %}
 
 {% block dashboard_title %}
-  {% if list_mode == 'components' %}
-    {% comment %}Замовлення (Комплектуючі){% endcomment %}
-  {% else %}
-    {% comment %}Замовлення (Тканинні ролети){% endcomment %}
-  {% endif %}
+  {% if list_mode == 'components' %}Замовлення (Комплектуючі){% else %}Замовлення (Тканинні ролети){% endif %}
 {% endblock %}
-
 {% block dashboard_heading %}
-  {% if list_mode == 'components' %}
-    {% comment %}Замовлення з комплектуючими{% endcomment %}
-  {% else %}
-    {% comment %}Замовлення з тканинними ролетами{% endcomment %}
-  {% endif %}
+  {% if list_mode == 'components' %}Замовлення з комплектуючими{% else %}Замовлення з тканинними ролетами{% endif %}
 {% endblock %}
 
 {% block dashboard_content %}
+  <div class="card shadow-sm mb-3">
+    <div class="card-body">
+      <form method="get" class="row g-3 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label">Статус</label>
+          <select name="status" class="form-select">
+            <option value="">Усі</option>
+            {% for code,label in statuses %}
+              <option value="{{ code }}" {% if status_filter == code %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% if customer_options %}
+          <div class="col-md-4">
+            <label class="form-label">Клієнт</label>
+            <select name="customer" class="form-select">
+              <option value="">Усі</option>
+              {% for c in customer_options %}
+                <option value="{{ c.id }}" {% if customer_filter|add:'0' == c.id|add:'0' %}selected{% endif %}>
+                  {% if c.customerprofile.full_name %}{{ c.customerprofile.full_name }}{% else %}{{ c }}{% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+        {% endif %}
+        <div class="col-md-4 d-flex gap-2">
+          <button type="submit" class="btn btn-primary mt-auto">Фільтрувати</button>
+          <a href="{% url 'orders:list' %}" class="btn btn-outline-secondary mt-auto">Скинути</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div class="d-flex flex-column">
       <h4 class="mb-0">
         {% if list_mode == 'components' %}
-          Комплектуючи, список замовлень
+          Комплектуючі, список замовлень
         {% else %}
           Тканинні ролети, список замовлень
         {% endif %}
       </h4>
     </div>
-
     <div class="d-flex flex-wrap gap-2">
       {% if list_mode == 'components' %}
         <a href="{% url 'orders:components_builder_create' %}" class="btn btn-primary"><i class="bi bi-tools me-1"></i> Нове замовлення (Комплектуючі)</a>
@@ -42,36 +65,32 @@
       {% for o in orders %}
         <div class="card shadow-sm border-0">
           <div class="card-body d-flex flex-column gap-2">
-            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
               <div>
                 <div class="fw-semibold">Замовлення № {{ o.id }}</div>
                 <div class="small text-muted">{{ o.created_at|date:'d.m.Y H:i' }}</div>
+                {% if o.customer %}
+                  <div class="small text-muted">Клієнт: {{ o.customer }}</div>
+                {% endif %}
+                {% if o.note %}
+                  <div class="small text-muted" title="{{ o.note }}">
+                    {{ o.note|truncatechars:160 }}
+                  </div>
+                {% endif %}
+              </div>
+              <div class="text-end">
+                <span class="badge bg-secondary">{{ o.get_status_display }}</span>
+                <div class="fw-semibold mt-2">{{ o.total_uah_display|default:"0.00" }} грн</div>
+                <div class="small text-muted">Курс: {{ o.display_rate|default:"0.00" }}</div>
               </div>
             </div>
-
-            {% if o.customer %}
-              <div class="small text-muted">
-                <i class="bi bi-person me-1"></i>
-                {{ o.customer }}
-              </div>
-            {% endif %}
-            {% if o.comment %}
-              <div class="small text-muted">
-                <i class="bi bi-sticky me-1"></i>
-                {{ o.comment|truncatechars:120 }}
-              </div>
-            {% endif %}
-
-            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2">
             <div class="d-flex flex-wrap gap-2">
               {% if list_mode == 'components' %}
-                {# Для замовлень з комплектуючими #}
                 <a class="btn btn-sm btn-outline-primary"
                   href="{% url 'orders:order_components_builder' o.id %}">
                   <i class="bi bi-eye me-1"></i> Переглянути
                 </a>
               {% else %}
-                {# Для замовлень з ролетами #}
                 <a class="btn btn-sm btn-outline-primary"
                   href="{% url 'orders:builder_edit' o.id %}">
                   <i class="bi bi-eye me-1"></i> Переглянути
@@ -82,8 +101,6 @@
                 <i class="bi bi-trash me-1"></i> Видалити
               </a>
             </div>
-          </div>
-
           </div>
         </div>
       {% endfor %}
