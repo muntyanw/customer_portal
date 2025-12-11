@@ -53,9 +53,17 @@ def profile_view(request, pk=None):
     profile, _ = CustomerProfile.objects.get_or_create(user=target_user)
 
     can_edit_credit = is_manager(request.user)
+    can_edit_role = is_manager(request.user)
 
     if request.method == "POST":
-        form = ProfileForm(request.POST, request.FILES, user_instance=target_user, profile_instance=profile, can_edit_credit=can_edit_credit)
+        form = ProfileForm(
+            request.POST,
+            request.FILES,
+            user_instance=target_user,
+            profile_instance=profile,
+            can_edit_credit=can_edit_credit,
+            can_edit_role=can_edit_role,
+        )
         if form.is_valid():
             form.save()
             messages.success(request, "Профіль оновлено.")
@@ -63,9 +71,23 @@ def profile_view(request, pk=None):
                 return redirect("accounts:profile_other", pk=pk)
             return redirect("accounts:profile")
     else:
-        form = ProfileForm(user_instance=target_user, profile_instance=profile, can_edit_credit=can_edit_credit)
+        form = ProfileForm(
+            user_instance=target_user,
+            profile_instance=profile,
+            can_edit_credit=can_edit_credit,
+            can_edit_role=can_edit_role,
+        )
 
-    return render(request, "accounts/profile.html", {"form": form, "target_user": target_user, "can_edit_credit": can_edit_credit})
+    return render(
+        request,
+        "accounts/profile.html",
+        {
+            "form": form,
+            "target_user": target_user,
+            "can_edit_credit": can_edit_credit,
+            "can_edit_role": can_edit_role,
+        },
+    )
 
 def logout_view(request):
     logout(request)

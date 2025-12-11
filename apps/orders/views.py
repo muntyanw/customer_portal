@@ -168,7 +168,7 @@ class TransactionForm(forms.ModelForm):
         rate = Decimal(self.current_rate or 0)
         if rate <= 0:
             raise forms.ValidationError("Немає актуального курсу EUR для конвертації.")
-        return (amount_uah / rate).quantize(Decimal("0.01"))
+        return (amount_uah / rate).quantize(Decimal("0.00001"))
 
     def save(self, commit=True):
         obj = super().save(commit=False)
@@ -639,7 +639,7 @@ def transaction_create(request):
             tx.created_by = request.user
             tx.save()
             messages.success(request, "Транзакцію створено.")
-            return redirect("orders:list")
+            return redirect("orders:balances")
     else:
         form = TransactionForm(initial=initial)
 

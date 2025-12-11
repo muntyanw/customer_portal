@@ -26,11 +26,13 @@ class ProfileForm(forms.Form):
     note = forms.CharField(label="Примітка", required=False, widget=forms.Textarea(attrs={"rows": 3}))
     credit_allowed = forms.BooleanField(label="Кредит дозволено", required=False)
     avatar = forms.ImageField(label="Аватар", required=False)
+    is_manager = forms.BooleanField(label="Роль: менеджер", required=False)
 
     def __init__(self, *args, **kwargs):
         self.user_instance = kwargs.pop("user_instance")
         self.profile_instance = kwargs.pop("profile_instance")
         can_edit_credit = kwargs.pop("can_edit_credit", False)
+        can_edit_role = kwargs.pop("can_edit_role", False)
         super().__init__(*args, **kwargs)
         self.fields["email"].initial = self.user_instance.email
         self.fields["full_name"].initial = self.profile_instance.full_name
@@ -41,6 +43,10 @@ class ProfileForm(forms.Form):
         self.fields["avatar"].initial = self.profile_instance.avatar
         if not can_edit_credit:
             self.fields.pop("credit_allowed", None)
+        if can_edit_role:
+            self.fields["is_manager"].initial = bool(getattr(self.user_instance, "is_manager", False))
+        else:
+            self.fields.pop("is_manager", None)
         for field in self.fields.values():
             if isinstance(field.widget, forms.Textarea):
                 field.widget.attrs.update({"class": "form-control"})
@@ -51,7 +57,11 @@ class ProfileForm(forms.Form):
     def save(self):
         self.user_instance.email = self.cleaned_data["email"]
         self.user_instance.username = self.cleaned_data["email"]
-        self.user_instance.save(update_fields=["email", "username"])
+        update_fields = ["email", "username"]
+        if "is_manager" in self.cleaned_data:
+            self.user_instance.is_manager = bool(self.cleaned_data.get("is_manager", False))
+            update_fields.append("is_manager")
+        self.user_instance.save(update_fields=update_fields)
 
         self.profile_instance.full_name = self.cleaned_data.get("full_name", "")
         self.profile_instance.phone = self.cleaned_data.get("phone", "")

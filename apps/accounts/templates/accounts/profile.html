@@ -61,7 +61,15 @@
               <div class="col-12">
                 <div class="form-check mt-2">
                   {{ form.credit_allowed|add_class:"form-check-input" }}
-                  <label class="form-check-label fw-semibold">Можливий кредит</label>
+                  <label class="form-check-label fw-semibold">&nbsp;Можливий кредит </label>
+                </div>
+              </div>
+            {% endif %}
+            {% if can_edit_role and form.is_manager %}
+              <div class="col-12">
+                <div class="form-check mt-2">
+                  {{ form.is_manager|add_class:"form-check-input" }}
+                  <label class="form-check-label fw-semibold">&nbsp;Роль: менеджер</label>
                 </div>
               </div>
             {% endif %}

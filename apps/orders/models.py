@@ -544,8 +544,13 @@ class Transaction(models.Model):
         related_name="transactions",
     )
     type = models.CharField(max_length=16, choices=TYPE_CHOICES)
-    # Сума зберігається в EUR, вводимо в UAH, перераховуємо по курсу на момент транзакції.
-    amount = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    # Сума зберігається в EUR (з точністю до 0.00001), вводимо в UAH, перераховуємо по курсу на момент транзакції.
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=5,
+        validators=[MinValueValidator(0)],
+        help_text="Сума в EUR з підвищеною точністю для точного повернення UAH",
+    )
     eur_rate = models.DecimalField(
         max_digits=12,
         decimal_places=4,
