@@ -4,9 +4,6 @@
 {% block dashboard_heading %}
   <div class="d-flex align-items-center gap-3 flex-wrap">
     <span>{% if request.user.is_manager %}Баланси{% else %}Баланс{% endif %}</span>
-    <span class="badge rounded-pill {% if balance < 0 %}bg-danger{% else %}bg-success{% endif %}">
-      {{ balance|default:"0.00" }} грн
-    </span>
   </div>
 {% endblock %}
 

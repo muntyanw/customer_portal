@@ -1,17 +1,17 @@
 {% extends 'core/dashboard_base.html' %}
 
 {% block dashboard_title %}
-  {% if list_mode == 'components' %}Замовлення (Комплектуючі){% else %}Замовлення (Тканинні ролети){% endif %}
+  {% if list_mode == 'components' %}Комплектуючі{% else %}Замовлення (Тканинні ролети){% endif %}
 {% endblock %}
 {% block dashboard_heading %}
-  {% if list_mode == 'components' %}Замовлення з комплектуючими{% else %}Замовлення з тканинними ролетами{% endif %}
+  {% if list_mode == 'components' %}Комплектуючі, список замовлень{% else %}Замовлення з тканинними ролетами{% endif %}
 {% endblock %}
 
 {% block dashboard_content %}
   <div class="card shadow-sm mb-3">
     <div class="card-body">
-      <form method="get" class="row g-3 align-items-end">
-        <div class="col-md-4">
+      <form method="get" class="row g-2 align-items-end">
+        <div class="col-md-4 col-lg-3">
           <label class="form-label">Статус</label>
           <select name="status" class="form-select">
             <option value="">Усі</option>
@@ -21,7 +21,7 @@
           </select>
         </div>
         {% if customer_options %}
-          <div class="col-md-4">
+          <div class="col-md-4 col-lg-3">
             <label class="form-label">Клієнт</label>
             <select name="customer" class="form-select">
               <option value="">Усі</option>
@@ -33,30 +33,26 @@
             </select>
           </div>
         {% endif %}
-        <div class="col-md-4 d-flex gap-2">
-          <button type="submit" class="btn btn-primary mt-auto">Фільтрувати</button>
-          <a href="{% url 'orders:list' %}" class="btn btn-outline-secondary mt-auto">Скинути</a>
+        <div class="col-auto d-flex gap-2">
+          <button type="submit" class="btn btn-primary">Фільтрувати</button>
+          {% if list_mode == 'components' %}
+            <a href="{% url 'orders:components_list' %}" class="btn btn-outline-secondary">Скинути</a>
+          {% else %}
+            <a href="{% url 'orders:list' %}" class="btn btn-outline-secondary">Скинути</a>
+          {% endif %}
+        </div>
+        <div class="col ms-auto d-flex justify-content-end">
+          {% if list_mode == 'components' %}
+            <a href="{% url 'orders:components_builder_create' %}" class="btn btn-success">
+              <i class="bi bi-tools me-1"></i> Нове замовлення (Комплектуючі)
+            </a>
+          {% else %}
+            <a href="{% url 'orders:builder' %}" class="btn btn-success">
+              <i class="bi bi-plus-lg me-1"></i> Нове замовлення (Ролети)
+            </a>
+          {% endif %}
         </div>
       </form>
-    </div>
-  </div>
-
-  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-    <div class="d-flex flex-column">
-      <h4 class="mb-0">
-        {% if list_mode == 'components' %}
-          Комплектуючі, список замовлень
-        {% else %}
-          Тканинні ролети, список замовлень
-        {% endif %}
-      </h4>
-    </div>
-    <div class="d-flex flex-wrap gap-2">
-      {% if list_mode == 'components' %}
-        <a href="{% url 'orders:components_builder_create' %}" class="btn btn-primary"><i class="bi bi-tools me-1"></i> Нове замовлення (Комплектуючі)</a>
-      {% else %}
-        <a href="{% url 'orders:builder' %}" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i> Нове замовлення (Ролети)</a>
-      {% endif %}
     </div>
   </div>
 
@@ -81,7 +77,7 @@
               <div class="text-end">
                 <span class="badge bg-secondary">{{ o.get_status_display }}</span>
                 <div class="fw-semibold mt-2">{{ o.total_uah_display|default:"0.00" }} грн</div>
-                <div class="small text-muted">Курс: {{ o.display_rate|default:"0.00" }}</div>
+                {% comment %} <div class="small text-muted">Курс: {{ o.display_rate|default:"0.00" }}</div> {% endcomment %}
               </div>
             </div>
             <div class="d-flex flex-wrap gap-2">

@@ -190,7 +190,9 @@ def order_list(request):
         _orders_scope(request.user)
         .select_related("customer")
         .prefetch_related("status_logs")
+        .exclude(component_items__isnull=False)  # exclude component orders from rollers list
         .order_by("-created_at")
+        .distinct()
     )
 
     if status_filter:
@@ -231,6 +233,8 @@ def order_components_list(request):
         _orders_scope(request.user)
         .select_related("customer")
         .prefetch_related("status_logs")
+        .filter(component_items__isnull=False)
+        .distinct()
         .order_by("-created_at")
     )
 
@@ -377,6 +381,8 @@ def order_builder(request, pk=None):
         motor_with_remote_qty = request.POST.getlist("motor_with_remote_qty")
         motor_no_remote_price_eur = request.POST.getlist("motor_no_remote_price_eur")
         motor_no_remote_qty = request.POST.getlist("motor_no_remote_qty")
+        metal_kronsht_price_eur = request.POST.getlist("metal_kronsht_price_eur")
+        metal_kronsht_qty = request.POST.getlist("metal_kronsht_qty")
         
         subtotals = request.POST.getlist("subtotal_eur")
 
@@ -432,6 +438,8 @@ def order_builder(request, pk=None):
                 motor_with_remote_qty = _to_decimal(_get(motor_with_remote_qty, idx)),
                 motor_no_remote_price_eur = _to_decimal(_get(motor_no_remote_price_eur, idx)),
                 motor_no_remote_qty = _to_decimal(_get(motor_no_remote_qty, idx)),
+                metal_kronsht_price_eur = _to_decimal(_get(metal_kronsht_price_eur, idx)),
+                metal_kronsht_qty = _to_decimal(_get(metal_kronsht_qty, idx)),
         
                 subtotal_eur=_to_decimal(_get(subtotals, idx)),
                 roll_height_info=_get(roll_infos, idx, ""),
@@ -558,6 +566,8 @@ def order_builder(request, pk=None):
                 "motor_with_remote_qty": float(it.motor_with_remote_qty),
                 "motor_no_remote_price_eur": float(it.motor_no_remote_price_eur),
                 "motor_no_remote_qty": float(it.motor_no_remote_qty),
+                "metal_kronsht_price_eur": float(it.metal_kronsht_price_eur),
+                "metal_kronsht_qty": float(it.metal_kronsht_qty),
                 
                 "subtotal_eur": float(it.subtotal_eur),
                 "quantity": it.quantity,
@@ -647,7 +657,13 @@ def balances_history(request):
     customer_filter = request.GET.get("customer") or ""
     balance_user = request.user
 
-    orders_qs = _orders_scope(request.user).select_related("customer").prefetch_related("status_logs").order_by("-created_at")
+    orders_qs = (
+        _orders_scope(request.user)
+        .select_related("customer")
+        .prefetch_related("status_logs")
+        .exclude(status=Order.STATUS_QUOTE)  # Прорахунок не впливає на баланс
+        .order_by("-created_at")
+    )
     tx_qs = _transactions_scope(request.user).order_by("-created_at")
 
     if status_filter:
@@ -693,16 +709,24 @@ def order_components_builder(request, pk):
     UA: Білдер комплектуючих для замовлення (аркуш 'Комплектація').
     """
     order = get_object_or_404(Order, pk=pk)
+    readonly = bool(order and (not is_manager(request.user) and order.status != Order.STATUS_QUOTE))
 
     if request.method == "POST":
+        if readonly:
+            messages.warning(request, "Це замовлення можна лише переглядати.")
+            return redirect("orders:order_components_builder", pk=order.pk)
+
+        action = request.POST.get("status_action") or "save"
         components = parse_components_from_post(request.POST)
 
         # EN: Replace all existing components with new list
         # UA: Повністю замінюємо поточний список комплектуючих новим
         OrderComponentItem.objects.filter(order=order).delete()
 
+        total_eur = Decimal("0")
         bulk = []
         for row in components:
+            total_eur += Decimal(row["price_eur"] or 0) * Decimal(row["quantity"] or 0)
             bulk.append(
                 OrderComponentItem(
                     order=order,
@@ -716,6 +740,30 @@ def order_components_builder(request, pk):
 
         if bulk:
             OrderComponentItem.objects.bulk_create(bulk)
+        # Save total for order (used in listings/balance)
+        order.total_eur = total_eur
+        order.eur_rate = order.eur_rate or get_current_eur_rate()
+
+        # Status transitions (mirror roller orders)
+        new_status = None
+        if action == "to_work":
+            new_status = Order.STATUS_IN_WORK
+        elif action == "next":
+            new_status = order.next_status()
+        elif action == "prev":
+            new_status = order.prev_status()
+        # Default save keeps current status
+
+        order.save(update_fields=["total_eur", "eur_rate"])
+
+        if new_status and new_status != order.status:
+            order.status = new_status
+            order.save(update_fields=["status"])
+            OrderStatusLog.objects.create(
+                order=order,
+                status=new_status,
+                user=request.user,
+            )
 
         messages.success(request, "Комплектуючі для замовлення збережено.")
 
@@ -750,6 +798,10 @@ def order_components_builder(request, pk):
         "order": order,
         "PRICE_SHEET_URL": PRICE_SHEET_URL,
         "components_json": json.dumps(components_payload, ensure_ascii=False),
+        "status_logs": order.status_logs.all(),
+        "readonly": readonly,
+        "next_status_label": STATUS_LABELS.get(order.next_status()) if order else None,
+        "eur_rate": order.eur_rate or get_current_eur_rate(),
     }
 
     return render(request, "orders/components_builder.html", context)

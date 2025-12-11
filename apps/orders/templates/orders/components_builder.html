@@ -41,6 +41,7 @@
   <form method="post" id="componentsOrderForm" novalidate>
     {% csrf_token %}
     <input type="hidden" name="eur_rate_at_creation" class="eur_rate_at_creation" />
+    <input type="hidden" name="status_action" id="statusActionInput" value="save" />
 
     <div class="mb-3">
       <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
@@ -48,6 +49,33 @@
         <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="small">Відкрити прайс (Комплектація)</a>
       </div>
       <input type="url" class="form-control" id="componentsPriceUrl" name="price_url" value="{{ PRICE_SHEET_URL }}" required style="display: none;" />
+    </div>
+
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div class="d-flex align-items-center gap-2">
+          <span class="text-muted small text-uppercase">Статус</span>
+          <span class="badge bg-primary">
+            {% if order %}{{ order.get_status_display }}{% else %}Прорахунок{% endif %}
+          </span>
+        </div>
+        {% comment %} <div class="small text-muted">
+          Поточний курс EUR: <strong>{{ eur_rate|default:"0.00" }}</strong>
+        </div> {% endcomment %}
+      </div>
+      {% if status_logs %}
+        <div class="list-group list-group-flush">
+          {% for log in status_logs %}
+            <div class="list-group-item d-flex justify-content-between align-items-center">
+              <div>
+                <div class="fw-semibold">{{ log.get_status_display }}</div>
+                <div class="small text-muted">{{ log.created_at|date:'d.m.Y H:i' }}</div>
+              </div>
+              {% if log.user %}<div class="small text-muted">{{ log.user }}</div>{% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
     </div>
 
     <!-- Контейнер для карток комплектуючих -->
@@ -72,11 +100,32 @@
           </div>
         </div>
       </div>
+      {% if not readonly %}
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          <button type="submit" class="btn btn-primary" data-status-action="save">Зберегти</button>
+          {% if order %}
+            {% if order.status == order.STATUS_QUOTE %}
+              <button type="submit" class="btn btn-success" data-status-action="to_work">В роботу</button>
+            {% endif %}
+            {% if request.user.is_manager %}
+              <div class="ms-auto d-flex gap-2">
+                {% if order.prev_status %}
+                  <button type="submit" class="btn btn-outline-primary" data-status-action="prev">Попередній статус</button>
+                {% endif %}
+                {% if next_status_label %}
+                  <button type="submit" class="btn btn-outline-primary" data-status-action="next">
+                    Наступний статус{% if next_status_label %}: {{ next_status_label }}{% endif %}
+                  </button>
+                {% endif %}
+              </div>
+            {% endif %}
+          {% else %}
+            <button type="submit" class="btn btn-success" data-status-action="to_work">В роботу</button>
+          {% endif %}
+        </div>
+      {% endif %}
     </div>
 
-    <div class="d-grid mt-3">
-      <button type="submit" class="btn btn-success btn-lg">Зберегти замовлення</button>
-    </div>
   </form>
 
   {# Шаблон однієї картки комплектуючої #}
@@ -176,6 +225,33 @@
     let componentsItemsByName = new Map(); // name -> items[]
 
     // ---------- Helpers ----------
+    document.addEventListener('DOMContentLoaded', function () {
+      if ({{ readonly|yesno:"true,false" }}) {
+        $('#componentsOrderForm').find('input, select, textarea, button').prop('disabled', true)
+        $('#componentsOrderForm').find('a').prop('disabled', false)
+      }
+    })
+
+    function normalizeUnit(unit) {
+      return (unit || '').toString().trim().toLowerCase();
+    }
+
+    function isPieceUnit(unit) {
+      const norm = normalizeUnit(unit).replace(/\s+/g, '').replace(/\./g, '');
+      return norm === 'шт' || norm.startsWith('шт');
+    }
+
+    function applyQtyInputSettings($card) {
+      const unit = $card.find('.component-unit').val() || '';
+      const $qty = $card.find('.component-qty');
+      if (isPieceUnit(unit)) {
+        $qty.attr('step', '1');
+        const v = Math.max(0, Math.floor(parseFloat(($qty.val() || '0').toString().replace(',', '.')) || 0));
+        $qty.val(v);
+      } else {
+        $qty.attr('step', '0.001');
+      }
+    }
 
     function money(x) {
       return (Math.round(parseFloat(x || 0) * 100) / 100).toFixed(2);
@@ -339,6 +415,7 @@
       const priceNum = parseFloat((price || '0').toString().replace(',', '.'));
       $card.find('.component-price').val(priceNum ? money(priceNum) : '');
       $card.find('.component-price-uah').val(eurToUah(priceNum));
+      applyQtyInputSettings($card);
 
       updateHiddenFieldsFromCard($card);
       recalcComponentsPrice();
@@ -419,6 +496,7 @@
       if (initial?.quantity) {
         $card.find('.component-qty').val(initial.quantity);
       }
+      applyQtyInputSettings($card);
 
       // якщо нема явної ціни — спробуємо взяти з прайсу
       if (!initial?.price_eur && initial?.name) {
@@ -465,8 +543,14 @@
     });
 
     $componentsContainer.on('input', '.component-qty', function () {
-      const v = parseFloat(this.value || '0');
-      if (isNaN(v) || v < 0) this.value = 0;
+      const $card = $(this).closest('.component-card');
+      const unit = $card.find('.component-unit').val() || '';
+      let v = parseFloat((this.value || '0').toString().replace(',', '.'));
+      if (isNaN(v) || v < 0) v = 0;
+      if (isPieceUnit(unit)) {
+        v = Math.floor(v);
+      }
+      this.value = v;
       updateHiddenFieldsFromCard($(this).closest('.component-card'));
       recalcComponentsPrice();
     });
@@ -504,6 +588,11 @@
         window.scrollTo({ top: 0, behavior: 'smooth' });
         window.showToast('Заповніть найменування та кількість для кожної комплектуючої', 'warning');
       }
+    });
+
+    $('#componentsOrderForm').on('click', 'button[data-status-action]', function () {
+      const action = $(this).data('status-action') || 'save';
+      $('#statusActionInput').val(action);
     });
 
     // ---------- Init ----------

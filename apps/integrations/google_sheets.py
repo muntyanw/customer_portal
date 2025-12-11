@@ -164,7 +164,7 @@ def pick_width_band(width_bands: List[str], width_mm: int) -> Optional[int]:
     return None
 
 
-def fillOptions(sheet_name, result, ws, header_row):
+def fillOptions(sheet_name, result, ws, header_row, section_title=""):
     
         # 6) Extra magnets price (for Falshi sheet only)
     if sheet_name == sheetName.falshi:
@@ -306,12 +306,13 @@ def fillOptions(sheet_name, result, ws, header_row):
         result["cord_copper_barrel_price_eur"] = get_money_value(
             ws, header_row - 2, col_letter_to_index("D")
         )
-        result["magnets_price_eur"] = get_money_value(
-            ws, header_row - 1, col_letter_to_index("D")
-        )
         result["metal_kronsht_price_eur"] = get_money_value(
             ws, header_row - 2, col_letter_to_index("N")
         )
+        result["magnets_price_eur"] = get_money_value(
+            ws, header_row - 1, col_letter_to_index("D")
+        )
+        
         result["bottom_wide_bar_price_eur_mp"] = get_money_value(
             ws, header_row - 1, col_letter_to_index("N")
         )
@@ -411,9 +412,9 @@ def parse_sheet_price_section(
     section_title: str,
     *,
     gabarit_width_flag: Optional[bool] = None,
-    width_mm: int = None,
-    fabric_name: str = None,
-    gabarit_height_mm: int = None,
+    width_mm: int = 0,
+    fabric_name: str = "",
+    gabarit_height_mm: int = 0,
 ) -> Dict:
     """
     UA: Парсить ТІЛЬКИ вибрану секцію на вказаному листі.
@@ -579,7 +580,7 @@ def parse_sheet_price_section(
     result["fabrics"] = fabrics or None
     result["section"] = target or ""
     
-    result = fillOptions(sheet_name, result, ws, header_row)
+    result = fillOptions(sheet_name, result, ws, header_row, section_title=section_title)
 
     if not width_mm or not gabarit_height_mm:
         return result
@@ -653,8 +654,8 @@ def price_preview_section(
         google_sheet_url=google_sheet_url,
         sheet_name=sheet_name,
         section_title=section_title,
-        min_merged_width=12,
-        force_refresh=False,
+        width_mm=width_mm,
+        gabarit_height_mm=gabarit_height_mm,
         gabarit_width_flag=gabarit_width_flag,
     )
 

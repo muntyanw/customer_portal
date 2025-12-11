@@ -161,6 +161,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "apps.accounts.context_processors.roles",
                 "apps.orders.context_processors.currency_rate",
+                "apps.orders.context_processors.user_balance",
             ],
         },
     },
@@ -195,5 +196,4 @@ ASGI_APPLICATION = "config.asgi.application"
 GOOGLE_SERVICE_ACCOUNT_FILE = BASE_DIR / "config" / "google-service-account.json"
 FABRIC_COLORS_SHEET_ID = "1Dsr-7LdyjchAttYgvv8dmvByausJqw3NrlGX8wTwF7o"
 FABRIC_COLORS_SHEET_NAME = "Тканини до ролет"
-
 

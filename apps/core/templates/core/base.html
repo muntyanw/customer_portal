@@ -55,6 +55,16 @@
           <ul class="navbar-nav ms-auto">
             {% if request.user.is_authenticated %}
 
+              {% if user_balance is not None %}
+                <li class="nav-item d-flex align-items-center ms-lg-3">
+                  <span class="badge rounded-pill {% if user_balance < 0 %}bg-danger{% else %}bg-success{% endif %} me-2 px-3 py-2">
+                    <i class="bi bi-cash-coin me-1"></i>
+                    Баланс:
+                    <span class="fw-bold ms-1">{{ user_balance|default:"0.00" }} грн</span>
+                  </span>
+                </li>
+              {% endif %}
+
               {# Блок курсу EUR #}
               <li class="nav-item d-flex align-items-center ms-lg-3">
                 <span class="badge rounded-pill bg-warning text-dark me-2 px-3 py-2">
