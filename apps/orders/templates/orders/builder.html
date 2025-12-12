@@ -1,4 +1,5 @@
 {% extends 'core/dashboard_base.html' %}
+{% load l10n %}
 {% block dashboard_title %}
   Нове замовлення
 {% endblock %}
@@ -109,7 +110,7 @@
             class="form-control form-control-sm"
             id="orderMarkup"
             name="markup_percent"
-            value="{{ order.markup_percent|default:'0' }}"
+            value="0"
           />
         </div>
         <div class="text-end">
@@ -180,6 +181,8 @@
     const builderOrderId = {{ order.id|default:"null" }}
     const builderItems = {{ items_json|safe|default:"[]" }}
     const paymentMessage = "{{ payment_message_text|default:''|escapejs }}"
+    const paymentShortage = {{ payment_shortage.shortage|default:"\"\"" }}
+    const paymentShortageOrders = {{ payment_shortage.orders|default:"[]"|safe }}
     const isManager = {{ request.user.is_manager|yesno:"true,false" }}
     const eur_rate = parseFloat(
       '{{ eur_rate|default:"0.00" }}'
@@ -1375,7 +1378,11 @@
     $('#orderForm').on('click', 'button[data-status-action]', function (e) {
       const action = $(this).data('status-action') || 'save'
       if (action === 'to_work' && !isManager && paymentMessage) {
-        const ok = confirm("Обов'язково вкажіть у платежі в полі «Призначення платежу» наступний текст:\n\n" + paymentMessage)
+        let msg = "Обов'язково вкажіть у платежі в полі «Призначення платежу» наступний текст:\n\n" + paymentMessage
+        if (paymentShortage && paymentShortageOrders.length) {
+          msg += "\n\nЗа закази #" + paymentShortageOrders.join(", #") + " на суму " + paymentShortage + " грн"
+        }
+        const ok = confirm(msg)
         if (!ok) {
           e.preventDefault()
           return

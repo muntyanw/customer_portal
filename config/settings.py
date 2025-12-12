@@ -137,7 +137,13 @@ REST_FRAMEWORK = {
 }
 
 EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
-DEFAULT_FROM_EMAIL = "noreply@example.com"
+EMAIL_HOST = env("EMAIL_HOST", default="")
+EMAIL_PORT = env.int("EMAIL_PORT", default=25)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=False)
+EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=False)
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@example.com")
 
 LOGIN_URL = "accounts:login"
 LOGIN_REDIRECT_URL = "core:dashboard"
@@ -196,4 +202,3 @@ ASGI_APPLICATION = "config.asgi.application"
 GOOGLE_SERVICE_ACCOUNT_FILE = BASE_DIR / "config" / "google-service-account.json"
 FABRIC_COLORS_SHEET_ID = "1Dsr-7LdyjchAttYgvv8dmvByausJqw3NrlGX8wTwF7o"
 FABRIC_COLORS_SHEET_NAME = "Тканини до ролет"
-

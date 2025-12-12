@@ -4,7 +4,8 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django import forms
 from django.db import transaction
-from django.db.models import Case, DecimalField, ExpressionWrapper, F, Sum, When
+from django.db.models import Case, DecimalField, ExpressionWrapper, F, Sum, When, Max
+from django.db.models.functions import Coalesce
 from django.contrib import messages
 from .models import (
     Order,
@@ -24,6 +25,8 @@ from django.core.mail import EmailMessage, send_mail
 from django.core.files.base import ContentFile
 from io import BytesIO
 from openpyxl import Workbook
+from django.utils import timezone
+import datetime
 from .utils_components import parse_components_from_post
 from django.urls import reverse
 from .services_currency import get_current_eur_rate, update_eur_rate_from_nbu
@@ -94,6 +97,10 @@ def _set_order_totals_uah(orders, current_rate: Decimal):
     return orders
 
 
+def _order_total_uah(order, current_rate: Decimal) -> Decimal:
+    return (_order_base_total(order) * _order_rate(order, current_rate)).quantize(Decimal("0.01"))
+
+
 def _get_payment_message_text():
     return (
         PaymentMessage.objects.filter(is_active=True)
@@ -103,6 +110,38 @@ def _get_payment_message_text():
     )
 
 
+def _payment_shortage_context(order):
+    """Return dict with shortage and list of orders covering it (for prompt)."""
+    if not order:
+        return None
+    current_rate = get_current_eur_rate()
+    order_total_uah = _order_total_uah(order, current_rate)
+    balance = compute_balance(order.customer)
+    shortage = Decimal(balance or 0) - order_total_uah
+    if shortage >= 0:
+        return None
+    shortage = shortage * -1
+
+    cover_orders = []
+    cover_total = Decimal("0")
+    existing_orders = (
+        _orders_scope(order.customer)
+        .filter(status__in=[Order.STATUS_IN_WORK, Order.STATUS_READY, Order.STATUS_SHIPPED])
+        .exclude(pk=order.pk)
+        .order_by("-created_at")
+    )
+    for o in existing_orders:
+        cover_total += _order_total_uah(o, current_rate)
+        cover_orders.append(o.pk)
+        if cover_total >= shortage:
+            break
+
+    return {
+        "shortage": shortage.quantize(Decimal("0.01")),
+        "orders": cover_orders,
+    }
+
+
 def _build_order_workbook(order):
     """Generate Excel workbook for order and attach to instance (in-memory)."""
     wb = Workbook()
@@ -110,46 +149,56 @@ def _build_order_workbook(order):
     ws.title = "Замовлення"
     profile = getattr(order.customer, "customerprofile", None)
 
-    ws.append(["ID", "Створено", "Статус", "Клієнт", "ПІБ", "Телефон", "Тип", "Сума EUR", "Курс", "Сума UAH"])
-    ws.append([
-        order.pk,
-        order.created_at.strftime("%Y-%m-%d %H:%M") if order.created_at else "",
-        order.get_status_display(),
-        str(order.customer),
-        getattr(profile, "full_name", "") or "",
-        getattr(profile, "phone", "") or "",
-        "Комплектуючі" if order.component_items.all().exists() else "Ролети",
-        float(order.total_eur or 0),
-        float(order.eur_rate or 0),
-        float(getattr(order, "total_uah_display", Decimal("0")) or 0),
-    ])
+    meta_rows = [
+        ("ID замовлення", order.pk),
+        ("Створено", order.created_at.strftime("%Y-%m-%d %H:%M") if order.created_at else ""),
+        ("Статус", order.get_status_display()),
+        ("Клієнт", str(order.customer)),
+        ("ПІБ", getattr(profile, "full_name", "") or ""),
+        ("Телефон", getattr(profile, "phone", "") or ""),
+        ("Тип", "Комплектуючі" if order.component_items.all().exists() else "Ролети"),
+        ("Сума EUR", float(order.total_eur or 0)),
+        ("Курс", float(order.eur_rate or 0)),
+        ("Сума UAH", float(getattr(order, "total_uah_display", Decimal("0")) or 0)),
+        ("Примітка", order.note or ""),
+    ]
+    for row in meta_rows:
+        ws.append(row)
 
-    items = list(order.items.all())
-    if items:
-        ws_items = wb.create_sheet("Позиції (Ролети)")
-        ws_items.append(["Система", "Секція", "Тканина", "Код кольору", "Кількість", "Сума EUR"])
-        for it in items:
-            ws_items.append([
-                it.system_sheet,
-                it.table_section,
-                it.fabric_name,
-                it.fabric_color_code,
-                it.quantity,
-                float(it.subtotal_eur or 0),
-            ])
+    ws.append([])  # empty row
 
-    comp_items = list(order.component_items.all())
-    if comp_items:
-        ws_comp = wb.create_sheet("Комплектуючі")
-        ws_comp.append(["Найменування", "Колір", "Од. вим", "Ціна EUR", "Кількість"])
-        for it in comp_items:
-            ws_comp.append([
-                it.name,
-                it.color,
-                it.unit,
-                float(it.price_eur or 0),
-                float(it.quantity or 0),
-            ])
+    roller_fields = [f.name for f in OrderItem._meta.fields if f.name not in ("id", "order", "organization")]
+    component_fields = [f.name for f in OrderComponentItem._meta.fields if f.name not in ("id", "order")]
+
+    # One flat table with all fields; missing values stay blank.
+    columns = ["type"] + roller_fields  # superset; component rows will fill subset
+    ws.append(columns)
+
+    def _coerce(val):
+        if isinstance(val, Decimal):
+            return float(val)
+        if isinstance(val, datetime.datetime):
+            if timezone.is_aware(val):
+                return timezone.make_naive(val)
+            return val
+        if isinstance(val, datetime.date):
+            return val
+        return val
+
+    for it in order.items.all():
+        row = ["roller"]
+        for fname in roller_fields:
+            row.append(_coerce(getattr(it, fname, "")))
+        ws.append(row)
+
+    for it in order.component_items.all():
+        row = ["component"]
+        for fname in roller_fields:
+            if fname in component_fields:
+                row.append(_coerce(getattr(it, fname, "")))
+            else:
+                row.append("")
+        ws.append(row)
 
     buffer = BytesIO()
     wb.save(buffer)
@@ -218,6 +267,60 @@ def _send_order_in_work_email(order, request, workbook_payload=None):
         email.attach(filename, data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     email.send(fail_silently=True)
+
+
+def _prepare_to_work(order, request):
+    """Set rates for quote->work and block if credit not allowed."""
+    if order.status != Order.STATUS_QUOTE:
+        return True
+
+    current_rate = get_current_eur_rate()
+    order.eur_rate = current_rate
+    order.eur_rate_at_creation = current_rate
+    order.save(update_fields=["eur_rate", "eur_rate_at_creation"])
+
+    balance_before = compute_balance(order.customer)
+    projected_balance = balance_before - order.total_eur
+    shortage = projected_balance * -1 if projected_balance < 0 else Decimal("0")
+    profile = getattr(order.customer, "customerprofile", None)
+    credit_allowed = getattr(profile, "credit_allowed", False)
+    if shortage > 0 and not credit_allowed:
+        messages.warning(
+            request,
+            f"Оплатіть суму {shortage} для відправки в роботу.",
+        )
+        return False
+    return True
+
+
+def _apply_status_change(order, new_status, request):
+    """Shared status transition logic for rollers & components."""
+    if not new_status or new_status == order.status:
+        return True
+
+    workbook_payload = None
+    if new_status == Order.STATUS_IN_WORK:
+        if not _prepare_to_work(order, request):
+            return False
+        workbook_payload = _build_order_workbook(order)
+        order.status = new_status
+        order.save(update_fields=["status", "workbook_file"])
+        OrderStatusLog.objects.create(
+            order=order,
+            status=new_status,
+            user=request.user,
+        )
+        _send_order_in_work_email(order, request, workbook_payload)
+        return True
+
+    order.status = new_status
+    order.save(update_fields=["status"])
+    OrderStatusLog.objects.create(
+        order=order,
+        status=new_status,
+        user=request.user,
+    )
+    return True
 
 
 def compute_balance(user):
@@ -325,9 +428,10 @@ def order_list(request):
     orders_qs = (
         _orders_scope(request.user)
         .select_related("customer", "customer__customerprofile")
+        .annotate(last_status_at=Coalesce(Max("status_logs__created_at"), "created_at"))
         .prefetch_related("status_logs")
         .exclude(component_items__isnull=False)  # exclude component orders from rollers list
-        .order_by("-created_at")
+        .order_by("-last_status_at", "-created_at")
         .distinct()
     )
 
@@ -368,10 +472,11 @@ def order_components_list(request):
     qs = (
         _orders_scope(request.user)
         .select_related("customer", "customer__customerprofile")
+        .annotate(last_status_at=Coalesce(Max("status_logs__created_at"), "created_at"))
         .prefetch_related("status_logs")
         .filter(component_items__isnull=False)
         .distinct()
-        .order_by("-created_at")
+        .order_by("-last_status_at", "-created_at")
     )
 
     if status_filter:
@@ -676,41 +781,8 @@ def order_builder(request, pk=None):
         elif action == "prev" and is_manager(request.user):
             new_status = order.prev_status() or order.status
 
-        if new_status == Order.STATUS_IN_WORK and order.status == Order.STATUS_QUOTE:
-            current_rate = get_current_eur_rate()
-            order.eur_rate = current_rate
-            order.eur_rate_at_creation = current_rate
-            order.save(update_fields=["eur_rate", "eur_rate_at_creation"])
-
-            balance_before = compute_balance(order.customer)
-            projected_balance = balance_before - order.total_eur
-            shortage = projected_balance * -1 if projected_balance < 0 else Decimal("0")
-            profile = getattr(order.customer, "customerprofile", None)
-            credit_allowed = getattr(profile, "credit_allowed", False)
-            if shortage > 0 and not credit_allowed:
-                messages.warning(
-                    request,
-                    f"Оплатіть суму {shortage} для відправки в роботу.",
-                )
-                return redirect("orders:builder_edit", pk=order.pk)
-
-        workbook_payload = None
-        if new_status and new_status != order.status:
-            order.status = new_status
-            if new_status == Order.STATUS_IN_WORK:
-                workbook_payload = _build_order_workbook(order)
-                order.save(update_fields=["status", "workbook_file"])
-            else:
-                order.save(update_fields=["status"])
-            OrderStatusLog.objects.create(
-                order=order,
-                status=new_status,
-                user=request.user,
-            )
-            if new_status == Order.STATUS_IN_WORK:
-                _send_order_in_work_email(order, request, workbook_payload)
-            if new_status == Order.STATUS_IN_WORK:
-                _send_order_in_work_email(order, request)
+        if new_status and not _apply_status_change(order, new_status, request):
+            return redirect("orders:builder_edit", pk=order.pk)
 
         messages.success(request, "Замовлення збережено.")
         return redirect("orders:list")
@@ -787,6 +859,8 @@ def order_builder(request, pk=None):
     if order and order.status != Order.STATUS_QUOTE and order.eur_rate:
         builder_rate = order.eur_rate
 
+    shortage_ctx = _payment_shortage_context(order)
+
     return render(request, "orders/builder.html", {
         "order": order,
         "items_json": items_json,
@@ -796,6 +870,7 @@ def order_builder(request, pk=None):
         "next_status_label": next_status_label,
         "readonly": readonly,
         "payment_message_text": _get_payment_message_text(),
+        "payment_shortage": shortage_ctx,
     })
     
     
@@ -958,23 +1033,10 @@ def order_components_builder(request, pk):
 
         order.save(update_fields=["total_eur", "eur_rate"])
 
-        workbook_payload = None
-        if new_status and new_status != order.status:
-            order.status = new_status
-            if new_status == Order.STATUS_IN_WORK:
-                workbook_payload = _build_order_workbook(order)
-                order.save(update_fields=["status", "workbook_file"])
-            else:
-                order.save(update_fields=["status"])
-            OrderStatusLog.objects.create(
-                order=order,
-                status=new_status,
-                user=request.user,
-            )
-            if new_status == Order.STATUS_IN_WORK:
-                _send_order_in_work_email(order, request, workbook_payload)
+        if new_status and not _apply_status_change(order, new_status, request):
+            return redirect(reverse("orders:order_components_builder", kwargs={"pk": order.pk}))
 
-        messages.success(request, "Комплектуючі для замовлення збережено.")
+        messages.success(request, "Замовлення збережено.")
 
         # EN: Redirect back to builder or to order detail — adjust as needed
         # UA: Редірект назад у білдер або на сторінку замовлення — за потреби зміни
@@ -1012,6 +1074,7 @@ def order_components_builder(request, pk):
         "next_status_label": STATUS_LABELS.get(order.next_status()) if order else None,
         "eur_rate": order.eur_rate or get_current_eur_rate(),
         "payment_message_text": _get_payment_message_text(),
+        "payment_shortage": _payment_shortage_context(order),
     }
 
     return render(request, "orders/components_builder.html", context)

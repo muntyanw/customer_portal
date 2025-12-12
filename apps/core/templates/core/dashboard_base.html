@@ -75,7 +75,14 @@
         {% endif %}
         <a class="nav-link text-white {% if request.resolver_match.url_name == 'balances' %}active{% endif %}"
           href="{% url 'orders:balances' %}">
-          <i class="bi bi-cash-coin me-2"></i>Баланси
+          <i class="bi bi-cash-coin me-2"></i>
+            {% if is_manager %}
+              Баланси
+            {% else %}
+              Баланс
+            {% endif %}
+          
+          
         </a>
         <a class="nav-link text-white {% if request.resolver_match.url_name == 'profile' %}active{% endif %}"
            href="{% url 'accounts:profile' %}">
