@@ -54,67 +54,12 @@
       {% for e in events %}
         {% if e.type == 'order' %}
           {% with o=e.object %}
-          <div class="card border-0 shadow-sm">
-            <div class="card-body d-flex flex-column gap-2">
-              <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
-                <div>
-                  <div class="fw-semibold">Замовлення № {{ o.id }}</div>
-                  <div class="small text-muted">{{ o.created_at|date:'d.m.Y H:i' }}</div>
-                  <div class="small text-muted">Клієнт: {{ o.customer }}</div>
-                  <div class="small text-muted">
-                    Тип: {% if o.component_items.all|length %}Комплектуючі{% else %}Ролети{% endif %}
-                  </div>
-                  {% if o.note %}
-                    <div class="small text-muted" title="{{ o.note }}">
-                      {{ o.note|truncatechars:160 }}
-                    </div>
-                  {% endif %}
-                </div>
-                <div class="text-end">
-                  <span class="badge bg-secondary">{{ o.get_status_display }}</span>
-                  <div class="fw-semibold fs-5 mt-2">{{ o.total_uah_display|default:"0.00" }} грн</div>
-                  <div class="small text-muted">Курс: {{ o.display_rate|default:"0.00" }}</div>
-                </div>
-              </div>
-              <div class="small text-muted">
-                Останній статус: {% with log=o.status_logs.first %}{% if log %}{{ log.get_status_display }} · {{ log.created_at|date:'d.m.Y H:i' }} · {{ log.user }}{% else %}—{% endif %}{% endwith %}
-              </div>
-              <div class="d-flex flex-wrap gap-2">
-                <a class="btn btn-sm btn-outline-primary" href="{% url 'orders:builder_edit' o.id %}">
-                  <i class="bi bi-eye me-1"></i> Переглянути
-                </a>
-              </div>
-            </div>
-          </div>
+          {% url 'orders:builder_edit' o.id as order_view_url %}
+          {% include 'orders/partials/order_card.html' with order=o view_url=order_view_url show_type=True show_rate=True show_last_status=True %}
           {% endwith %}
         {% else %}
           {% with tx=e.object %}
-          <div class="card border-0 shadow-sm bg-light">
-            <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
-              <div>
-                <div class="fw-semibold">
-                  {% if not is_manager and tx.type == tx.DEBIT %}
-                    Транзакція · Проплата від мене · {{ tx.amount|floatformat:2 }} € · {{ tx.amount_uah|floatformat:2 }} грн
-                  {% else %}
-                    Транзакція · {{ tx.get_type_display }} · {{ tx.amount|floatformat:2 }} € · {{ tx.amount_uah|floatformat:2 }} грн
-                  {% endif %}
-                </div>
-                <div class="small text-muted">{{ tx.created_at|date:'d.m.Y H:i' }} · {{ tx.customer }}</div>
-                {% if tx.description %}
-                  <div class="small text-muted">{{ tx.description }}</div>
-                {% endif %}
-              </div>
-              <div class="text-end">
-                <div class="small text-muted">Курс: {{ tx.eur_rate|default:"0.0000" }} грн</div>
-                {% if tx.order %}
-                  <div class="small text-muted">Замовлення № {{ tx.order.id }}</div>
-                {% endif %}
-                {% if tx.created_by %}
-                  <div class="small text-muted">Створив: {{ tx.created_by }}</div>
-                {% endif %}
-              </div>
-            </div>
-          </div>
+          {% include 'orders/partials/transaction_card.html' with tx=tx is_manager=is_manager %}
           {% endwith %}
         {% endif %}
       {% endfor %}

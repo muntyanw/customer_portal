@@ -44,8 +44,8 @@ def _orders_scope(user):
 
 def _transactions_scope(user):
     if is_manager(user):
-        return Transaction.objects.select_related("customer", "created_by", "order")
-    return Transaction.objects.select_related("customer", "created_by", "order").filter(customer=user)
+        return Transaction.objects.select_related("customer", "customer__customerprofile", "created_by", "order")
+    return Transaction.objects.select_related("customer", "customer__customerprofile", "created_by", "order").filter(customer=user)
 
 def _order_rate(order, current_rate: Decimal) -> Decimal:
     """
@@ -188,7 +188,7 @@ def order_list(request):
     customer_filter = request.GET.get("customer") or ""
     orders_qs = (
         _orders_scope(request.user)
-        .select_related("customer")
+        .select_related("customer", "customer__customerprofile")
         .prefetch_related("status_logs")
         .exclude(component_items__isnull=False)  # exclude component orders from rollers list
         .order_by("-created_at")
@@ -231,7 +231,7 @@ def order_components_list(request):
 
     qs = (
         _orders_scope(request.user)
-        .select_related("customer")
+        .select_related("customer", "customer__customerprofile")
         .prefetch_related("status_logs")
         .filter(component_items__isnull=False)
         .distinct()
@@ -659,8 +659,8 @@ def balances_history(request):
 
     orders_qs = (
         _orders_scope(request.user)
-        .select_related("customer")
-        .prefetch_related("status_logs")
+        .select_related("customer", "customer__customerprofile")
+        .prefetch_related("status_logs", "component_items")
         .exclude(status=Order.STATUS_QUOTE)  # Прорахунок не впливає на баланс
         .order_by("-created_at")
     )

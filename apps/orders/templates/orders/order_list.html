@@ -59,46 +59,13 @@
   {% if orders %}
     <div class="d-flex flex-column gap-3">
       {% for o in orders %}
-        <div class="card shadow-sm border-0">
-          <div class="card-body d-flex flex-column gap-2">
-            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
-              <div>
-                <div class="fw-semibold">Замовлення № {{ o.id }}</div>
-                <div class="small text-muted">{{ o.created_at|date:'d.m.Y H:i' }}</div>
-                {% if o.customer %}
-                  <div class="small text-muted">Клієнт: {{ o.customer }}</div>
-                {% endif %}
-                {% if o.note %}
-                  <div class="small text-muted" title="{{ o.note }}">
-                    {{ o.note|truncatechars:160 }}
-                  </div>
-                {% endif %}
-              </div>
-              <div class="text-end">
-                <span class="badge bg-secondary">{{ o.get_status_display }}</span>
-                <div class="fw-semibold mt-2">{{ o.total_uah_display|default:"0.00" }} грн</div>
-                {% comment %} <div class="small text-muted">Курс: {{ o.display_rate|default:"0.00" }}</div> {% endcomment %}
-              </div>
-            </div>
-            <div class="d-flex flex-wrap gap-2">
-              {% if list_mode == 'components' %}
-                <a class="btn btn-sm btn-outline-primary"
-                  href="{% url 'orders:order_components_builder' o.id %}">
-                  <i class="bi bi-eye me-1"></i> Переглянути
-                </a>
-              {% else %}
-                <a class="btn btn-sm btn-outline-primary"
-                  href="{% url 'orders:builder_edit' o.id %}">
-                  <i class="bi bi-eye me-1"></i> Переглянути
-                </a>
-              {% endif %}
-
-              <a class="btn btn-sm btn-outline-danger" href="{% url 'orders:delete' o.id %}">
-                <i class="bi bi-trash me-1"></i> Видалити
-              </a>
-            </div>
-          </div>
-        </div>
+        {% if list_mode == 'components' %}
+          {% url 'orders:order_components_builder' o.id as order_view_url %}
+        {% else %}
+          {% url 'orders:builder_edit' o.id as order_view_url %}
+        {% endif %}
+        {% url 'orders:delete' o.id as order_delete_url %}
+        {% include 'orders/partials/order_card.html' with order=o view_url=order_view_url delete_url=order_delete_url card_class="card shadow-sm border-0" show_note=True %}
       {% endfor %}
     </div>
   {% else %}
