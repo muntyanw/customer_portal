@@ -1,6 +1,15 @@
 # apps/orders/admin.py
 from django.contrib import admin, messages
-from .models import Order, OrderItem, OrderComponentItem, CurrencyRate, OrderStatusLog, Transaction
+from .models import (
+    Order,
+    OrderItem,
+    OrderComponentItem,
+    CurrencyRate,
+    OrderStatusLog,
+    Transaction,
+    NotificationEmail,
+    PaymentMessage,
+)
 from .services_currency import update_eur_rate_from_nbu
 
 
@@ -56,3 +65,21 @@ class TransactionAdmin(admin.ModelAdmin):
     list_display = ("id", "customer", "type", "amount", "eur_rate", "order", "created_by", "created_at")
     list_filter = ("type", "created_at")
     search_fields = ("customer__email", "customer__username")
+
+
+@admin.register(NotificationEmail)
+class NotificationEmailAdmin(admin.ModelAdmin):
+    list_display = ("email", "is_active", "created_at")
+    list_filter = ("is_active",)
+    search_fields = ("email",)
+
+
+@admin.register(PaymentMessage)
+class PaymentMessageAdmin(admin.ModelAdmin):
+    list_display = ("short_text", "is_active", "created_at")
+    list_filter = ("is_active",)
+    search_fields = ("text",)
+
+    def short_text(self, obj):
+        return (obj.text or "")[:60]
+    short_text.short_description = "Текст"

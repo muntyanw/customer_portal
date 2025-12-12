@@ -60,6 +60,7 @@ class Order(models.Model):
         default=Decimal("0"),
         help_text="Процент націнки, що застосовано до замовлення",
     )
+    workbook_file = models.FileField(upload_to="order_exports/", blank=True, null=True)
 
     def __str__(self):
         return f"#{self.pk} {self.title}"
@@ -630,3 +631,41 @@ class CurrencyRate(models.Model):
 
     def __str__(self):
         return f"{self.currency}: {self.rate_uah} UAH"
+
+
+class NotificationEmail(models.Model):
+    """
+    EN: Emails that receive notifications when an order goes to work.
+    UA: Email-адреси для сповіщень про відправку замовлення в роботу.
+    """
+
+    email = models.EmailField(unique=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["email"]
+        verbose_name = "Email для сповіщень"
+        verbose_name_plural = "Emails для сповіщень"
+
+    def __str__(self):
+        return self.email
+
+
+class PaymentMessage(models.Model):
+    """
+    EN: Payment reminder / info messages configured by manager.
+    UA: Тексти повідомлень для оплати, які задає менеджер.
+    """
+
+    text = models.TextField(verbose_name="Текст повідомлення")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Повідомлення для оплати"
+        verbose_name_plural = "Повідомлення для оплати"
+
+    def __str__(self):
+        return self.text[:50]

@@ -59,6 +59,11 @@
             {% if order %}{{ order.get_status_display }}{% else %}Прорахунок{% endif %}
           </span>
         </div>
+        {% if order and order.workbook_file %}
+          <div>
+            <a href="{{ order.workbook_file.url }}" class="small" download>Завантажити файл замовлення (xlsx)</a>
+          </div>
+        {% endif %}
         {% comment %} <div class="small text-muted">
           Поточний курс EUR: <strong>{{ eur_rate|default:"0.00" }}</strong>
         </div> {% endcomment %}
@@ -211,6 +216,8 @@
     // UA: Глобальний контекст білдера з Django
     const builderOrderId = {{ order.id|default:"null" }};
     const builderComponents = {{ components_json|safe|default:"[]" }};
+    const paymentMessage = "{{ payment_message_text|default:''|escapejs }}"
+    const isManager = {{ request.user.is_manager|yesno:"true,false" }}
 
     const componentsPriceUrlInput = $('#componentsPriceUrl');
     const $componentsContainer = $('#componentsContainer');
@@ -590,8 +597,15 @@
       }
     });
 
-    $('#componentsOrderForm').on('click', 'button[data-status-action]', function () {
+    $('#componentsOrderForm').on('click', 'button[data-status-action]', function (e) {
       const action = $(this).data('status-action') || 'save';
+      if (action === 'to_work' && !isManager && paymentMessage) {
+        const ok = confirm("Обов'язково вкажіть у платежі в полі «Призначення платежу» наступний текст:\n\n" + paymentMessage)
+        if (!ok) {
+          e.preventDefault()
+          return
+        }
+      }
       $('#statusActionInput').val(action);
     });
 

@@ -1,0 +1,96 @@
+{% extends 'core/dashboard_base.html' %}
+
+{% block dashboard_title %}Налаштування{% endblock %}
+{% block dashboard_heading %}Налаштування · Сповіщення{% endblock %}
+
+{% block dashboard_content %}
+  <form method="post" class="d-flex flex-column gap-4">
+    {% csrf_token %}
+    <section>
+      <h5 class="mb-3">Emails для отримання заказів</h5>
+      {{ email_formset.management_form }}
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead>
+            <tr>
+              <th style="width: 50%;">Email</th>
+              <th style="width: 20%;">Активний</th>
+              <th style="width: 20%;">Видалити</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for form in email_formset %}
+              <tr>
+                <td>
+                  {{ form.id }}
+                  {{ form.email }}
+                  {% if form.email.errors %}
+                    <div class="text-danger small">{{ form.email.errors|join:", " }}</div>
+                  {% endif %}
+                </td>
+                <td>
+                  <div class="form-check">
+                    {{ form.is_active }}
+                  </div>
+                </td>
+                <td>
+                  {% if email_formset.can_delete %}
+                    <div class="form-check">
+                      {{ form.DELETE }}
+                    </div>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h5 class="mb-3">Текст призначення платежу для дилера</h5>
+      {{ payment_formset.management_form }}
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead>
+            <tr>
+              <th style="width: 70%;">Текст</th>
+              <th style="width: 15%;">Активне</th>
+              <th style="width: 15%;">Видалити</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for form in payment_formset %}
+              <tr>
+                <td>
+                  {{ form.id }}
+                  {{ form.text }}
+                  {% if form.text.errors %}
+                    <div class="text-danger small">{{ form.text.errors|join:", " }}</div>
+                  {% endif %}
+                </td>
+                <td>
+                  <div class="form-check">
+                    {{ form.is_active }}
+                  </div>
+                </td>
+                <td>
+                  {% if payment_formset.can_delete %}
+                    <div class="form-check">
+                      {{ form.DELETE }}
+                    </div>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">Зберегти</button>
+      <a href="{% url 'orders:list' %}" class="btn btn-outline-secondary">Скасувати</a>
+    </div>
+  </form>
+{% endblock %}

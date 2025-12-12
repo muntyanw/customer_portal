@@ -32,6 +32,7 @@ urlpatterns = [
 
     # транзакції
     path("transactions/new/", views.transaction_create, name="transaction_create"),
+    path("settings/notifications/", views.order_notifications_settings, name="notifications_settings"),
 
     # стандартні CRUD для Order
     

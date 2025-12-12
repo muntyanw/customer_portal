@@ -6,14 +6,24 @@ from django import forms
 from django.db import transaction
 from django.db.models import Case, DecimalField, ExpressionWrapper, F, Sum, When
 from django.contrib import messages
-from .models import Order, OrderItem, Transaction, OrderStatusLog
+from .models import (
+    Order,
+    OrderItem,
+    Transaction,
+    OrderStatusLog,
+    NotificationEmail,
+    PaymentMessage,
+    OrderComponentItem,
+)
 from apps.accounts.roles import is_manager
 import json
 from decimal import Decimal, InvalidOperation
 from django.contrib.admin.views.decorators import staff_member_required
 from django.conf import settings
-
-from .models import OrderComponentItem
+from django.core.mail import EmailMessage, send_mail
+from django.core.files.base import ContentFile
+from io import BytesIO
+from openpyxl import Workbook
 from .utils_components import parse_components_from_post
 from django.urls import reverse
 from .services_currency import get_current_eur_rate, update_eur_rate_from_nbu
@@ -82,6 +92,132 @@ def _set_order_totals_uah(orders, current_rate: Decimal):
         o.display_rate = rate
         o.total_uah_display = (total_eur * rate).quantize(Decimal("0.01"))
     return orders
+
+
+def _get_payment_message_text():
+    return (
+        PaymentMessage.objects.filter(is_active=True)
+        .order_by("-created_at")
+        .values_list("text", flat=True)
+        .first()
+    )
+
+
+def _build_order_workbook(order):
+    """Generate Excel workbook for order and attach to instance (in-memory)."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Замовлення"
+    profile = getattr(order.customer, "customerprofile", None)
+
+    ws.append(["ID", "Створено", "Статус", "Клієнт", "ПІБ", "Телефон", "Тип", "Сума EUR", "Курс", "Сума UAH"])
+    ws.append([
+        order.pk,
+        order.created_at.strftime("%Y-%m-%d %H:%M") if order.created_at else "",
+        order.get_status_display(),
+        str(order.customer),
+        getattr(profile, "full_name", "") or "",
+        getattr(profile, "phone", "") or "",
+        "Комплектуючі" if order.component_items.all().exists() else "Ролети",
+        float(order.total_eur or 0),
+        float(order.eur_rate or 0),
+        float(getattr(order, "total_uah_display", Decimal("0")) or 0),
+    ])
+
+    items = list(order.items.all())
+    if items:
+        ws_items = wb.create_sheet("Позиції (Ролети)")
+        ws_items.append(["Система", "Секція", "Тканина", "Код кольору", "Кількість", "Сума EUR"])
+        for it in items:
+            ws_items.append([
+                it.system_sheet,
+                it.table_section,
+                it.fabric_name,
+                it.fabric_color_code,
+                it.quantity,
+                float(it.subtotal_eur or 0),
+            ])
+
+    comp_items = list(order.component_items.all())
+    if comp_items:
+        ws_comp = wb.create_sheet("Комплектуючі")
+        ws_comp.append(["Найменування", "Колір", "Од. вим", "Ціна EUR", "Кількість"])
+        for it in comp_items:
+            ws_comp.append([
+                it.name,
+                it.color,
+                it.unit,
+                float(it.price_eur or 0),
+                float(it.quantity or 0),
+            ])
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    filename = f"order_{order.pk}.xlsx"
+    order.workbook_file.save(filename, ContentFile(buffer.getvalue()), save=False)
+    return filename, buffer.getvalue()
+
+
+def _send_order_in_work_email(order, request, workbook_payload=None):
+    """Send notification to configured recipients when an order enters 'in work'."""
+    recipients = list(
+        NotificationEmail.objects.filter(is_active=True).values_list("email", flat=True)
+    )
+    if not recipients:
+        return
+
+    profile = getattr(order.customer, "customerprofile", None)
+    full_name = getattr(profile, "full_name", "") or ""
+    phone = getattr(profile, "phone", "") or ""
+
+    try:
+        order_url = request.build_absolute_uri(reverse("orders:builder_edit", args=[order.pk]))
+    except Exception:
+        order_url = ""
+
+    subject = f"Замовлення #{order.pk} відправлено в роботу"
+    body_lines = [
+        f"Замовлення #{order.pk} відправлено в роботу.",
+        f"Клієнт: {order.customer}",
+    ]
+    if full_name:
+        body_lines.append(f"ПІБ: {full_name}")
+    if phone:
+        body_lines.append(f"Телефон: {phone}")
+    total_uah = getattr(order, "total_uah_display", "")
+    if not total_uah:
+        try:
+            total_uah = (Decimal(order.total_eur or 0) * Decimal(order.eur_rate or 0)).quantize(Decimal("0.01"))
+        except Exception:
+            total_uah = ""
+    if total_uah != "":
+        body_lines.append(f"Сума (UAH): {total_uah}")
+    if order_url:
+        body_lines.append(f"Посилання: {order_url}")
+
+    email = EmailMessage(
+        subject=subject,
+        body="\n".join(body_lines),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=recipients,
+    )
+
+    filename = None
+    data = None
+    if workbook_payload:
+        filename, data = workbook_payload
+    elif order.workbook_file:
+        try:
+            with order.workbook_file.open("rb") as f:
+                data = f.read()
+                filename = order.workbook_file.name.split("/")[-1]
+        except Exception:
+            data = None
+    if filename and data:
+        email.attach(filename, data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    email.send(fail_silently=True)
 
 
 def compute_balance(user):
@@ -259,6 +395,62 @@ def order_components_list(request):
         "customer_options": customers_filter_list,
     }
     return render(request, "orders/order_list.html", context)
+
+
+@login_required
+def order_notifications_settings(request):
+    """
+    EN: Manage recipient emails for order-in-work notifications.
+    UA: Керування email-адресами для сповіщень про відправку замовлення в роботу.
+    """
+    if not is_manager(request.user):
+        messages.error(request, "Доступно лише менеджерам.")
+        return redirect("orders:list")
+
+    EmailFormSet = forms.modelformset_factory(
+        NotificationEmail,
+        fields=["email", "is_active"],
+        extra=1,
+        can_delete=True,
+        widgets={
+            "email": forms.EmailInput(attrs={"class": "form-control", "placeholder": "email@example.com"}),
+            "is_active": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        },
+    )
+    PaymentFormSet = forms.modelformset_factory(
+        PaymentMessage,
+        fields=["text", "is_active"],
+        extra=1,
+        can_delete=True,
+        widgets={
+            "text": forms.Textarea(attrs={"class": "form-control", "rows": 2, "placeholder": "Текст повідомлення"}),
+            "is_active": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        },
+    )
+
+    emails_qs = NotificationEmail.objects.order_by("email")
+    payments_qs = PaymentMessage.objects.order_by("-created_at")
+
+    if request.method == "POST":
+        email_formset = EmailFormSet(request.POST, queryset=emails_qs, prefix="emails")
+        payment_formset = PaymentFormSet(request.POST, queryset=payments_qs, prefix="payments")
+        if email_formset.is_valid() and payment_formset.is_valid():
+            email_formset.save()
+            payment_formset.save()
+            messages.success(request, "Налаштування збережено.")
+            return redirect("orders:notifications_settings")
+    else:
+        email_formset = EmailFormSet(queryset=emails_qs, prefix="emails")
+        payment_formset = PaymentFormSet(queryset=payments_qs, prefix="payments")
+
+    return render(
+        request,
+        "orders/notification_settings.html",
+        {
+            "email_formset": email_formset,
+            "payment_formset": payment_formset,
+        },
+    )
 
 
 @login_required
@@ -502,14 +694,23 @@ def order_builder(request, pk=None):
                 )
                 return redirect("orders:builder_edit", pk=order.pk)
 
+        workbook_payload = None
         if new_status and new_status != order.status:
             order.status = new_status
-            order.save(update_fields=["status"])
+            if new_status == Order.STATUS_IN_WORK:
+                workbook_payload = _build_order_workbook(order)
+                order.save(update_fields=["status", "workbook_file"])
+            else:
+                order.save(update_fields=["status"])
             OrderStatusLog.objects.create(
                 order=order,
                 status=new_status,
                 user=request.user,
             )
+            if new_status == Order.STATUS_IN_WORK:
+                _send_order_in_work_email(order, request, workbook_payload)
+            if new_status == Order.STATUS_IN_WORK:
+                _send_order_in_work_email(order, request)
 
         messages.success(request, "Замовлення збережено.")
         return redirect("orders:list")
@@ -594,6 +795,7 @@ def order_builder(request, pk=None):
         "eur_rate": builder_rate,
         "next_status_label": next_status_label,
         "readonly": readonly,
+        "payment_message_text": _get_payment_message_text(),
     })
     
     
@@ -756,14 +958,21 @@ def order_components_builder(request, pk):
 
         order.save(update_fields=["total_eur", "eur_rate"])
 
+        workbook_payload = None
         if new_status and new_status != order.status:
             order.status = new_status
-            order.save(update_fields=["status"])
+            if new_status == Order.STATUS_IN_WORK:
+                workbook_payload = _build_order_workbook(order)
+                order.save(update_fields=["status", "workbook_file"])
+            else:
+                order.save(update_fields=["status"])
             OrderStatusLog.objects.create(
                 order=order,
                 status=new_status,
                 user=request.user,
             )
+            if new_status == Order.STATUS_IN_WORK:
+                _send_order_in_work_email(order, request, workbook_payload)
 
         messages.success(request, "Комплектуючі для замовлення збережено.")
 
@@ -802,6 +1011,7 @@ def order_components_builder(request, pk):
         "readonly": readonly,
         "next_status_label": STATUS_LABELS.get(order.next_status()) if order else None,
         "eur_rate": order.eur_rate or get_current_eur_rate(),
+        "payment_message_text": _get_payment_message_text(),
     }
 
     return render(request, "orders/components_builder.html", context)

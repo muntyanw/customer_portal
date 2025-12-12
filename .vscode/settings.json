@@ -11,5 +11,7 @@
             "username": "portal",
             "password": "portal"
         }
-    ]
+    ],
+    "chatgpt.openOnStartup": true,
+    "chatgpt.runCodexInWindowsSubsystemForLinux": true
 }
