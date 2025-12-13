@@ -887,15 +887,20 @@ def order_delete(request, pk: int):
     Customer — может удалить только свой.
     Manager — может удалить любой.
     """
+    redirect_target = "orders:list"
     if is_manager(request.user):
         order = get_object_or_404(Order, pk=pk)
     else:
         order = get_object_or_404(Order, pk=pk, customer=request.user)
 
+    # если есть комплектующие, возвращаем на список комплектующих
+    if order.component_items.exists():
+        redirect_target = "orders:components_list"
+
     if request.method == "POST":
         order.delete()
         messages.success(request, "Замовлення видалено.")
-        return redirect("orders:list")
+        return redirect(redirect_target)
 
     # GET → страница подтверждения (если хочешь)
     return render(request, "orders/delete_confirm.html", {"order": order})
@@ -986,6 +991,8 @@ def balances_history(request):
         "customer_options": customers_filter_list,
         "balance": compute_balance(balance_user),
         "balance_user": balance_user,
+        # Ensure header balance reflects filtered customer (for managers)
+        "user_balance": compute_balance(balance_user),
     }
     return render(request, "orders/balances_history.html", context)
 

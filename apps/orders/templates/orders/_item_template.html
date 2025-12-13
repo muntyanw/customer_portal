@@ -1,14 +1,15 @@
 <template id="item-template">
   <div class="card item-card border-0 shadow-sm rounded-4" data-index="">
     <div class="card-body">
-      <div class="d-flex justify-content-between align-items-start mb-2">
-        <div class="order-position">
-          Позиція <span class="pos-index">1</span>
-        </div>
-        <div>
-          <label class="comment_system_red"></label>
-          <br />
-          <label class="comment_system_green"></label>
+      <div class="d-flex justify-content-between align-items-start mb-2 gap-3">
+        <div class="d-flex flex-column">
+          <div class="order-position">
+            Позиція <span class="pos-index">1</span>
+          </div>
+          <div class="d-flex flex-column">
+            <label class="comment_system_red"></label>
+            <label class="comment_system_green"></label>
+          </div>
         </div>
         <button type="button" class="btn btn-sm btn-outline-danger remove-row" aria-label="Видалити позицію"><i class="bi bi-x-lg"></i></button>
       </div>
