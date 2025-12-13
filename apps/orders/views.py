@@ -15,6 +15,7 @@ from .models import (
     NotificationEmail,
     PaymentMessage,
     OrderComponentItem,
+    CurrencyRate,
 )
 from apps.accounts.roles import is_manager
 import json
@@ -143,62 +144,67 @@ def _payment_shortage_context(order):
 
 
 def _build_order_workbook(order):
-    """Generate Excel workbook for order and attach to instance (in-memory)."""
+    """Generate Excel workbook for order (формат схожий на 'Приклад.xls') and attach to instance."""
     wb = Workbook()
     ws = wb.active
-    ws.title = "Замовлення"
+    ws.title = "Счет"
     profile = getattr(order.customer, "customerprofile", None)
+    rate = Decimal(order.eur_rate or get_current_eur_rate() or 0)
 
-    meta_rows = [
-        ("ID замовлення", order.pk),
-        ("Створено", order.created_at.strftime("%Y-%m-%d %H:%M") if order.created_at else ""),
-        ("Статус", order.get_status_display()),
-        ("Клієнт", str(order.customer)),
-        ("ПІБ", getattr(profile, "full_name", "") or ""),
-        ("Телефон", getattr(profile, "phone", "") or ""),
-        ("Тип", "Комплектуючі" if order.component_items.all().exists() else "Ролети"),
-        ("Сума EUR", float(order.total_eur or 0)),
-        ("Курс", float(order.eur_rate or 0)),
-        ("Сума UAH", float(getattr(order, "total_uah_display", Decimal("0")) or 0)),
-        ("Примітка", order.note or ""),
+    header_lines = [
+        ["", "Віконні системи Wenster, www.oknaeuro.kiev.ua", "", "", "", "", "", "", ""],
+        ["", "", "", "", "", "", "", "", ""],
+        ["", "(063) 377-85-46; (068) 352-49-09 (viber); (095) 308-09-96", "", "", "", "", "", "", ""],
+        ["", "", "", "", "", "", "", "", ""],
     ]
-    for row in meta_rows:
-        ws.append(row)
+    for line in header_lines:
+        ws.append(line)
 
-    ws.append([])  # empty row
+    created_str = order.created_at.astimezone(timezone.get_current_timezone()).strftime("%d.%m.%y") if order.created_at else ""
+    customer_line = f"{created_str} замовлення № {order.pk or ''} клієнт: {getattr(profile, 'full_name', '') or order.customer}"
+    ws.append([customer_line, "", "", "", "", "", "", "", ""])
 
-    roller_fields = [f.name for f in OrderItem._meta.fields if f.name not in ("id", "order", "organization")]
-    component_fields = [f.name for f in OrderComponentItem._meta.fields if f.name not in ("id", "order")]
+    ws.append(["Система", "Тканина", "Ширина", "Висота", "Управління", "Нижня фіксація", "Кількість", "Вартість", "Примітка"])
 
-    # One flat table with all fields; missing values stay blank.
-    columns = ["type"] + roller_fields  # superset; component rows will fill subset
-    ws.append(columns)
+    def price_uah(subtotal_eur, qty):
+        return float((Decimal(subtotal_eur or 0) * Decimal(qty or 0) * rate).quantize(Decimal("0.01"))) if rate else float(Decimal(subtotal_eur or 0) * Decimal(qty or 0))
 
-    def _coerce(val):
-        if isinstance(val, Decimal):
-            return float(val)
-        if isinstance(val, datetime.datetime):
-            if timezone.is_aware(val):
-                return timezone.make_naive(val)
-            return val
-        if isinstance(val, datetime.date):
-            return val
-        return val
+    total_uah = Decimal("0")
 
     for it in order.items.all():
-        row = ["roller"]
-        for fname in roller_fields:
-            row.append(_coerce(getattr(it, fname, "")))
-        ws.append(row)
+        qty = it.quantity
+        total_row = price_uah(it.subtotal_eur, qty)
+        total_uah += Decimal(str(total_row or 0))
+        ws.append([
+            it.system_sheet,
+            it.fabric_name,
+            it.width_fabric_mm,
+            it.height_gabarit_mm,
+            it.control_side,
+            "Так" if it.bottom_fixation else "",
+            qty,
+            total_row,
+            it.roll_height_info or "",
+        ])
 
     for it in order.component_items.all():
-        row = ["component"]
-        for fname in roller_fields:
-            if fname in component_fields:
-                row.append(_coerce(getattr(it, fname, "")))
-            else:
-                row.append("")
-        ws.append(row)
+        qty = it.quantity
+        total_row = price_uah(it.price_eur, qty)
+        total_uah += Decimal(str(total_row or 0))
+        ws.append([
+            f"Комплектуюча: {it.name}",
+            it.color,
+            "",
+            "",
+            "",
+            "",
+            qty,
+            total_row,
+            it.unit,
+        ])
+
+    total_display = float(total_uah.quantize(Decimal("0.01"))) if total_uah else ""
+    ws.append([f"Примітки: {order.note or ''}", "", "", "", "", "", "Всього, грн", total_display, ""])
 
     buffer = BytesIO()
     wb.save(buffer)
@@ -932,6 +938,7 @@ def balances_history(request):
     User = get_user_model()
     status_filter = request.GET.get("status") or ""
     customer_filter = request.GET.get("customer") or ""
+    type_filter = request.GET.get("type") or ""
     balance_user = request.user
 
     orders_qs = (
@@ -945,6 +952,10 @@ def balances_history(request):
 
     if status_filter:
         orders_qs = orders_qs.filter(status=status_filter)
+    if type_filter == "orders":
+        tx_qs = tx_qs.none()
+    elif type_filter == "transactions":
+        orders_qs = orders_qs.none()
 
     if customer_filter and is_manager(request.user):
         balance_user = get_object_or_404(User, pk=customer_filter)
@@ -971,6 +982,7 @@ def balances_history(request):
         "statuses": Order.STATUS_CHOICES,
         "status_filter": status_filter,
         "customer_filter": customer_filter,
+        "type_filter": type_filter,
         "customer_options": customers_filter_list,
         "balance": compute_balance(balance_user),
         "balance_user": balance_user,
@@ -1106,17 +1118,35 @@ def update_eur_rate_view(request):
     EN: Update EUR rate from NBU and redirect back.
     UA: Оновлює курс EUR з НБУ та повертає назад.
     """
-    try:
-        obj = update_eur_rate_from_nbu()
-        messages.success(
-            request,
-            f"Курс EUR оновлено: {obj.rate_uah} грн (джерело: {obj.source})"
-        )
-    except Exception as e:
-        messages.error(
-            request,
-            f"Не вдалося оновити курс EUR: {e}"
-        )
+    mode = request.POST.get("mode") or "online"
+    if mode == "manual":
+        rate = request.POST.get("rate")
+        try:
+            rate_val = Decimal(str(rate).replace(",", "."))
+            if rate_val <= 0:
+                raise InvalidOperation
+            obj, _ = CurrencyRate.objects.update_or_create(
+                currency="EUR",
+                defaults={"rate_uah": rate_val, "source": "manual"},
+            )
+            messages.success(
+                request,
+                f"Курс EUR збережено вручну: {obj.rate_uah} грн",
+            )
+        except Exception:
+            messages.error(request, "Введіть коректний курс EUR (приклад: 39.50)")
+    else:
+        try:
+            obj = update_eur_rate_from_nbu()
+            messages.success(
+                request,
+                f"Курс EUR оновлено: {obj.rate_uah} грн (джерело: {obj.source})"
+            )
+        except Exception as e:
+            messages.error(
+                request,
+                f"Не вдалося оновити курс EUR: {e}"
+            )
 
     # EN: redirect back where user came from; UA: повертаємось туди, звідки прийшли
     next_url = request.META.get("HTTP_REFERER") or reverse("core:dashboard")

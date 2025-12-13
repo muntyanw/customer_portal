@@ -68,19 +68,6 @@
           Поточний курс EUR: <strong>{{ eur_rate|default:"0.00" }}</strong>
         </div> {% endcomment %}
       </div>
-      {% if status_logs %}
-        <div class="list-group list-group-flush">
-          {% for log in status_logs %}
-            <div class="list-group-item d-flex justify-content-between align-items-center">
-              <div>
-                <div class="fw-semibold">{{ log.get_status_display }}</div>
-                <div class="small text-muted">{{ log.created_at|date:'d.m.Y H:i' }}</div>
-              </div>
-              {% if log.user %}<div class="small text-muted">{{ log.user }}</div>{% endif %}
-            </div>
-          {% endfor %}
-        </div>
-      {% endif %}
     </div>
 
     <!-- Контейнер для карток комплектуючих -->
@@ -132,6 +119,25 @@
     </div>
 
   </form>
+
+  {% if status_logs %}
+    <div class="card border-0 shadow-sm mt-3">
+      <div class="card-body">
+        <h6 class="mb-3">Історія статусів</h6>
+        <div class="list-group list-group-flush">
+          {% for log in status_logs %}
+            <div class="list-group-item d-flex justify-content-between align-items-center">
+              <div>
+                <div class="fw-semibold">{{ log.get_status_display }}</div>
+                <div class="small text-muted">{{ log.created_at|date:'d.m.Y H:i' }}</div>
+              </div>
+                {% if log.user %}<div class="small text-muted">{{ log.user }}</div>{% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
 
   {# Шаблон однієї картки комплектуючої #}
   <template id="component-item-template">
@@ -217,7 +223,8 @@
     const builderOrderId = {{ order.id|default:"null" }};
     const builderComponents = {{ components_json|safe|default:"[]" }};
     const paymentMessage = "{{ payment_message_text|default:''|escapejs }}"
-    const paymentShortage = {{ payment_shortage.shortage|default:"\"\"" }}
+    const paymentShortageRaw = "{{ payment_shortage.shortage|default:''|escapejs }}"
+    const paymentShortage = paymentShortageRaw ? parseFloat(paymentShortageRaw.replace(',', '.')) : null
     const paymentShortageOrders = {{ payment_shortage.orders|default:"[]"|safe }}
     const isManager = {{ request.user.is_manager|yesno:"true,false" }}
 
@@ -603,7 +610,7 @@
       const action = $(this).data('status-action') || 'save';
       if (action === 'to_work' && !isManager && paymentMessage) {
         let msg = "Обов'язково вкажіть у платежі в полі «Призначення платежу» наступний текст:\n\n" + paymentMessage
-        if (paymentShortage && paymentShortageOrders.length) {
+        if (paymentShortage !== null && paymentShortageOrders.length) {
           msg += "\n\nЗа закази #" + paymentShortageOrders.join(", #") + " на суму " + paymentShortage + " грн"
         }
         const ok = confirm(msg)

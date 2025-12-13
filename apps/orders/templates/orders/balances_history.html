@@ -33,6 +33,14 @@
             </select>
           </div>
         {% endif %}
+        <div class="col-auto">
+          <label class="form-label mb-1">Тип</label>
+          <select name="type" class="form-select form-select-sm" style="min-width: 180px;">
+            <option value="" {% if not type_filter %}selected{% endif %}>Усі</option>
+            <option value="orders" {% if type_filter == 'orders' %}selected{% endif %}>Замовлення</option>
+            <option value="transactions" {% if type_filter == 'transactions' %}selected{% endif %}>Транзакції</option>
+          </select>
+        </div>
         <div class="col-auto d-flex flex-wrap gap-2">
           <button type="submit" class="btn btn-primary btn-sm">Фільтрувати</button>
           <a href="{% url 'orders:balances' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
