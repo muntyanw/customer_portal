@@ -66,13 +66,17 @@
         {% if is_manager %}
           <a class="nav-link text-white {% if request.resolver_match.url_name == 'clients_list' or request.resolver_match.url_name == 'client_create' or request.resolver_match.url_name == 'profile_other' %}active{% endif %}"
             href="{% url 'accounts:clients_list' %}">
-            <i class="bi bi-people me-2"></i>Клієнти
+            <i class="bi bi-people me-2"></i>Користувачі
           </a>
           <a class="nav-link text-white {% if request.resolver_match.url_name == 'notifications_settings' %}active{% endif %}"
             href="{% url 'orders:notifications_settings' %}">
             <i class="bi bi-gear me-2"></i>Налаштування
           </a>
         {% endif %}
+        <a class="nav-link text-white {% if request.resolver_match.url_name == 'currency_history' %}active{% endif %}"
+          href="{% url 'orders:currency_history' %}">
+          <i class="bi bi-clock-history me-2"></i>Історія
+        </a>
         <a class="nav-link text-white {% if request.resolver_match.url_name == 'balances' %}active{% endif %}"
           href="{% url 'orders:balances' %}">
           <i class="bi bi-cash-coin me-2"></i>

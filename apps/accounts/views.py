@@ -108,6 +108,13 @@ def clients_list_view(request):
         profile.save(update_fields=["credit_allowed"])
         messages.success(request, "Статус кредиту оновлено.")
         return redirect("accounts:clients_list")
+    if request.method == "POST" and request.POST.get("action") == "toggle_manager":
+        user_id = request.POST.get("user_id")
+        target_user = get_object_or_404(User, pk=user_id)
+        target_user.is_manager = bool(request.POST.get("is_manager"))
+        target_user.save(update_fields=["is_manager"])
+        messages.success(request, "Роль менеджера оновлено.")
+        return redirect("accounts:clients_list")
 
     sort = request.GET.get("sort", "email")
     direction = ""

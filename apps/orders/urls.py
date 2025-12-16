@@ -36,6 +36,7 @@ urlpatterns = [
     # транзакції
     path("transactions/new/", views.transaction_create, name="transaction_create"),
     path("settings/notifications/", views.order_notifications_settings, name="notifications_settings"),
+    path("currency/history/", views.currency_rate_history, name="currency_history"),
 
     # стандартні CRUD для Order
     

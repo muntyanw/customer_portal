@@ -11,7 +11,11 @@
       </div>
       {% with profile=tx.customer.customerprofile %}
         <div class="small text-muted">
-          {{ tx.created_at|date:'d.m.Y H:i' }} · {{ tx.customer }}{% if profile.full_name %} · {{ profile.full_name }}{% endif %}{% if profile.phone %} · {{ profile.phone }}{% endif %}
+          {{ tx.created_at|date:'d.m.Y H:i' }} ·
+          <a href="{% url 'accounts:profile_other' tx.customer.id %}">
+            {% if profile.full_name %}{{ profile.full_name }}{% else %}{{ tx.customer }}{% endif %}
+          </a>
+          {% if profile.phone %} · {{ profile.phone }}{% endif %}
         </div>
       {% endwith %}
       {% if tx.description %}

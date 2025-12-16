@@ -4,7 +4,7 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django import forms
 from django.db import transaction
-from django.db.models import Case, DecimalField, ExpressionWrapper, F, Sum, When, Max
+from django.db.models import Case, DecimalField, ExpressionWrapper, F, Sum, When, Max, Q
 from django.db.models.functions import Coalesce
 from django.contrib import messages
 from .models import (
@@ -16,6 +16,8 @@ from .models import (
     PaymentMessage,
     OrderComponentItem,
     CurrencyRate,
+    CurrencyRateHistory,
+    OrderDeletionHistory,
 )
 from apps.accounts.roles import is_manager
 import json
@@ -989,6 +991,12 @@ def order_delete(request, pk: int):
         redirect_target = "orders:components_list"
 
     if request.method == "POST":
+        OrderDeletionHistory.objects.create(
+            order_id=order.pk,
+            order_title=order.title,
+            customer_email=getattr(order.customer, "email", "") or "",
+            deleted_by=request.user if request.user.is_authenticated else None,
+        )
         order.delete()
         messages.success(request, "Замовлення видалено.")
         return redirect(redirect_target)
@@ -1283,7 +1291,35 @@ def update_eur_rate_view(request):
                 request,
                 f"Не вдалося оновити курс EUR: {e}"
             )
+    # Log history if we have an object and no errors were raised
+    if "obj" in locals():
+        CurrencyRateHistory.objects.create(
+            currency=obj.currency,
+            rate_uah=obj.rate_uah,
+            mode=mode,
+            source=obj.source,
+            user=request.user if request.user.is_authenticated else None,
+        )
 
     # EN: redirect back where user came from; UA: повертаємось туди, звідки прийшли
     next_url = request.META.get("HTTP_REFERER") or reverse("core:dashboard")
     return redirect(next_url)
+
+
+@login_required
+def currency_rate_history(request):
+    if is_manager(request.user):
+        history = CurrencyRateHistory.objects.select_related("user").all()
+        deleted_orders = OrderDeletionHistory.objects.select_related("deleted_by").all()
+        show_rate_history = True
+    else:
+        history = CurrencyRateHistory.objects.none()
+        deleted_orders = OrderDeletionHistory.objects.select_related("deleted_by").filter(
+            Q(deleted_by=request.user) | Q(customer_email=request.user.email)
+        )
+        show_rate_history = False
+    return render(
+        request,
+        "orders/currency_history.html",
+        {"history": history, "deleted_orders": deleted_orders, "show_rate_history": show_rate_history},
+    )

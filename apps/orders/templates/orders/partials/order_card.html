@@ -9,7 +9,11 @@
         {% if order.customer %}
           {% with profile=order.customer.customerprofile %}
             <div class="small text-muted">
-              Клієнт: {{ order.customer }}{% if profile.full_name %} · {{ profile.full_name }}{% endif %}{% if profile.phone %} · {{ profile.phone }}{% endif %}
+              Клієнт:
+              <a href="{% url 'accounts:profile_other' order.customer.id %}">
+                {% if profile.full_name %}{{ profile.full_name }}{% else %}{{ order.customer }}{% endif %}
+              </a>
+              {% if profile.phone %} · {{ profile.phone }}{% endif %}
             </div>
           {% endwith %}
         {% endif %}

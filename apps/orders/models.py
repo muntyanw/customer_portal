@@ -635,6 +635,67 @@ class CurrencyRate(models.Model):
         return f"{self.currency}: {self.rate_uah} UAH"
 
 
+class CurrencyRateHistory(models.Model):
+    """
+    EN: History of currency rate changes.
+    UA: Історія змін курсу валют.
+    """
+
+    MODE_CHOICES = [
+        ("online", "Онлайн"),
+        ("manual", "Вручну"),
+    ]
+
+    currency = models.CharField(max_length=3, choices=CurrencyRate.CURRENCY_CHOICES)
+    rate_uah = models.DecimalField(max_digits=12, decimal_places=4)
+    mode = models.CharField(max_length=16, choices=MODE_CHOICES, default="online")
+    source = models.CharField(max_length=64, blank=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="currency_rate_changes",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Історія курсу"
+        verbose_name_plural = "Історії курсу"
+
+    def __str__(self):
+        user_str = f" by {self.user}" if self.user else ""
+        return f"{self.currency} {self.rate_uah} ({self.mode}){user_str}"
+
+
+class OrderDeletionHistory(models.Model):
+    """
+    EN: Track who deleted orders and when.
+    UA: Логи видалення замовлень (хто і коли).
+    """
+
+    order_id = models.PositiveIntegerField()
+    order_title = models.CharField(max_length=255, blank=True)
+    customer_email = models.EmailField(blank=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="deleted_orders",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Видалене замовлення"
+        verbose_name_plural = "Видалені замовлення"
+
+    def __str__(self):
+        return f"Order #{self.order_id} deleted"
+
+
 class NotificationEmail(models.Model):
     """
     EN: Emails that receive notifications when an order goes to work.
