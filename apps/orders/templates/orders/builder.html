@@ -34,6 +34,10 @@
       font-weight: 600;
       font-size: 1.05rem;
     }
+    .readonly-mode .select2-container,
+    .readonly-mode .select2-selection {
+      pointer-events: none !important;
+    }
     @media (min-width: 992px) {
       .item-card .controls-inline {
         display: flex;
@@ -50,6 +54,7 @@
     <input type="hidden" name="eur_rate" id="orderEurRateInput" />
     <input type="hidden" name="total_eur" id="orderTotalInput" value="{{ order.total_eur|default:'0.00' }}" />
     <input type="hidden" name="status_action" id="statusActionInput" value="save" />
+    <fieldset {% if readonly %}disabled{% endif %}>
 
     <div class="mb-3">
       <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
@@ -125,33 +130,34 @@
       </div>
       {% if not readonly %}
         <div class="d-flex flex-wrap gap-2 mt-3">
-          <button type="submit" class="btn btn-primary" data-status-action="save">Зберегти</button>
+          <button type="submit" class="btn btn-primary" name="status_action" value="save" data-status-action="save">Зберегти</button>
           {% if order %}
             {% if order.status == order.STATUS_QUOTE %}
-              <button type="submit" class="btn btn-success" data-status-action="to_work">В роботу</button>
+              <button type="submit" class="btn btn-success" name="status_action" value="to_work" data-status-action="to_work">В роботу</button>
             {% endif %}
             {% if request.user.is_manager %}
               <div class="ms-auto d-flex gap-2">
                 {% if order.prev_status %}
-                  <button type="submit" class="btn btn-outline-primary" data-status-action="prev">Попередній статус</button>
+                  <button type="submit" class="btn btn-outline-primary" name="status_action" value="prev" data-status-action="prev">Попередній статус</button>
                 {% endif %}
                 {% if next_status_label %}
-                  <button type="submit" class="btn btn-outline-primary" data-status-action="next">
+                  <button type="submit" class="btn btn-outline-primary" name="status_action" value="next" data-status-action="next">
                     Наступний статус{% if next_status_label %}: {{ next_status_label }}{% endif %}
                   </button>
                 {% endif %}
               </div>
             {% endif %}
           {% else %}
-            <button type="submit" class="btn btn-success" data-status-action="to_work">В роботу</button>
+            <button type="submit" class="btn btn-success" name="status_action" value="to_work" data-status-action="to_work">В роботу</button>
           {% endif %}
         </div>
       {% endif %}
     </div>
 
     <div class="d-grid mt-3">
-      <button type="submit" class="btn btn-success btn-lg">Зберегти замовлення</button>
+      <button type="submit" class="btn btn-success btn-lg" name="status_action" value="save">Зберегти замовлення</button>
     </div>
+    </fieldset>
   </form>
 
   {% if status_logs %}
@@ -201,8 +207,23 @@
         .replace(/\s/g, '')
         .replace(',', '.')
     ) || 0
+    const isReadonlyFront = {{ readonly|yesno:"true,false" }}
 
     const systemConfigCache = new Map() // system -> config
+
+    function enforceReadonly() {
+      if (!isReadonlyFront) return
+      const $form = $('#orderForm')
+      $form.addClass('readonly-mode')
+      $form.find('input, select, textarea, button').prop('disabled', true)
+      $form.find('select').prop('disabled', true).trigger('change.select2')
+      $form.find('a').prop('disabled', false)
+      $('#addRow').off('click')
+      $form.on('mousedown.readonly click.readonly', 'select, .select2-selection', function (e) {
+        e.preventDefault()
+        return false
+      })
+    }
 
     // ---------- Helpers ----------
     function money(x) {
@@ -232,11 +253,12 @@
       if (markupInput) {
         markupInput.value = markup_initial
       }
-      if ({{ readonly|yesno:"true,false" }} ) {
-        $('#orderForm').find('input, select, textarea, button').prop('disabled', true)
-        // allow scrollable preview buttons (none) but keep navigation disabled; re-enable links
-        $('#orderForm').find('a').prop('disabled', false)
+      if (isReadonlyFront) {
+        const $form = $('#orderForm')
+        $form.find('input, select, textarea, button').prop('disabled', true)
+        $form.find('a').prop('disabled', false) // allow navigation
       }
+      enforceReadonly()
     })
 
     function getCsrf() {
@@ -784,11 +806,11 @@
       });
 
       preSelectsPriceOptions.base_price_eur = item.base_price_eur
-      preSelectsPriceOptions.comment_system_red = ""
-      preSelectsPriceOptions.comment_system_green = ""
+      preSelectsPriceOptions.comment_system_red = item.comment_system_red
+      preSelectsPriceOptions.comment_system_green = item.comment_system_green
       preSelectsPriceOptions.gb_width_mm = item.gb_width_mm
       preSelectsPriceOptions.GbDiffWidthMm = item.GbDiffWidthMm
-
+      preSelectsPriceOptions.note = item.note
 
       preSelectsPriceOptions.gabarit_width_flag = item.gabarit_width_flag
 
@@ -857,6 +879,9 @@
     })
 
     $container.on('click', '.remove-row', function () {
+      if ({{ readonly|yesno:"false,true" }} || '{{ order.status }}' !== '{{ order.STATUS_QUOTE }}') {
+        return
+      }
       $(this).closest('.item-card').remove()
       recalcPrice()
     })
@@ -1291,6 +1316,9 @@
       enableCheckGabarit($card, GbDiffWidthMm, preSelectsPriceOptions.gabarit_width_flag)
 
       let qty = Number($card.find('.qty').val() || 1)
+      if (preSelectsPriceOptions.note) {
+        $card.find('.item-note').val(preSelectsPriceOptions.note)
+      }
 
       const baseOne = Number(data?.base_price_eur || preSelectsPriceOptions.base_price_eur || 0)
       const surchargeOne = Number(data?.surcharge_height_eur || preSelectsPriceOptions.surcharge_height_eur || 0)

@@ -30,6 +30,9 @@ urlpatterns = [
         name="order_components_builder",   # <-- ЭТО имя использует redirect(...)
     ),
 
+    # швидкий перевід у роботу з прев'ю
+    path("status/<int:pk>/preview/", views.update_status_preview, name="update_status_preview"),
+
     # транзакції
     path("transactions/new/", views.transaction_create, name="transaction_create"),
     path("settings/notifications/", views.order_notifications_settings, name="notifications_settings"),

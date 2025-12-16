@@ -34,6 +34,10 @@
       font-weight: 600;
       font-size: 1.05rem;
     }
+    .readonly-mode .select2-container,
+    .readonly-mode .select2-selection {
+      pointer-events: none !important;
+    }
   </style>
 {% endblock %}
 
@@ -42,6 +46,7 @@
     {% csrf_token %}
     <input type="hidden" name="eur_rate_at_creation" class="eur_rate_at_creation" />
     <input type="hidden" name="status_action" id="statusActionInput" value="save" />
+    <fieldset {% if readonly %}disabled{% endif %}>
 
     <div class="mb-3">
       <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
@@ -94,31 +99,35 @@
       </div>
       {% if not readonly %}
         <div class="d-flex flex-wrap gap-2 mt-3">
-          <button type="submit" class="btn btn-primary" data-status-action="save">Зберегти</button>
+          <button type="submit" class="btn btn-primary" name="status_action" value="save" data-status-action="save">Зберегти</button>
           {% if order %}
             {% if order.status == order.STATUS_QUOTE %}
-              <button type="submit" class="btn btn-success" data-status-action="to_work">В роботу</button>
+              <button type="submit" class="btn btn-success" name="status_action" value="to_work" data-status-action="to_work">В роботу</button>
             {% endif %}
             {% if request.user.is_manager %}
               <div class="ms-auto d-flex gap-2">
                 {% if order.prev_status %}
-                  <button type="submit" class="btn btn-outline-primary" data-status-action="prev">Попередній статус</button>
+                  <button type="submit" class="btn btn-outline-primary" name="status_action" value="prev" data-status-action="prev">Попередній статус</button>
                 {% endif %}
                 {% if next_status_label %}
-                  <button type="submit" class="btn btn-outline-primary" data-status-action="next">
+                  <button type="submit" class="btn btn-outline-primary" name="status_action" value="next" data-status-action="next">
                     Наступний статус{% if next_status_label %}: {{ next_status_label }}{% endif %}
                   </button>
                 {% endif %}
               </div>
             {% endif %}
           {% else %}
-            <button type="submit" class="btn btn-success" data-status-action="to_work">В роботу</button>
+            <button type="submit" class="btn btn-success" name="status_action" value="to_work" data-status-action="to_work">В роботу</button>
           {% endif %}
         </div>
       {% endif %}
     </div>
-
+    </fieldset>
   </form>
+
+  <div class="d-grid mt-3">
+    <button type="submit" form="componentsOrderForm" class="btn btn-success btn-lg" name="status_action" value="save">Зберегти замовлення</button>
+  </div>
 
   {% if status_logs %}
     <div class="card border-0 shadow-sm mt-3">
@@ -147,9 +156,11 @@
           <div class="fw-semibold">
             Позиція <span class="pos-index">1</span>
           </div>
-          <button type="button" class="btn btn-sm btn-outline-danger remove-row">
-            <i class="bi bi-trash"></i>
-          </button>
+          {% if order.status == order.STATUS_QUOTE %}
+            <button type="button" class="btn btn-sm btn-outline-danger remove-row">
+              <i class="bi bi-trash"></i>
+            </button>
+          {% endif %}
         </div>
 
         <div class="row g-2 mb-2">
@@ -227,6 +238,21 @@
     const paymentShortage = paymentShortageRaw ? parseFloat(paymentShortageRaw.replace(',', '.')) : null
     const paymentShortageOrders = {{ payment_shortage.orders|default:"[]"|safe }}
     const isManager = {{ request.user.is_manager|yesno:"true,false" }}
+    const isReadonlyFront = {{ readonly|yesno:"true,false" }}
+
+    function enforceReadonlyComponents() {
+      if (!isReadonlyFront) return;
+      const $form = $('#componentsOrderForm');
+      $form.addClass('readonly-mode');
+      $form.find('input, select, textarea, button').prop('disabled', true);
+      $form.find('select').prop('disabled', true).trigger('change.select2');
+      $form.find('a').prop('disabled', false);
+      $('#addComponentRow').off('click');
+      $form.on('mousedown.readonly click.readonly', 'select, .select2-selection', function (e) {
+        e.preventDefault();
+        return false;
+      });
+    }
 
     const componentsPriceUrlInput = $('#componentsPriceUrl');
     const $componentsContainer = $('#componentsContainer');
@@ -246,6 +272,12 @@
         $('#componentsOrderForm').find('input, select, textarea, button').prop('disabled', true)
         $('#componentsOrderForm').find('a').prop('disabled', false)
       }
+      if (isReadonlyFront) {
+        const $form = $('#componentsOrderForm');
+        $form.find('input, select, textarea, button').prop('disabled', true);
+        $form.find('a').prop('disabled', false);
+      }
+      enforceReadonlyComponents();
     })
 
     function normalizeUnit(unit) {
@@ -528,6 +560,9 @@
     });
 
     $componentsContainer.on('click', '.remove-row', function () {
+      if ({{ readonly|yesno:"false,true" }} || '{{ order.status }}' !== '{{ order.STATUS_QUOTE }}') {
+        return;
+      }
       $(this).closest('.component-card').remove();
 
       // Перенумерация позиций

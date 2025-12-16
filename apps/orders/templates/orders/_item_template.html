@@ -11,7 +11,9 @@
             <label class="comment_system_green"></label>
           </div>
         </div>
-        <button type="button" class="btn btn-sm btn-outline-danger remove-row" aria-label="Видалити позицію"><i class="bi bi-x-lg"></i></button>
+          {% if order.status == order.STATUS_QUOTE %}
+          <button type="button" class="btn btn-sm btn-outline-danger remove-row" aria-label="Видалити позицію"><i class="bi bi-x-lg"></i></button>
+          {% endif %}
       </div>
 
       <div class="row g-3">
@@ -133,11 +135,18 @@
             <div class="d-flex justify-content-between">
               <span>Ціна позиції</span>
               <span class="text-end">
-                <span class="subtotal-input" style="display:none;">0.00</span>
-                <span class="subtotal-uah ms-2">0.00</span>
+              <span class="subtotal-input" style="display:none;">0.00</span>
+              <span class="subtotal-uah ms-2">0.00</span>
               </span>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div class="row mt-3">
+        <div class="col-12">
+          <label class="form-label"><strong>Примітка по позиції</strong></label>
+          <textarea class="form-control item-note" name="item_note" rows="2" placeholder="Додайте примітку щодо цієї позиції"></textarea>
         </div>
       </div>
     </div>

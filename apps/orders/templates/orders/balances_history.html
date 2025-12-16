@@ -63,7 +63,7 @@
         {% if e.type == 'order' %}
           {% with o=e.object %}
           {% url 'orders:builder_edit' o.id as order_view_url %}
-          {% include 'orders/partials/order_card.html' with order=o view_url=order_view_url show_type=True show_rate=True show_last_status=True %}
+          {% include 'orders/partials/order_card.html' with order=o view_url=order_view_url show_type=True show_rate=True show_last_status=True status_badges=status_badges %}
           {% endwith %}
         {% else %}
           {% with tx=e.object %}

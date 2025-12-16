@@ -32,7 +32,8 @@ from .utils_components import parse_components_from_post
 from django.urls import reverse
 from .services_currency import get_current_eur_rate, update_eur_rate_from_nbu
 from django.views.decorators.http import require_POST
-        
+from django.http import JsonResponse
+
         
 def _get(lst, idx, default=""):
     """EN: Safe list index with default. UA: Безпечне отримання елемента зі списку з дефолтом."""
@@ -86,6 +87,12 @@ def _order_base_total(order) -> Decimal:
     return agg
 
 STATUS_LABELS = dict(Order.STATUS_CHOICES)
+STATUS_BADGES = {
+    Order.STATUS_QUOTE: "secondary",
+    Order.STATUS_IN_WORK: "warning",
+    Order.STATUS_READY: "info",
+    Order.STATUS_SHIPPED: "success",
+}
 
 
 def _set_order_totals_uah(orders, current_rate: Decimal):
@@ -139,72 +146,138 @@ def _payment_shortage_context(order):
 
     return {
         "shortage": shortage.quantize(Decimal("0.01")),
-        "orders": cover_orders,
+        "orders": ([order.pk] if order.pk else []) + cover_orders,
     }
 
 
 def _build_order_workbook(order):
-    """Generate Excel workbook for order (формат схожий на 'Приклад.xls') and attach to instance."""
     wb = Workbook()
     ws = wb.active
-    ws.title = "Счет"
+    ws.title = "Замовлення"
     profile = getattr(order.customer, "customerprofile", None)
     rate = Decimal(order.eur_rate or get_current_eur_rate() or 0)
 
-    header_lines = [
-        ["", "Віконні системи Wenster, www.oknaeuro.kiev.ua", "", "", "", "", "", "", ""],
-        ["", "", "", "", "", "", "", "", ""],
-        ["", "(063) 377-85-46; (068) 352-49-09 (viber); (095) 308-09-96", "", "", "", "", "", "", ""],
-        ["", "", "", "", "", "", "", "", ""],
+    def price_uah(eur, qty=1):
+        if not rate:
+            return float(Decimal(eur or 0) * Decimal(qty or 0))
+        return float((Decimal(eur or 0) * Decimal(qty or 0) * rate).quantize(Decimal("0.01")))
+
+    row = 1
+    client_info = [
+        ("Клієнт", getattr(profile, "full_name", "") or str(order.customer)),
+        ("Тел.", getattr(profile, "phone", "") or ""),
+        ("ПІБ.", getattr(profile, "full_name", "") or ""),
+        ("Адреса доставки", ""),
+        ("Примітки до замовлення", order.note or ""),
     ]
-    for line in header_lines:
-        ws.append(line)
+    for label, val in client_info:
+        ws.append(["", label, val])
+    row = ws.max_row + 2
+
+    total_order_uah = Decimal("0")
+    ws.append(["", "Загальна вартість замовлення, грн"] + [""] * 9 + [0])
+    total_cell = ws.cell(row=ws.max_row, column=12)
+    row = ws.max_row + 1
 
     created_str = order.created_at.astimezone(timezone.get_current_timezone()).strftime("%d.%m.%y") if order.created_at else ""
-    customer_line = f"{created_str} замовлення № {order.pk or ''} клієнт: {getattr(profile, 'full_name', '') or order.customer}"
-    ws.append([customer_line, "", "", "", "", "", "", "", ""])
 
-    ws.append(["Система", "Тканина", "Ширина", "Висота", "Управління", "Нижня фіксація", "Кількість", "Вартість", "Примітка"])
+    option_labels = {
+        "magnets_price_eur": "Фіксація магнітами",
+        "cord_pvc_tension_price_eur": "Фіксація Леска ПВХ з дотяжкою",
+        "cord_copper_barrel_price_eur": "Фіксація Леска з мідною діжкою",
+        "magnet_fix_price_eur": "Фіксація магнітами (доп.)",
+        "top_pvc_clip_pair_price_eur": "Кліпса кріплення для верхньої планки ПВХ, пара",
+        "top_pvc_bar_tape_price_eur_mp": "Верхня планка ПВХ зі скотчем (монтаж без свердління), за м.п.",
+        "bottom_wide_bar_price_eur_mp": "Нижня широка планка, за м.п.",
+        "top_bar_scotch_price_eur_mp": "Верхній скотч, за м.п.",
+        "metal_cord_fix_price_eur": "Металева фіксація шнура",
+        "middle_bracket_price_eur": "Проміжковий кронштейн, шт",
+        "remote_5ch_price_eur": "5-ти канальний пульт ДУ, шт",
+        "remote_15ch_price_eur": "15-ти канальний пульт ДУ, шт",
+        "motor_with_remote_price_eur": "Електродвигун з одноканальним пультом ДУ (входить до вартості), шт",
+        "motor_no_remote_price_eur": "Електродвигун без пульта, шт",
+        "metal_kronsht_price_eur": "Металевий кронштейн, шт",
+        "adapter_mosel_internal_price_eur": "Адаптер внутрішній MOSel",
+        "adapter_mosel_external_price_eur": "Адаптер зовнішній MOSel",
+    }
 
-    def price_uah(subtotal_eur, qty):
-        return float((Decimal(subtotal_eur or 0) * Decimal(qty or 0) * rate).quantize(Decimal("0.01"))) if rate else float(Decimal(subtotal_eur or 0) * Decimal(qty or 0))
+    def control_label(val):
+        if val == "left":
+            return "Ліве"
+        if val == "right":
+            return "Праве"
+        return val or ""
 
-    total_uah = Decimal("0")
+    def add_option_rows(item):
+        rows = []
+        total_opts = Decimal("0")
+        for field in [f.name for f in OrderItem._meta.fields if f.name.endswith("_price_eur")]:
+            price = getattr(item, field, None)
+            qty_field = field.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
+            qty = getattr(item, qty_field, None)
+            if price in (None, "") or qty in (None, ""):
+                continue
+            try:
+                qty_val = Decimal(qty)
+                price_val = Decimal(price)
+            except Exception:
+                continue
+            if qty_val <= 0 or price_val <= 0:
+                continue
+            label = option_labels.get(field, field)
+            sum_uah = price_uah(price_val, qty_val)
+            rows.append(["", label, "", "", "", "", "", "", "", "", float(qty_val), sum_uah])
+            total_opts += Decimal(sum_uah)
+        return rows, total_opts
 
-    for it in order.items.all():
-        qty = it.quantity
-        total_row = price_uah(it.subtotal_eur, qty)
-        total_uah += Decimal(str(total_row or 0))
+    headers = ["", "Система", "Колір с-ми", "Тканина", "Колір тканини", "Ширина, мм", "Знач. Шир.", "Висота, мм", "Знач. Вис.", "Сторона управ.", "К-сть", "Вартість, грн"]
+
+    for idx, it in enumerate(order.items.all(), start=1):
+        ws.append([f"Поз. {idx}", f"Замовлення № {order.pk} від {created_str}"])
+        ws.append(headers)
+
+        base_uah = price_uah(it.subtotal_eur, it.quantity)
+        opt_rows, total_opts = add_option_rows(it)
+
         ws.append([
+            "",
             it.system_sheet,
+            it.table_section,
             it.fabric_name,
+            it.fabric_color_code,
             it.width_fabric_mm,
+            "Габарит" if it.gabarit_width_flag else "За замов.",
             it.height_gabarit_mm,
-            it.control_side,
-            "Так" if it.bottom_fixation else "",
-            qty,
-            total_row,
-            it.roll_height_info or "",
+            it.roll_height_info or "За замов.",
+            control_label(it.control_side),
+            it.quantity,
+            base_uah,
         ])
 
-    for it in order.component_items.all():
-        qty = it.quantity
-        total_row = price_uah(it.price_eur, qty)
-        total_uah += Decimal(str(total_row or 0))
-        ws.append([
-            f"Комплектуюча: {it.name}",
-            it.color,
-            "",
-            "",
-            "",
-            "",
-            qty,
-            total_row,
-            it.unit,
-        ])
+        if opt_rows:
+            ws.append(["", "Додатково:"])
+            for r in opt_rows:
+                ws.append(r)
+            ws.append(["", "", "", "", "", "", "", "", "", "Всього:", "", float(total_opts + Decimal(base_uah))])
+        else:
+            ws.append(["", "", "", "", "", "", "", "", "", "Всього:", "", float(base_uah)])
 
-    total_display = float(total_uah.quantize(Decimal("0.01"))) if total_uah else ""
-    ws.append([f"Примітки: {order.note or ''}", "", "", "", "", "", "Всього, грн", total_display, ""])
+        if it.note:
+            ws.append(["", "Примітки до виробу", it.note])
+
+        ws.append([])
+        total_order_uah += Decimal(base_uah) + total_opts
+
+    if order.component_items.exists():
+        ws.append(["", "Комплектуючі"])
+        ws.append(["", "Найменування", "Колір", "Од. вим", "К-сть", "Ціна, грн"])
+        for comp in order.component_items.all():
+            price_uah_val = price_uah(comp.price_eur, comp.quantity)
+            ws.append(["", comp.name, comp.color, comp.unit, float(comp.quantity or 0), price_uah_val])
+            total_order_uah += Decimal(price_uah_val)
+        ws.append([])
+
+    total_cell.value = float(total_order_uah.quantize(Decimal("0.01"))) if total_order_uah else 0
 
     buffer = BytesIO()
     wb.save(buffer)
@@ -461,6 +534,8 @@ def order_list(request):
         "customer_filter": customer_filter,
         "customer_options": customers_filter_list,
         "list_mode": "rollers",
+        "status_badges": STATUS_BADGES,
+        "status_labels": STATUS_LABELS,
     }
     return render(request, "orders/order_list.html", context)
 
@@ -504,6 +579,8 @@ def order_components_list(request):
         "status_filter": status_filter,
         "customer_filter": customer_filter,
         "customer_options": customers_filter_list,
+        "status_badges": STATUS_BADGES,
+        "status_labels": STATUS_LABELS,
     }
     return render(request, "orders/order_list.html", context)
 
@@ -640,9 +717,6 @@ def order_builder(request, pk=None):
         profile = getattr(request.user, "customerprofile", None)
         org = getattr(profile, "organization", None)
 
-        # Удаляем старые Items
-        order.items.all().delete()
-
         # Чтение всех списков (как раньше)
         systems = request.POST.getlist("system_sheet")
         sections = request.POST.getlist("table_section")
@@ -694,6 +768,15 @@ def order_builder(request, pk=None):
         control_sides = request.POST.getlist("control_side")
         bottom_fixations = request.POST.getlist("bottom_fixation")
         pvc_planks = request.POST.getlist("pvc_plank")
+        item_notes = request.POST.getlist("item_note")
+
+        # Если нет ни одной позиции — не трогаем существующие items и возвращаем с ошибкой
+        if not any((system or "").strip() for system in systems):
+            messages.error(request, "Додайте хоча б одну позицію перед відправкою.")
+            return redirect("orders:builder_edit", pk=order.pk)
+
+        # Удаляем старые Items только после валидации наличия новых
+        order.items.all().delete()
 
         # -----------------------------------------
         # Создание всех OrderItem (ГОРАЗДО ЧИЩЕ)
@@ -750,6 +833,7 @@ def order_builder(request, pk=None):
                 control_side=_get(control_sides, idx, "").strip(),
                 bottom_fixation=_get(bottom_fixations, idx) in ("on", "true", "1"),
                 pvc_plank=_get(pvc_planks, idx) in ("on", "true", "1"),
+                note=_get(item_notes, idx, "").strip(),
             )
 
         markup_percent = _to_decimal(request.POST.get("markup_percent"), default=str(order.markup_percent or "0"))
@@ -854,6 +938,7 @@ def order_builder(request, pk=None):
                 "control_side": it.control_side,
                 "bottom_fixation": it.bottom_fixation,
                 "pvc_plank": it.pvc_plank,
+                "note": it.note,
             })
         items_json = json.dumps(items)
         next_code = order.next_status()
@@ -877,6 +962,7 @@ def order_builder(request, pk=None):
         "readonly": readonly,
         "payment_message_text": _get_payment_message_text(),
         "payment_shortage": shortage_ctx,
+        "status_badges": STATUS_BADGES,
     })
     
     
@@ -892,6 +978,11 @@ def order_delete(request, pk: int):
         order = get_object_or_404(Order, pk=pk)
     else:
         order = get_object_or_404(Order, pk=pk, customer=request.user)
+
+    # Ограничение: клієнт може видаляти лише статус "Прорахунок"
+    if (not is_manager(request.user)) and order.status != Order.STATUS_QUOTE:
+        messages.warning(request, "Ви можете видаляти лише замовлення в статусі 'Прорахунок'.")
+        return redirect(redirect_target if redirect_target == "orders:list" else reverse(redirect_target))
 
     # если есть комплектующие, возвращаем на список комплектующих
     if order.component_items.exists():
@@ -993,6 +1084,8 @@ def balances_history(request):
         "balance_user": balance_user,
         # Ensure header balance reflects filtered customer (for managers)
         "user_balance": compute_balance(balance_user),
+        "status_badges": STATUS_BADGES,
+        "status_labels": STATUS_LABELS,
     }
     return render(request, "orders/balances_history.html", context)
 
@@ -1098,6 +1191,42 @@ def order_components_builder(request, pk):
 
     return render(request, "orders/components_builder.html", context)
 
+
+@login_required
+def update_status_preview(request, pk):
+    """
+    Quick status update to 'in_work' from preview without opening builder.
+    """
+    if request.method != "POST":
+        return JsonResponse({"detail": "Method not allowed"}, status=405)
+
+    if is_manager(request.user):
+        order = get_object_or_404(Order, pk=pk)
+    else:
+        order = get_object_or_404(Order, pk=pk, customer=request.user)
+
+    action = request.POST.get("status_action") or "next"
+
+    # Клиент может только перевести прорахунок у роботу
+    if not is_manager(request.user) and action != "to_work":
+        return JsonResponse({"detail": "Дія недоступна."}, status=403)
+
+    new_status = None
+    if action == "to_work":
+        new_status = Order.STATUS_IN_WORK if order.status == Order.STATUS_QUOTE else order.next_status()
+    elif action == "prev":
+        new_status = order.prev_status()
+    else:  # next (default)
+        new_status = order.next_status()
+
+    if not new_status:
+        return JsonResponse({"detail": "Не можна змінити статус."}, status=400)
+
+    if not _apply_status_change(order, new_status, request):
+        return JsonResponse({"detail": "Не вдалося змінити статус."}, status=400)
+
+    messages.success(request, f"Замовлення №{order.pk} переведено в роботу.")
+    return redirect(request.META.get("HTTP_REFERER") or reverse("orders:list"))
 
 @login_required
 def order_components_builder_new(request):

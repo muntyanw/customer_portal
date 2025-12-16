@@ -430,6 +430,8 @@ class OrderItem(models.Model):
     class Meta:
         ordering = ["id"]
 
+    note = models.TextField(blank=True, verbose_name="Примітка по позиції")
+
     def __str__(self):
         return f"OrderItem #{self.pk} ({self.system_sheet}/{self.table_section})"
 

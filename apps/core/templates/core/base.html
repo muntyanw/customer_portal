@@ -74,7 +74,7 @@
                 </span>
 
                 {% if request.user.is_staff %}
-                  <form action="{% url 'orders:update_eur_rate' %}" method="post" class="d-inline mb-0">
+                  <form action="{% url 'orders:update_eur_rate' %}" method="post" class="d-inline mb-0" onsubmit="return confirm('Оновити курс EUR онлайн?');">
                     {% csrf_token %}
                     <input type="hidden" name="mode" value="online">
                     <button type="submit"
@@ -84,7 +84,7 @@
                     </button>
                   </form>
 
-                  <form action="{% url 'orders:update_eur_rate' %}" method="post" class="d-inline mb-0">
+                  <form action="{% url 'orders:update_eur_rate' %}" method="post" class="d-inline mb-0" onsubmit="return confirm('Зберегти курс вручну?');">
                     {% csrf_token %}
                     <input type="hidden" name="mode" value="manual">
                     <div class="input-group input-group-sm">
