@@ -8,7 +8,11 @@
     <div class="card-body">
       <form method="post" class="d-flex flex-column gap-3">
         {% csrf_token %}
-        {{ form.non_field_errors }}
+        {% if form.non_field_errors %}
+          <div class="alert alert-danger mb-0">
+            {{ form.non_field_errors }}
+          </div>
+        {% endif %}
 
         <div class="row g-3">
           <div class="col-md-6">
@@ -21,6 +25,10 @@
             {{ form.type }}
           </div>
           <div class="col-md-3">
+            <label class="form-label">Вид оплати</label>
+            {{ form.payment_type }}
+          </div>
+          <div class="col-md-3">
             <label class="form-label">Сума, грн</label>
             {{ form.amount }}
             <div class="form-text">Зберігаємо в EUR за курсом {{ current_rate|default:"-" }} грн</div>
@@ -31,6 +39,10 @@
           <div class="col-md-6">
             <label class="form-label">Замовлення (необов’язково)</label>
             {{ form.order }}
+          </div>
+          <div class="col-md-6" data-account-group>
+            <label class="form-label">Номер рахунку (для «На рахунок»)</label>
+            {{ form.account_number }}
           </div>
           <div class="col-12">
             <label class="form-label">Коментар</label>
@@ -90,6 +102,26 @@
 
       // початковий стан — звужений
       collapseList();
+    })();
+
+    // toggle account number visibility based on payment type
+    (function() {
+      const paymentField = document.getElementById("id_payment_type");
+      const accountGroup = document.querySelector("[data-account-group]");
+      const accountInput = document.getElementById("id_account_number");
+      if (!paymentField || !accountGroup || !accountInput) return;
+      const toggle = () => {
+        if (paymentField.value === "cash") {
+          accountGroup.classList.add("d-none");
+          accountInput.removeAttribute("required");
+          accountInput.value = "";
+        } else {
+          accountGroup.classList.remove("d-none");
+          accountInput.setAttribute("required", "required");
+        }
+      };
+      paymentField.addEventListener("change", toggle);
+      toggle();
     })();
   </script>
 {% endblock %}

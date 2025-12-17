@@ -25,27 +25,30 @@ def get_current_eur_rate() -> Decimal:
 
 def update_eur_rate_from_nbu(timeout: int = 10) -> CurrencyRate:
     """
-    EN: Fetch EUR rate from NBU API and save to DB.
-    UA: Отримує курс EUR з API НБУ та зберігає в БД.
+    EN: Fetch EUR sale rate from PrivatBank public API and save to DB.
+    UA: Отримує курс продажу EUR з публічного API Приватбанку та зберігає в БД.
     """
-    # Офіційне API НБУ для курсу EUR у форматі JSON
-    url = "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange"
-    params = {"valcode": "EUR", "json": 1}
+    url = "https://api.privatbank.ua/p24api/pubinfo"
+    params = {"json": "", "exchange": "", "coursid": "5"}
 
     resp = requests.get(url, params=params, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
 
     if not data:
-        raise RuntimeError("NBU response is empty")
+        raise RuntimeError("PrivatBank response is empty")
 
-    rate = Decimal(str(data[0]["rate"]))
+    eur_row = next((row for row in data if str(row.get("ccy")).upper() == "EUR"), None)
+    if not eur_row:
+        raise RuntimeError("EUR rate not found in PrivatBank response")
+
+    sale_rate = Decimal(str(eur_row.get("sale")))
 
     obj, _ = CurrencyRate.objects.update_or_create(
         currency="EUR",
         defaults={
-            "rate_uah": rate,
-            "source": "NBU",
+            "rate_uah": sale_rate,
+            "source": "PrivatBank sale",
             "updated_at": timezone.now(),
         },
     )

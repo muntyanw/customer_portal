@@ -16,8 +16,9 @@
         <form method="post" novalidate>
           {% csrf_token %}
           <div class="mb-3">
-            {{ form.email.label_tag }}
-            {{ form.email|add_class:"form-control form-control-lg" }}
+            {{ form.login.label_tag }}
+            {{ form.login|add_class:"form-control form-control-lg" }}
+            <div class="form-text">Email або телефон у форматі 063-435-00-81</div>
           </div>
           <div class="mb-3">
             {{ form.password.label_tag }}
@@ -29,11 +30,6 @@
           </div>
         </form>
 
-        <hr class="my-4">
-        <p class="text-center small mb-0">
-          Немає акаунту?
-          <a href="{% url 'accounts:register' %}" class="fw-semibold">Зареєструватися</a>
-        </p>
       </div>
     </div>
   </div>

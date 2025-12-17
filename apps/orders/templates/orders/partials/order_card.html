@@ -3,7 +3,11 @@
 <div class="{{ card_cls }}">
   <div class="card-body d-flex flex-column gap-2">
     <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
-      <div>
+      <div class="d-flex align-items-start gap-2">
+        {% if show_select %}
+          <input class="form-check-input mt-1" type="checkbox" name="{{ select_name|default:'order_ids' }}" value="{{ order.id }}" form="{{ select_form|default:'bulkForm' }}" aria-label="Обрати замовлення">
+        {% endif %}
+        <div>
         <div class="fw-semibold">Замовлення № {{ order.id }}</div>
         <div class="small text-muted">{{ order.created_at|date:'d.m.Y H:i' }}</div>
         {% if order.customer %}
@@ -27,6 +31,7 @@
             {{ order.note|truncatechars:160 }}
           </div>
         {% endif %}
+      </div>
       </div>
       <div class="text-end">
         {% with badge=status_badges|get_item:order.status|default:"secondary" %}
@@ -61,7 +66,12 @@
               {% csrf_token %}
               <input type="hidden" name="status_action" value="to_work">
               {% with badge=status_badges|get_item:order.STATUS_IN_WORK|default:"success" %}
-                <button type="submit" class="btn btn-sm btn-{{ badge }}">
+                <button
+                  type="submit"
+                  class="btn btn-sm btn-{{ badge }}"
+                  data-order-id="{{ order.id }}"
+                  {% if order.customer_id == request.user.id %}data-payment-check="1"{% endif %}
+                >
                   <i class="bi bi-play-fill me-1"></i> В роботу
                 </button>
               {% endwith %}

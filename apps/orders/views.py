@@ -19,6 +19,7 @@ from .models import (
     CurrencyRateHistory,
     OrderDeletionHistory,
 )
+from apps.customers.models import CustomerProfile
 from apps.accounts.roles import is_manager
 import json
 from decimal import Decimal, InvalidOperation
@@ -35,6 +36,7 @@ from django.urls import reverse
 from .services_currency import get_current_eur_rate, update_eur_rate_from_nbu
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse
+from django.utils.http import url_has_allowed_host_and_scheme
 
         
 def _get(lst, idx, default=""):
@@ -111,6 +113,37 @@ def _order_total_uah(order, current_rate: Decimal) -> Decimal:
     return (_order_base_total(order) * _order_rate(order, current_rate)).quantize(Decimal("0.01"))
 
 
+def _orders_total_uah(orders_qs, current_rate: Decimal) -> Decimal:
+    return sum(
+        (_order_base_total(o) * _order_rate(o, current_rate)).quantize(Decimal("0.01"))
+        for o in orders_qs
+    )
+
+
+def _transactions_total_uah(tx_qs) -> Decimal:
+    if tx_qs is None:
+        return Decimal("0")
+    tx_total = tx_qs.aggregate(
+        total=Sum(
+            Case(
+                When(
+                    type=Transaction.DEBIT,
+                    then=ExpressionWrapper(
+                        F("amount") * F("eur_rate"),
+                        output_field=DecimalField(max_digits=18, decimal_places=4),
+                    ),
+                ),
+                default=ExpressionWrapper(
+                    -F("amount") * F("eur_rate"),
+                    output_field=DecimalField(max_digits=18, decimal_places=4),
+                ),
+                output_field=DecimalField(max_digits=18, decimal_places=4),
+            )
+        )
+    )["total"] or Decimal("0")
+    return Decimal(tx_total).quantize(Decimal("0.01"))
+
+
 def _get_payment_message_text():
     return (
         PaymentMessage.objects.filter(is_active=True)
@@ -125,9 +158,8 @@ def _payment_shortage_context(order):
     if not order:
         return None
     current_rate = get_current_eur_rate()
-    order_total_uah = _order_total_uah(order, current_rate)
     balance = compute_balance(order.customer)
-    shortage = Decimal(balance or 0) - order_total_uah
+    shortage = Decimal(balance or 0)
     if shortage >= 0:
         return None
     shortage = shortage * -1
@@ -140,6 +172,9 @@ def _payment_shortage_context(order):
         .exclude(pk=order.pk)
         .order_by("-created_at")
     )
+    if order.pk:
+        cover_orders.append(order.pk)
+        cover_total += _order_total_uah(order, current_rate)
     for o in existing_orders:
         cover_total += _order_total_uah(o, current_rate)
         cover_orders.append(o.pk)
@@ -248,9 +283,9 @@ def _build_order_workbook(order):
             it.fabric_name,
             it.fabric_color_code,
             it.width_fabric_mm,
-            "Габарит" if it.gabarit_width_flag else "За замов.",
+            "По тканині" if it.gabarit_width_flag else "Габарит",
             it.height_gabarit_mm,
-            it.roll_height_info or "За замов.",
+            "По тканині" if it.fabric_height_flag else (it.roll_height_info or "Габарит"),
             control_label(it.control_side),
             it.quantity,
             base_uah,
@@ -361,11 +396,15 @@ def _prepare_to_work(order, request):
     order.save(update_fields=["eur_rate", "eur_rate_at_creation"])
 
     balance_before = compute_balance(order.customer)
-    projected_balance = balance_before - order.total_eur
+    order_total_uah = (_order_base_total(order) * Decimal(current_rate or 0)).quantize(Decimal("0.01"))
+    projected_balance = balance_before - order_total_uah
     shortage = projected_balance * -1 if projected_balance < 0 else Decimal("0")
-    profile = getattr(order.customer, "customerprofile", None)
-    credit_allowed = getattr(profile, "credit_allowed", False)
-    if shortage > 0 and not credit_allowed:
+    try:
+        profile = order.customer.customerprofile
+    except CustomerProfile.DoesNotExist:
+        profile = None
+    credit_allowed = bool(profile and profile.credit_allowed)
+    if shortage > 0 and not credit_allowed and not is_manager(request.user):
         messages.warning(
             request,
             f"Оплатіть суму {shortage} для відправки в роботу.",
@@ -413,41 +452,18 @@ def compute_balance(user):
             Order.STATUS_SHIPPED,
         ]
     )
-    orders_sum_uah = sum(
-        (_order_base_total(o) * _order_rate(o, current_rate)).quantize(Decimal("0.01"))
-        for o in orders_qs
-    )
-
-    tx_qs = _transactions_scope(user)
-    tx_total_uah = tx_qs.aggregate(
-        total=Sum(
-            Case(
-                When(
-                    type=Transaction.DEBIT,
-                    then=ExpressionWrapper(
-                        F("amount") * F("eur_rate"),
-                        output_field=DecimalField(max_digits=18, decimal_places=4),
-                    ),
-                ),
-                default=ExpressionWrapper(
-                    -F("amount") * F("eur_rate"),
-                    output_field=DecimalField(max_digits=18, decimal_places=4),
-                ),
-                output_field=DecimalField(max_digits=18, decimal_places=4),
-            )
-        )
-    )["total"] or Decimal("0")
-    tx_total_uah = Decimal(tx_total_uah).quantize(Decimal("0.01"))
-
+    orders_sum_uah = _orders_total_uah(orders_qs, current_rate)
+    tx_total_uah = _transactions_total_uah(_transactions_scope(user))
     return tx_total_uah - orders_sum_uah
 
 
 class TransactionForm(forms.ModelForm):
     class Meta:
         model = Transaction
-        fields = ["customer", "type", "amount", "description", "order"]
+        fields = ["customer", "type", "amount", "description", "order", "payment_type", "account_number"]
         widgets = {
             "description": forms.Textarea(attrs={"rows": 3}),
+            "payment_type": forms.Select(attrs={"class": "form-select"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -478,10 +494,23 @@ class TransactionForm(forms.ModelForm):
         self.fields["type"].widget.attrs.update({"class": "form-select"})
         self.fields["order"].widget.attrs.update({"class": "form-select"})
         self.fields["amount"].label = "Сума, грн"
+        self.fields["payment_type"].label = "Вид оплати"
+        self.fields["account_number"].label = "Номер рахунку (для 'На рахунок')"
+        self.fields["account_number"].widget.attrs.update({"placeholder": "UA1234567890...", "class": "form-control"})
         self.fields["amount"].widget.attrs.update(
             {"class": "form-control", "step": "0.01", "min": "0", "inputmode": "decimal"}
         )
         self.fields["description"].widget.attrs.update({"class": "form-control"})
+
+    def clean(self):
+        cleaned = super().clean()
+        ptype = cleaned.get("payment_type")
+        acc = (cleaned.get("account_number") or "").strip()
+        if ptype == Transaction.PAY_ACCOUNT and not acc:
+            raise forms.ValidationError("Для оплати на рахунок потрібно вказати номер рахунку.")
+        if ptype != Transaction.PAY_ACCOUNT:
+            cleaned["account_number"] = ""
+        return cleaned
 
     def clean_amount(self):
         amount_uah = self.cleaned_data.get("amount") or Decimal("0")
@@ -506,6 +535,8 @@ def order_list(request):
     User = get_user_model()
     status_filter = request.GET.get("status") or ""
     customer_filter = request.GET.get("customer") or ""
+    q = (request.GET.get("q") or "").strip()
+    balance_user = request.user
     orders_qs = (
         _orders_scope(request.user)
         .select_related("customer", "customer__customerprofile")
@@ -520,7 +551,10 @@ def order_list(request):
         orders_qs = orders_qs.filter(status=status_filter)
 
     if customer_filter and is_manager(request.user):
-        orders_qs = orders_qs.filter(customer_id=customer_filter)
+        balance_user = get_object_or_404(User, pk=customer_filter)
+        orders_qs = orders_qs.filter(customer=balance_user)
+    if q:
+        orders_qs = orders_qs.filter(pk__icontains=q)
 
     customers_filter_list = (
         User.objects.filter(orders__isnull=False).select_related("customerprofile").distinct()
@@ -528,6 +562,20 @@ def order_list(request):
     )
     current_rate = get_current_eur_rate()
     orders_qs = _set_order_totals_uah(orders_qs, current_rate)
+    quote_orders_count = orders_qs.filter(status=Order.STATUS_QUOTE).count()
+    show_bulk_select = quote_orders_count > 1
+    payment_message_text = _get_payment_message_text() or ""
+    payment_shortage_map = {}
+    if quote_orders_count:
+        for o in orders_qs:
+            if o.status != Order.STATUS_QUOTE or o.customer_id != request.user.id:
+                continue
+            shortage_ctx = _payment_shortage_context(o)
+            if shortage_ctx:
+                payment_shortage_map[o.id] = {
+                    "shortage": str(shortage_ctx.get("shortage") or ""),
+                    "orders": shortage_ctx.get("orders") or [],
+                }
 
     context = {
         "orders": orders_qs,
@@ -538,6 +586,13 @@ def order_list(request):
         "list_mode": "rollers",
         "status_badges": STATUS_BADGES,
         "status_labels": STATUS_LABELS,
+        "quote_orders_count": quote_orders_count,
+        "show_bulk_select": show_bulk_select,
+        "q": q,
+        "payment_message_text": payment_message_text,
+        "payment_shortage_map": payment_shortage_map,
+        "payment_shortage_json": json.dumps(payment_shortage_map),
+        "user_balance": compute_balance(balance_user),
     }
     return render(request, "orders/order_list.html", context)
 
@@ -551,6 +606,8 @@ def order_components_list(request):
     User = get_user_model()
     status_filter = request.GET.get("status") or ""
     customer_filter = request.GET.get("customer") or ""
+    q = (request.GET.get("q") or "").strip()
+    balance_user = request.user
 
     qs = (
         _orders_scope(request.user)
@@ -565,7 +622,10 @@ def order_components_list(request):
     if status_filter:
         qs = qs.filter(status=status_filter)
     if customer_filter and is_manager(request.user):
-        qs = qs.filter(customer_id=customer_filter)
+        balance_user = get_object_or_404(User, pk=customer_filter)
+        qs = qs.filter(customer=balance_user)
+    if q:
+        qs = qs.filter(pk__icontains=q)
 
     customers_filter_list = (
         User.objects.filter(orders__isnull=False).select_related("customerprofile").distinct()
@@ -573,6 +633,20 @@ def order_components_list(request):
     )
     current_rate = get_current_eur_rate()
     qs = _set_order_totals_uah(qs, current_rate)
+    quote_orders_count = qs.filter(status=Order.STATUS_QUOTE).count()
+    show_bulk_select = quote_orders_count > 1
+    payment_message_text = _get_payment_message_text() or ""
+    payment_shortage_map = {}
+    if quote_orders_count:
+        for o in qs:
+            if o.status != Order.STATUS_QUOTE or o.customer_id != request.user.id:
+                continue
+            shortage_ctx = _payment_shortage_context(o)
+            if shortage_ctx:
+                payment_shortage_map[o.id] = {
+                    "shortage": str(shortage_ctx.get("shortage") or ""),
+                    "orders": shortage_ctx.get("orders") or [],
+                }
 
     context = {
         "orders": qs,
@@ -583,6 +657,13 @@ def order_components_list(request):
         "customer_options": customers_filter_list,
         "status_badges": STATUS_BADGES,
         "status_labels": STATUS_LABELS,
+        "quote_orders_count": quote_orders_count,
+        "show_bulk_select": show_bulk_select,
+        "q": q,
+        "payment_message_text": payment_message_text,
+        "payment_shortage_map": payment_shortage_map,
+        "payment_shortage_json": json.dumps(payment_shortage_map),
+        "user_balance": compute_balance(balance_user),
     }
     return render(request, "orders/order_list.html", context)
 
@@ -729,6 +810,7 @@ def order_builder(request, pk=None):
         w_list = request.POST.getlist("width_fabric_mm")
 
         gw_flags = request.POST.getlist("gabarit_width_flag")
+        gh_flags = request.POST.getlist("fabric_height_flag")
         GbDiffWidthMm = request.POST.getlist("GbDiffWidthMm")
         gb_width_mm = request.POST.getlist("gb_width_mm")
 
@@ -795,6 +877,7 @@ def order_builder(request, pk=None):
                 height_gabarit_mm=int(_get(h_list, idx, "0")),
                 width_fabric_mm=int(_get(w_list, idx, "0")),
                 gabarit_width_flag=_get(gw_flags, idx) in ("on", "true", "1"),
+                fabric_height_flag=_get(gh_flags, idx) in ("on", "true", "1"),
                 base_price_eur=_to_decimal(_get(base_prices, idx)),
                 gb_width_mm=_to_decimal(_get(gb_width_mm, idx)),
                 GbDiffWidthMm=_to_decimal(_get(GbDiffWidthMm, idx)),
@@ -877,6 +960,13 @@ def order_builder(request, pk=None):
             return redirect("orders:builder_edit", pk=order.pk)
 
         messages.success(request, "Замовлення збережено.")
+        next_url = (request.POST.get("next_url") or "").strip()
+        if next_url and url_has_allowed_host_and_scheme(
+            next_url,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        ):
+            return redirect(next_url)
         return redirect("orders:list")
 
     # -----------------------------------------
@@ -899,6 +989,7 @@ def order_builder(request, pk=None):
                 "height_gabarit_mm": it.height_gabarit_mm,
                 "width_fabric_mm": it.width_fabric_mm,
                 "gabarit_width_flag": it.gabarit_width_flag,
+                "fabric_height_flag": it.fabric_height_flag,
                 "base_price_eur": float(it.base_price_eur),
                 "GbDiffWidthMm": float(it.GbDiffWidthMm),
                 "gb_width_mm": float(it.gb_width_mm),
@@ -953,6 +1044,7 @@ def order_builder(request, pk=None):
         builder_rate = order.eur_rate
 
     shortage_ctx = _payment_shortage_context(order)
+    payment_prompt = request.session.pop("payment_prompt", None)
 
     return render(request, "orders/builder.html", {
         "order": order,
@@ -962,8 +1054,8 @@ def order_builder(request, pk=None):
         "eur_rate": builder_rate,
         "next_status_label": next_status_label,
         "readonly": readonly,
-        "payment_message_text": _get_payment_message_text(),
-        "payment_shortage": shortage_ctx,
+        "payment_message_text": (payment_prompt or {}).get("text") or _get_payment_message_text(),
+        "payment_shortage": payment_prompt or shortage_ctx,
         "status_badges": STATUS_BADGES,
     })
     
@@ -1068,6 +1160,7 @@ def balances_history(request):
 
     current_rate = get_current_eur_rate()
     orders_qs = _set_order_totals_uah(orders_qs, current_rate)
+    filtered_balance = _transactions_total_uah(tx_qs) - _orders_total_uah(orders_qs, current_rate)
 
     events = []
     for o in orders_qs:
@@ -1092,6 +1185,7 @@ def balances_history(request):
         "balance_user": balance_user,
         # Ensure header balance reflects filtered customer (for managers)
         "user_balance": compute_balance(balance_user),
+        "filtered_balance": filtered_balance,
         "status_badges": STATUS_BADGES,
         "status_labels": STATUS_LABELS,
     }
@@ -1115,6 +1209,8 @@ def order_components_builder(request, pk):
 
         action = request.POST.get("status_action") or "save"
         components = parse_components_from_post(request.POST)
+        order.note = (request.POST.get("note") or "").strip()
+        markup_percent = _to_decimal(request.POST.get("markup_percent"), default=str(order.markup_percent or "0"))
 
         # EN: Replace all existing components with new list
         # UA: Повністю замінюємо поточний список комплектуючих новим
@@ -1138,8 +1234,9 @@ def order_components_builder(request, pk):
         if bulk:
             OrderComponentItem.objects.bulk_create(bulk)
         # Save total for order (used in listings/balance)
-        order.total_eur = total_eur
+        order.total_eur = total_eur.quantize(Decimal("0.01"))
         order.eur_rate = order.eur_rate or get_current_eur_rate()
+        order.markup_percent = markup_percent.quantize(Decimal("0.01"))
 
         # Status transitions (mirror roller orders)
         new_status = None
@@ -1151,7 +1248,7 @@ def order_components_builder(request, pk):
             new_status = order.prev_status()
         # Default save keeps current status
 
-        order.save(update_fields=["total_eur", "eur_rate"])
+        order.save(update_fields=["total_eur", "eur_rate", "markup_percent", "note"])
 
         if new_status and not _apply_status_change(order, new_status, request):
             return redirect(reverse("orders:order_components_builder", kwargs={"pk": order.pk}))
@@ -1160,9 +1257,14 @@ def order_components_builder(request, pk):
 
         # EN: Redirect back to builder or to order detail — adjust as needed
         # UA: Редірект назад у білдер або на сторінку замовлення — за потреби зміни
-        return redirect(
-            reverse("orders:order_components_builder", kwargs={"pk": order.pk})
-        )
+        next_url = (request.POST.get("next_url") or "").strip()
+        if next_url and url_has_allowed_host_and_scheme(
+            next_url,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        ):
+            return redirect(next_url)
+        return redirect(reverse("orders:order_components_builder", kwargs={"pk": order.pk}))
 
     # ---------- GET: формируем components_json для фронта ----------
 
@@ -1185,6 +1287,8 @@ def order_components_builder(request, pk):
             }
         )
 
+    payment_prompt = request.session.pop("payment_prompt", None)
+    shortage_ctx = _payment_shortage_context(order)
     context = {
         "order": order,
         "PRICE_SHEET_URL": PRICE_SHEET_URL,
@@ -1193,8 +1297,8 @@ def order_components_builder(request, pk):
         "readonly": readonly,
         "next_status_label": STATUS_LABELS.get(order.next_status()) if order else None,
         "eur_rate": order.eur_rate or get_current_eur_rate(),
-        "payment_message_text": _get_payment_message_text(),
-        "payment_shortage": _payment_shortage_context(order),
+        "payment_message_text": (payment_prompt or {}).get("text") or _get_payment_message_text(),
+        "payment_shortage": payment_prompt or shortage_ctx,
     }
 
     return render(request, "orders/components_builder.html", context)
@@ -1205,36 +1309,111 @@ def update_status_preview(request, pk):
     """
     Quick status update to 'in_work' from preview without opening builder.
     """
-    if request.method != "POST":
-        return JsonResponse({"detail": "Method not allowed"}, status=405)
+    redirect_back = request.META.get("HTTP_REFERER") or reverse("orders:list")
+    if request.method not in ("POST", "GET"):
+        messages.warning(request, "Невірний метод запиту.")
+        return redirect(redirect_back)
 
     if is_manager(request.user):
         order = get_object_or_404(Order, pk=pk)
     else:
         order = get_object_or_404(Order, pk=pk, customer=request.user)
 
-    action = request.POST.get("status_action") or "next"
+    if request.method == "GET" and "status_action" not in request.GET:
+        messages.warning(request, "Невірний запит.")
+        return redirect(redirect_back)
+
+    payload = request.POST if request.method == "POST" else request.GET
+    action = (payload.get("status_action") or "next").strip()
+    show_payment_prompt = (payload.get("show_payment_prompt") or "").strip()
 
     # Клиент может только перевести прорахунок у роботу
     if not is_manager(request.user) and action != "to_work":
-        return JsonResponse({"detail": "Дія недоступна."}, status=403)
+        messages.warning(request, "Дія недоступна.")
+        return redirect(redirect_back)
 
     new_status = None
     if action == "to_work":
-        new_status = Order.STATUS_IN_WORK if order.status == Order.STATUS_QUOTE else order.next_status()
+        new_status = Order.STATUS_IN_WORK
     elif action == "prev":
         new_status = order.prev_status()
     else:  # next (default)
         new_status = order.next_status()
 
     if not new_status:
-        return JsonResponse({"detail": "Не можна змінити статус."}, status=400)
+        messages.warning(request, "Не можна змінити статус.")
+        return redirect(redirect_back)
 
     if not _apply_status_change(order, new_status, request):
-        return JsonResponse({"detail": "Не вдалося змінити статус."}, status=400)
+        if show_payment_prompt == "1" and action == "to_work":
+            if is_manager(request.user):
+                return redirect(redirect_back)
+            shortage_ctx = _payment_shortage_context(order)
+            if shortage_ctx:
+                request.session["payment_prompt"] = {
+                    "text": _get_payment_message_text() or "",
+                    "shortage": str(shortage_ctx.get("shortage") or ""),
+                    "orders": shortage_ctx.get("orders") or [],
+                }
+                if order.component_items.exists():
+                    return redirect("orders:order_components_builder", pk=order.pk)
+                return redirect("orders:builder_edit", pk=order.pk)
+        return redirect(redirect_back)
 
     messages.success(request, f"Замовлення №{order.pk} переведено в роботу.")
-    return redirect(request.META.get("HTTP_REFERER") or reverse("orders:list"))
+    return redirect(redirect_back)
+
+
+@login_required
+def update_status_bulk(request):
+    """
+    EN: Bulk move selected orders to "in_work" from list.
+    UA: Масове переведення вибраних замовлень у "В роботі" зі списку.
+    """
+    if request.method != "POST":
+        messages.warning(request, "Невірний метод запиту.")
+        return redirect(reverse("orders:list"))
+
+    order_ids = request.POST.getlist("order_ids")
+    list_mode = request.POST.get("list_mode") or ""
+    fallback = "orders:components_list" if list_mode == "components" else "orders:list"
+    next_url = (request.POST.get("next_url") or "").strip()
+    if not next_url or not url_has_allowed_host_and_scheme(
+        next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        next_url = reverse(fallback)
+
+    if not order_ids:
+        messages.warning(request, "Оберіть хоча б одне замовлення.")
+        return redirect(next_url)
+
+    qs = Order.objects.filter(pk__in=order_ids)
+    if not is_manager(request.user):
+        qs = qs.filter(customer=request.user)
+
+    success = 0
+    skipped = 0
+    failed = 0
+
+    for order in qs:
+        if order.status != Order.STATUS_QUOTE:
+            skipped += 1
+            continue
+        if _apply_status_change(order, Order.STATUS_IN_WORK, request):
+            success += 1
+        else:
+            failed += 1
+
+    if success:
+        messages.success(request, f"Запущено в роботу: {success}.")
+    if skipped:
+        messages.info(request, f"Пропущено (не в прорахунку): {skipped}.")
+    if failed:
+        messages.warning(request, f"Не вдалося запустити: {failed}.")
+
+    return redirect(next_url)
 
 @login_required
 def order_components_builder_new(request):

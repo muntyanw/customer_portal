@@ -32,6 +32,7 @@ urlpatterns = [
 
     # швидкий перевід у роботу з прев'ю
     path("status/<int:pk>/preview/", views.update_status_preview, name="update_status_preview"),
+    path("status/bulk/", views.update_status_bulk, name="update_status_bulk"),
 
     # транзакції
     path("transactions/new/", views.transaction_create, name="transaction_create"),

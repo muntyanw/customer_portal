@@ -3,13 +3,18 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.db import models
-from .forms import RegisterForm, LoginForm, ProfileForm
+from .forms import RegisterForm, LoginForm, ProfileForm, ContactFormSet
 from .models import User
-from apps.customers.models import CustomerProfile
+from apps.customers.models import CustomerProfile, CustomerContact
 from apps.accounts.roles import is_manager
 from apps.accounts.forms import ClientCreateForm
 
 def register_view(request):
+    # Only managers/admins can create accounts via this form
+    if not (request.user.is_authenticated and (is_manager(request.user) or request.user.is_staff or request.user.is_superuser)):
+        messages.error(request, "Реєстрація доступна лише менеджерам/адмінам.")
+        return redirect("accounts:login")
+
     if request.method == "POST":
         form = RegisterForm(request.POST)
         if form.is_valid():
@@ -55,6 +60,11 @@ def profile_view(request, pk=None):
     can_edit_credit = is_manager(request.user)
     can_edit_role = is_manager(request.user)
 
+    contacts_initial = [
+        {"contact_id": c.id, "phone": c.phone, "contact_name": c.contact_name, "email": c.email}
+        for c in profile.contacts.all()
+    ]
+
     if request.method == "POST":
         form = ProfileForm(
             request.POST,
@@ -64,8 +74,39 @@ def profile_view(request, pk=None):
             can_edit_credit=can_edit_credit,
             can_edit_role=can_edit_role,
         )
-        if form.is_valid():
+        contact_formset = ContactFormSet(request.POST, prefix="contacts")
+        if form.is_valid() and contact_formset.is_valid():
             form.save()
+            existing_ids = set()
+            for cform in contact_formset:
+                data = cform.cleaned_data
+                if not data:
+                    continue
+                contact_id = data.get("contact_id")
+                if data.get("DELETE"):
+                    if contact_id:
+                        CustomerContact.objects.filter(pk=contact_id, profile=profile).delete()
+                    continue
+                phone = (data.get("phone") or "").strip()
+                name = (data.get("contact_name") or "").strip()
+                email = (data.get("email") or "").strip()
+                if not phone and not name and not email:
+                    continue
+                if contact_id:
+                    CustomerContact.objects.filter(pk=contact_id, profile=profile).update(
+                        phone=phone,
+                        contact_name=name,
+                        email=email,
+                    )
+                    existing_ids.add(contact_id)
+                else:
+                    contact = CustomerContact.objects.create(
+                        profile=profile,
+                        phone=phone,
+                        contact_name=name,
+                        email=email,
+                    )
+                    existing_ids.add(contact.id)
             messages.success(request, "Профіль оновлено.")
             if pk:
                 return redirect("accounts:profile_other", pk=pk)
@@ -77,6 +118,7 @@ def profile_view(request, pk=None):
             can_edit_credit=can_edit_credit,
             can_edit_role=can_edit_role,
         )
+        contact_formset = ContactFormSet(initial=contacts_initial, prefix="contacts")
 
     return render(
         request,
@@ -86,6 +128,7 @@ def profile_view(request, pk=None):
             "target_user": target_user,
             "can_edit_credit": can_edit_credit,
             "can_edit_role": can_edit_role,
+            "contact_formset": contact_formset,
         },
     )
 

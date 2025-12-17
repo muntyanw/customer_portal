@@ -13,6 +13,13 @@
   <!-- Select2 CSS для "умных" селектов -->
   <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
   <style>
+    .order-summary-bar {
+      position: sticky;
+      top: 0;
+      z-index: 1020;
+      background: var(--bs-body-bg);
+      border-bottom: 1px solid var(--bs-border-color);
+    }
     .order-total-bar {
       position: sticky;
       bottom: 0;
@@ -54,32 +61,56 @@
     <input type="hidden" name="eur_rate" id="orderEurRateInput" />
     <input type="hidden" name="total_eur" id="orderTotalInput" value="{{ order.total_eur|default:'0.00' }}" />
     <input type="hidden" name="status_action" id="statusActionInput" value="save" />
+    <input type="hidden" name="next_url" id="nextUrlInput" value="" />
     <fieldset {% if readonly %}disabled{% endif %}>
 
     <div class="mb-3">
-      <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
-        <div class="fw-semibold" style="display: none;">Джерело прайсу</div>
-        <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="small">Відкрити прайс</a>
+      <div class="small text-muted mb-2">
+        Ознайомтесь, будь ласка, з технічними характеристиками і умовами. Клієнт самостійно несе відповідальність за правильність обраної системи, розмірів, комплектації та інші параметри.
       </div>
-      <input type="url" class="form-control" id="priceUrl" name="price_url" value="{{ PRICE_SHEET_URL }}" required style="display: none;" />
-    </div>
-
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
-        <div class="d-flex align-items-center gap-2">
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <div class="d-flex flex-wrap gap-2">
+          <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="btn btn-outline-primary btn-sm">Відкрити прайс</a>
+          <a href="https://docs.google.com/document/d/1uz2k8hqnaLxlmxB-u1BUmaEmW3pw4QIF/edit" target="_blank" class="btn btn-outline-secondary btn-sm">Технічні характеристики</a>
+        </div>
+        <div class="ms-auto d-flex align-items-center gap-2">
           <span class="text-muted small text-uppercase">Статус</span>
           <span class="badge bg-primary">
             {% if order %}{{ order.get_status_display }}{% else %}Прорахунок{% endif %}
           </span>
         </div>
-        {% if order and order.workbook_file %}
+      </div>
+      <input type="url" class="form-control" id="priceUrl" name="price_url" value="{{ PRICE_SHEET_URL }}" required style="display: none;" />
+    </div>
+
+    <div class="order-summary-bar p-3 rounded-3 shadow-sm mb-3">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div class="small text-secondary text-uppercase">Загальна вартість замовлення</div>
+        <div class="d-flex align-items-center gap-2">
+          <label class="form-label mb-0 small text-uppercase text-secondary" for="orderMarkup">Зробити націнку на роздріб, %</label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            class="form-control form-control-sm"
+            id="orderMarkup"
+            name="markup_percent"
+            value="{{ order.markup_percent|default:'0' }}"
+          />
+        </div>
+        <div class="d-flex flex-wrap gap-4 text-end">
           <div>
-            <a href="{{ order.workbook_file.url }}" class="small" download>Завантажити файл замовлення (xlsx)</a>
+            <div class="small text-secondary">Ціна для дилера, грн</div>
+            <div class="fw-semibold"><span id="orderTotalBaseUah">0.00</span></div>
           </div>
-        {% endif %}
-        {% comment %} <div class="small text-muted">
-          Поточний курс EUR: <strong>{{ eur_rate|default:"0.00" }}</strong>
-        </div> {% endcomment %}
+          <div>
+            <div class="small text-secondary">Ціна з націнкою, грн</div>
+            <div class="fw-semibold"><span id="orderTotalUah">0.00</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="d-none">
+        <span id="orderTotal">{{ order.total_eur|default:'0.00' }}</span>
       </div>
     </div>
 
@@ -92,34 +123,7 @@
 
     <!-- Підсумок по замовленню -->
     <div class="order-total-bar mt-3 p-3 rounded-3 shadow-sm">
-      <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
-        <div class="d-flex align-items-center gap-2">
-          <label class="form-label mb-0 small text-uppercase text-secondary" for="orderMarkup">Націнка, %</label>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            class="form-control form-control-sm"
-            id="orderMarkup"
-            name="markup_percent"
-            value="0"
-          />
-        </div>
-        <div class="text-end">
-          <div class="small text-secondary">Сума без націнки, грн</div>
-          <div class="fw-semibold">
-            <span id="orderTotalBaseUah">0.00</span>
-          </div>
-          <div class="small text-secondary mt-2">Сума з націнкою, грн</div>
-          <div class="fw-semibold fs-5">
-            <span id="orderTotalUah">0.00</span>
-          </div>
-          <div class="d-none">
-            <span id="orderTotal">{{ order.total_eur|default:'0.00' }}</span>
-          </div>
-        </div>
-      </div>
-      <div class="mt-3">
+      <div class="mt-2">
         <label class="form-label fw-semibold">Примітка до замовлення</label>
         <textarea
           class="form-control"
@@ -155,10 +159,64 @@
     </div>
 
     <div class="d-grid mt-3">
-      <button type="submit" class="btn btn-success btn-lg" name="status_action" value="save">Зберегти замовлення</button>
+      <button type="submit" class="btn btn-success btn-lg" name="status_action" value="save" data-status-action="save">Зберегти замовлення</button>
     </div>
     </fieldset>
   </form>
+
+  <div class="modal fade" id="unsavedModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Зберегти зміни?</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          Є незбережені зміни. Бажаєте зберегти замовлення?
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" id="unsavedExitBtn">Вийти без збереження</button>
+          <button type="button" class="btn btn-primary" id="unsavedSaveBtn">Зберегти</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="sendToWorkModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Відправити замовлення в роботу?</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          Відправити замовлення в роботу після збереження?
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" id="sendToWorkSkipBtn">Не відправляти</button>
+          <button type="button" class="btn btn-success" id="sendToWorkBtn">Відправити</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="paymentModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Оплата замовлення</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-0" id="paymentModalText" style="white-space: pre-wrap;"></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" id="paymentCancelBtn">Не відправляти</button>
+          <button type="button" class="btn btn-success" id="paymentConfirmBtn">Відправити</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   {% if status_logs %}
     <div class="card border-0 shadow-sm mt-3">
@@ -188,6 +246,25 @@
   <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
   <script>
+    // UA: Виводимо тости зверху по центру на сторінці білдера
+    window.showToast = function (message, type = "primary") {
+      const id = "toast-" + Math.random().toString(36).slice(2)
+      const html = `
+        <div id="${id}" class="toast align-items-center text-bg-${type} border-0 position-fixed top-0 start-50 translate-middle-x mt-3 shadow"
+             role="alert" aria-live="assertive" aria-atomic="true" style="z-index: 2000;">
+          <div class="d-flex">
+            <div class="toast-body">${message}</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+          </div>
+        </div>
+      `
+      document.body.insertAdjacentHTML("beforeend", html)
+      const el = document.getElementById(id)
+      const toast = new bootstrap.Toast(el, { delay: 3000 })
+      toast.show()
+      el.addEventListener("hidden.bs.toast", () => el.remove())
+    }
+
     // EN: Global builder context from Django
     // UA: Глобальний контекст білдера з Django
     const builderOrderId = {{ order.id|default:"null" }}
@@ -197,6 +274,7 @@
     const paymentShortage = paymentShortageRaw ? parseFloat(paymentShortageRaw.replace(',', '.')) : null
     const paymentShortageOrders = {{ payment_shortage.orders|default:"[]"|safe }}
     const isManager = {{ request.user.is_manager|yesno:"true,false" }}
+    const isOwner = {{ request.user.id }} === {{ order.customer_id|default:request.user.id }}
     const eur_rate = parseFloat(
       '{{ eur_rate|default:"0.00" }}'
         .replace(/\s/g, '')
@@ -208,6 +286,57 @@
         .replace(',', '.')
     ) || 0
     const isReadonlyFront = {{ readonly|yesno:"true,false" }}
+
+    let isDirty = false
+    let pendingExitUrl = null
+    let unsavedModal = null
+    let sendToWorkModal = null
+    let paymentModal = null
+    let suppressDirty = true
+    let initWait = 2
+
+    function finishInit() {
+      initWait -= 1
+      if (initWait <= 0) {
+        suppressDirty = false
+      }
+    }
+
+    function markDirty() {
+      if (suppressDirty) return
+      isDirty = true
+    }
+
+    function submitWithAction(action) {
+      $('#statusActionInput').val(action)
+      isDirty = false
+      document.getElementById('orderForm').requestSubmit()
+    }
+
+    function buildPaymentMessage() {
+      const rawOrders = Array.isArray(paymentShortageOrders) ? paymentShortageOrders : []
+      const orderIds = []
+      if (builderOrderId) orderIds.push(builderOrderId)
+      rawOrders.forEach((id) => {
+        if (id && !orderIds.includes(id)) orderIds.push(id)
+      })
+      let msg = "Обов'язково вкажіть у платежі в полі «Призначення платежу» наступний текст:\n\n" + paymentMessage
+      if (paymentShortage !== null && orderIds.length) {
+        msg += "\n\nЗамовлення №" + orderIds.join(", №") + " на суму " + paymentShortage + " грн"
+      }
+      return msg
+    }
+
+    function requestToWork() {
+      if (isOwner && paymentMessage) {
+        const msg = buildPaymentMessage()
+        const box = document.getElementById('paymentModalText')
+        if (box) box.textContent = msg
+        paymentModal.show()
+        return
+      }
+      submitWithAction('to_work')
+    }
 
     const systemConfigCache = new Map() // system -> config
 
@@ -253,12 +382,79 @@
       if (markupInput) {
         markupInput.value = markup_initial
       }
+      const nextUrlInput = document.getElementById('nextUrlInput')
+      $('#orderForm').on('input change', 'input, select, textarea', function () {
+        if (this.type === 'hidden') return
+        markDirty()
+      })
+
+      window.addEventListener('beforeunload', function (e) {
+        if (!isDirty) return
+        const msg = 'Є незбережені зміни. Ви впевнені, що хочете вийти?'
+        e.preventDefault()
+        e.returnValue = msg
+        return msg
+      })
+
+      $('#orderForm').on('submit', function () {
+        isDirty = false
+      })
+
+      unsavedModal = new bootstrap.Modal(document.getElementById('unsavedModal'))
+      sendToWorkModal = new bootstrap.Modal(document.getElementById('sendToWorkModal'))
+      paymentModal = new bootstrap.Modal(document.getElementById('paymentModal'))
+
+      document.getElementById('unsavedSaveBtn').addEventListener('click', function () {
+        if (nextUrlInput) nextUrlInput.value = pendingExitUrl || ''
+        unsavedModal.hide()
+        sendToWorkModal.show()
+      })
+
+      document.getElementById('unsavedExitBtn').addEventListener('click', function () {
+        isDirty = false
+        if (nextUrlInput) nextUrlInput.value = ''
+        unsavedModal.hide()
+        if (pendingExitUrl) {
+          window.location.href = pendingExitUrl
+        }
+      })
+
+      document.getElementById('sendToWorkBtn').addEventListener('click', function () {
+        sendToWorkModal.hide()
+        requestToWork()
+      })
+
+      document.getElementById('sendToWorkSkipBtn').addEventListener('click', function () {
+        sendToWorkModal.hide()
+        submitWithAction('save')
+      })
+
+      document.getElementById('paymentConfirmBtn').addEventListener('click', function () {
+        paymentModal.hide()
+        submitWithAction('to_work')
+      })
+
+      document.getElementById('paymentCancelBtn').addEventListener('click', function () {
+        paymentModal.hide()
+      })
+
+      document.addEventListener('click', function (e) {
+        const link = e.target.closest('a')
+        if (!link) return
+        const href = link.getAttribute('href') || ''
+        if (!href || href.startsWith('#') || link.target === '_blank' || link.hasAttribute('download')) return
+        if (!isDirty) return
+        e.preventDefault()
+        pendingExitUrl = link.href
+        unsavedModal.show()
+      })
       if (isReadonlyFront) {
         const $form = $('#orderForm')
         $form.find('input, select, textarea, button').prop('disabled', true)
         $form.find('a').prop('disabled', false) // allow navigation
       }
       enforceReadonly()
+      finishInit()
     })
 
     function getCsrf() {
@@ -292,8 +488,8 @@
       const $w_mm = $card.find('.w-mm')
       const $h_mm = $card.find('.h-mm')
 
-      $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag').prop('disabled', false)
-      $card.find('.gabarit-width-flag .form-check-input').prop('disabled', false)
+      $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag, .fabric-height-flag').prop('disabled', false)
+      $card.find('.gabarit-width-flag .form-check-input, .fabric-height-flag .form-check-input').prop('disabled', false)
 
       function setDebounce(fn) {
         const prevTimer = $card.data('gabaritsDebounceTimer')
@@ -315,6 +511,14 @@
         })
 
       $card.find('.gabarit-width-flag .form-check-input')
+        .off('change.gabarits')
+        .on('change.gabarits', function () {
+          if (Number($w_mm.val()) > 0 && Number($h_mm.val()) > 0) {
+            previewCard($card)
+          }
+        })
+
+      $card.find('.fabric-height-flag .form-check-input')
         .off('change.gabarits')
         .on('change.gabarits', function () {
           if (Number($w_mm.val()) > 0 && Number($h_mm.val()) > 0) {
@@ -508,7 +712,7 @@
       return data
     }
 
-    async function previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabarit_width_flag }) {
+    async function previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabarit_width_flag, fabric_height_flag }) {
       $('.load_gif').show()
       showGlobalLoader()
       const resp = await fetch('/api/v1/pricing/system-preview', {
@@ -522,7 +726,8 @@
           fabric_color_code: fabric_color_code,
           width_mm: w,
           gabarit_height_mm: h,
-          gabarit_width_flag: gabarit_width_flag
+          gabarit_width_flag: gabarit_width_flag,
+          fabric_height_flag: fabric_height_flag
         })
       })
       hideGlobalLoader()
@@ -711,6 +916,7 @@
       const w = parseInt($card.find('.w-mm').val() || '0', 10)
       const magnets = $card.find('.magnets').is(':checked')
       const gabarit_width_flag = $card.find('.gabarit-width-flag .form-check-input').is(':checked')
+      const fabric_height_flag = $card.find('.fabric-height-flag .form-check-input').is(':checked')
       const qty = Math.max(1, parseInt($card.find('.qty').val() || '1', 10))
 
       if (!system || !section){
@@ -723,7 +929,7 @@
       }
 
       try {
-        const data = await previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabarit_width_flag })
+        const data = await previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabarit_width_flag, fabric_height_flag })
         let posIndex = Number($card.find('.pos-index').text())
         pricesCache[posIndex] = data
         renderPriceOptions($card, 0, preSelectsPriceOptions)
@@ -783,6 +989,8 @@
       /// 3) размеры
       if (item.height_gabarit_mm) $card.find('.h-mm').val(item.height_gabarit_mm)
       if (item.width_fabric_mm) $card.find('.w-mm').val(item.width_fabric_mm)
+      $card.find('.gabarit-width-flag .form-check-input').prop('checked', !!item.gabarit_width_flag)
+      $card.find('.fabric-height-flag .form-check-input').prop('checked', !!item.fabric_height_flag)
       if(item.control_side){
         $card.find('.control_side').removeClass("d-none")
         if (item.control_side) $card.find('.control_side select').val(item.control_side)
@@ -813,6 +1021,7 @@
       preSelectsPriceOptions.note = item.note
 
       preSelectsPriceOptions.gabarit_width_flag = item.gabarit_width_flag
+      preSelectsPriceOptions.fabric_height_flag = item.fabric_height_flag
 
       await previewCard($card, preSelectsPriceOptions)
 
@@ -850,8 +1059,8 @@
 
             if (prevVals.fabric_color_code) {
               copySelectOptionsFromPrevCard($card, ".fabric-color-code")
-              $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag').prop('disabled', false)
-              $card.find('.gabarit-width-flag .form-check-input').prop('disabled', false)
+              $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag, .fabric-height-flag').prop('disabled', false)
+              $card.find('.gabarit-width-flag .form-check-input, .fabric-height-flag .form-check-input').prop('disabled', false)
             }
 
             //if (prevVals.h) $card.find('.h-mm').val(prevVals.h)
@@ -1285,15 +1494,26 @@
       }
     }
 
-    function enableCheckGabarit($card, GbDiffWidthMm, checked){
-      if (GbDiffWidthMm) {
+    function enableCheckGabarit($card, GbDiffWidthMm, checked, heightChecked, systemName){
+      const sys = (systemName || '').toString().toLowerCase()
+      const isFlatSystem = sys.includes('плоска')
+      const showFlags = Boolean(GbDiffWidthMm) || isFlatSystem
+
+      if (showFlags) {
         $card.find('.gabarit-width-flag').show()
         $card.find('.gabarit-width-flag .form-check-input').prop('disabled', false)
+        $card.find('.fabric-height-flag').show()
+        $card.find('.fabric-height-flag .form-check-input').prop('disabled', false)
       } else {
         $card.find('.gabarit-width-flag').hide()
-        $card.find('.gabarit-width-flag .form-check-input').prop('disabled', true)
+        $card.find('.gabarit-width-flag .form-check-input').prop('disabled', true).prop('checked', false)
+        $card.find('.fabric-height-flag').hide()
+        $card.find('.fabric-height-flag .form-check-input').prop('disabled', true).prop('checked', false)
       }
-      $card.find('.gabarit-width-flag .form-check-input').prop('checked', checked)
+      if (showFlags) {
+        $card.find('.gabarit-width-flag .form-check-input').prop('checked', checked)
+        $card.find('.fabric-height-flag .form-check-input').prop('checked', heightChecked)
+      }
     }
 
 
@@ -1313,7 +1533,14 @@
       }
 
       let GbDiffWidthMm = preSelectsPriceOptions.GbDiffWidthMm  ?? data?.GbDiffWidthMm
-      enableCheckGabarit($card, GbDiffWidthMm, preSelectsPriceOptions.gabarit_width_flag)
+      const systemName = $card.find('.system-sheet').val()
+      enableCheckGabarit(
+        $card,
+        GbDiffWidthMm,
+        preSelectsPriceOptions.gabarit_width_flag,
+        preSelectsPriceOptions.fabric_height_flag,
+        systemName
+      )
 
       let qty = Number($card.find('.qty').val() || 1)
       if (preSelectsPriceOptions.note) {
@@ -1412,16 +1639,15 @@
 
     $('#orderForm').on('click', 'button[data-status-action]', function (e) {
       const action = $(this).data('status-action') || 'save'
-      if (action === 'to_work' && !isManager && paymentMessage) {
-        let msg = "Обов'язково вкажіть у платежі в полі «Призначення платежу» наступний текст:\n\n" + paymentMessage
-        if (paymentShortage !== null && paymentShortageOrders.length) {
-          msg += "\n\nЗа закази #" + paymentShortageOrders.join(", #") + " на суму " + paymentShortage + " грн"
-        }
-        const ok = confirm(msg)
-        if (!ok) {
-          e.preventDefault()
-          return
-        }
+      if (action === 'save') {
+        e.preventDefault()
+        sendToWorkModal.show()
+        return
+      }
+      if (action === 'to_work') {
+        e.preventDefault()
+        requestToWork()
+        return
       }
       $('#statusActionInput').val(action)
     })
@@ -1446,6 +1672,8 @@
       } catch (e) {
         console.error(e)
         window.showToast('Не вдалося завантажити системи прайсу', 'danger')
+      } finally {
+        finishInit()
       }
     })()
   </script>

@@ -123,6 +123,7 @@ class OrderItem(models.Model):
 
     # Flags / options (basic)
     gabarit_width_flag = models.BooleanField(default=False)
+    fabric_height_flag = models.BooleanField(default=False)
     bottom_fixation = models.BooleanField(default=False)
     pvc_plank = models.BooleanField(default=False)
 
@@ -533,6 +534,12 @@ class Transaction(models.Model):
         (DEBIT, "Пришло від клієнта"),
         (CREDIT, "Уход клієнту"),
     ]
+    PAY_CASH = "cash"
+    PAY_ACCOUNT = "account"
+    PAY_CHOICES = [
+        (PAY_CASH, "Готівка"),
+        (PAY_ACCOUNT, "На рахунок"),
+    ]
 
     customer = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -561,6 +568,17 @@ class Transaction(models.Model):
         help_text="Курс EUR/UAH на момент транзакції",
     )
     description = models.TextField(blank=True)
+    payment_type = models.CharField(
+        max_length=16,
+        choices=PAY_CHOICES,
+        default=PAY_ACCOUNT,
+        verbose_name="Вид оплати",
+    )
+    account_number = models.CharField(
+        max_length=128,
+        blank=True,
+        verbose_name="Номер рахунку",
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

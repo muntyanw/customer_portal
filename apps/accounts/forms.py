@@ -1,3 +1,4 @@
+import re
 from django import forms
 from django.contrib.auth import authenticate
 from .models import User
@@ -20,9 +21,13 @@ class RegisterForm(forms.ModelForm):
 
 class ProfileForm(forms.Form):
     email = forms.EmailField(label="Email (логін)")
+    company_name = forms.CharField(label="Назва компанії", required=True)
     full_name = forms.CharField(label="ПІБ", required=False)
     phone = forms.CharField(label="Телефон", required=True)
     contact_email = forms.EmailField(label="Email (контактний)", required=False)
+    trade_address = forms.CharField(label="Адреса торгової точки", required=False)
+    delivery_method = forms.ChoiceField(label="Спосіб доставки", required=True, choices=CustomerProfile.DELIVERY_CHOICES)
+    delivery_branch = forms.CharField(label="Вантажне відділення (від 200кг)", required=False)
     note = forms.CharField(label="Примітка", required=False, widget=forms.Textarea(attrs={"rows": 3}))
     credit_allowed = forms.BooleanField(label="Кредит дозволено", required=False)
     avatar = forms.ImageField(label="Аватар", required=False)
@@ -35,9 +40,13 @@ class ProfileForm(forms.Form):
         can_edit_role = kwargs.pop("can_edit_role", False)
         super().__init__(*args, **kwargs)
         self.fields["email"].initial = self.user_instance.email
+        self.fields["company_name"].initial = self.profile_instance.company_name
         self.fields["full_name"].initial = self.profile_instance.full_name
         self.fields["phone"].initial = self.profile_instance.phone
         self.fields["contact_email"].initial = self.profile_instance.contact_email
+        self.fields["trade_address"].initial = self.profile_instance.trade_address
+        self.fields["delivery_method"].initial = self.profile_instance.delivery_method
+        self.fields["delivery_branch"].initial = self.profile_instance.delivery_branch
         self.fields["note"].initial = self.profile_instance.note
         self.fields["credit_allowed"].initial = self.profile_instance.credit_allowed
         self.fields["avatar"].initial = self.profile_instance.avatar
@@ -63,9 +72,13 @@ class ProfileForm(forms.Form):
             update_fields.append("is_manager")
         self.user_instance.save(update_fields=update_fields)
 
+        self.profile_instance.company_name = self.cleaned_data.get("company_name", "")
         self.profile_instance.full_name = self.cleaned_data.get("full_name", "")
         self.profile_instance.phone = self.cleaned_data.get("phone", "")
         self.profile_instance.contact_email = self.cleaned_data.get("contact_email", "")
+        self.profile_instance.trade_address = self.cleaned_data.get("trade_address", "")
+        self.profile_instance.delivery_method = self.cleaned_data.get("delivery_method", "")
+        self.profile_instance.delivery_branch = self.cleaned_data.get("delivery_branch", "")
         self.profile_instance.note = self.cleaned_data.get("note", "")
         if "credit_allowed" in self.cleaned_data:
             self.profile_instance.credit_allowed = self.cleaned_data.get("credit_allowed", False)
@@ -74,15 +87,71 @@ class ProfileForm(forms.Form):
         self.profile_instance.save()
         return self.user_instance
 
-class LoginForm(forms.Form):
-    email = forms.EmailField()
-    password = forms.CharField(widget=forms.PasswordInput)
     def clean(self):
         cleaned = super().clean()
-        user = authenticate(username=cleaned.get("email"), password=cleaned.get("password"))
-        if not user:
-            raise forms.ValidationError("Invalid credentials")
-        cleaned["user"] = user
+        method = cleaned.get("delivery_method")
+        branch = (cleaned.get("delivery_branch") or "").strip()
+        if method == CustomerProfile.DELIVERY_NP and not branch:
+            self.add_error("delivery_branch", "Вкажіть вантажне відділення для Нової Пошти.")
+        return cleaned
+
+
+class ContactForm(forms.Form):
+    contact_id = forms.IntegerField(required=False, widget=forms.HiddenInput)
+    phone = forms.CharField(label="Номер телефону (логін)", required=False)
+    contact_name = forms.CharField(label="Контактне лице", required=False)
+    email = forms.EmailField(label="Email", required=False)
+
+    def clean(self):
+        cleaned = super().clean()
+        phone = (cleaned.get("phone") or "").strip()
+        name = (cleaned.get("contact_name") or "").strip()
+        if phone or name or (cleaned.get("email") or "").strip():
+            if not phone:
+                self.add_error("phone", "Вкажіть номер телефону.")
+            if not name:
+                self.add_error("contact_name", "Вкажіть контактну особу.")
+        return cleaned
+
+
+ContactFormSet = forms.formset_factory(ContactForm, extra=0, can_delete=True)
+
+class LoginForm(forms.Form):
+    login = forms.CharField(label="Email або телефон")
+    password = forms.CharField(widget=forms.PasswordInput, label="Пароль")
+
+    def _normalize_phone(self, value: str) -> str:
+        return re.sub(r"\D", "", value or "")
+
+    def clean(self):
+        cleaned = super().clean()
+        login_value = (cleaned.get("login") or "").strip()
+        password = cleaned.get("password")
+
+        user = None
+        auth_user = None
+
+        if "@" in login_value:
+            user = User.objects.filter(email__iexact=login_value).first()
+        else:
+            norm = self._normalize_phone(login_value)
+            if len(norm) != 10:
+                raise forms.ValidationError("Введіть телефон у форматі 063-435-00-81.")
+            profile = None
+            for p in CustomerProfile.objects.filter(phone__isnull=False).select_related("user"):
+                if self._normalize_phone(p.phone) == norm:
+                    profile = p
+                    break
+            if profile:
+                user = profile.user
+
+        if user:
+            auth_user = authenticate(username=user.username, password=password)
+
+        if not auth_user:
+            raise forms.ValidationError("Невірний email/телефон або пароль.")
+
+        cleaned["user"] = auth_user
         return cleaned
 
 

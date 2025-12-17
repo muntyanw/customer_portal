@@ -16,9 +16,15 @@
           {% endif %}
           <div>
             <h2 class="h5 fw-semibold mb-0">{{ target_user.email }}</h2>
+            {% if target_user.is_superuser %}
+              <span class="badge bg-danger">Admin</span>
+            {% elif target_user.is_staff %}
+              <span class="badge bg-primary">Staff</span>
+            {% endif %}
             {% if target_user.is_manager %}
               <span class="badge bg-warning text-dark">Manager</span>
-            {% else %}
+            {% endif %}
+            {% if target_user.is_customer and not target_user.is_manager %}
               <span class="badge bg-light text-dark">Customer</span>
             {% endif %}
           </div>
@@ -33,9 +39,14 @@
               {% if form.email.errors %}<div class="invalid-feedback d-block">{{ form.email.errors|striptags }}</div>{% endif %}
             </div>
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Контактний Email</label>
-              {{ form.contact_email|add_class:"form-control form-control-lg" }}
-              {% if form.contact_email.errors %}<div class="invalid-feedback d-block">{{ form.contact_email.errors|striptags }}</div>{% endif %}
+              <label class="form-label fw-semibold">Номер телефону *</label>
+              {{ form.phone|add_class:"form-control form-control-lg" }}
+              {% if form.phone.errors %}<div class="invalid-feedback d-block">{{ form.phone.errors|striptags }}</div>{% endif %}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Назва компанії *</label>
+              {{ form.company_name|add_class:"form-control form-control-lg" }}
+              {% if form.company_name.errors %}<div class="invalid-feedback d-block">{{ form.company_name.errors|striptags }}</div>{% endif %}
             </div>
             <div class="col-md-6">
               <label class="form-label fw-semibold">ПІБ</label>
@@ -43,9 +54,52 @@
               {% if form.full_name.errors %}<div class="invalid-feedback d-block">{{ form.full_name.errors|striptags }}</div>{% endif %}
             </div>
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Телефон</label>
-              {{ form.phone|add_class:"form-control form-control-lg" }}
-              {% if form.phone.errors %}<div class="invalid-feedback d-block">{{ form.phone.errors|striptags }}</div>{% endif %}
+              <label class="form-label fw-semibold">Адреса торгової точки</label>
+              {{ form.trade_address|add_class:"form-control form-control-lg" }}
+              {% if form.trade_address.errors %}<div class="invalid-feedback d-block">{{ form.trade_address.errors|striptags }}</div>{% endif %}
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Додаткові контакти</label>
+              {{ contact_formset.management_form }}
+              <div id="contactsContainer" class="d-flex flex-column gap-2">
+                {% for cform in contact_formset %}
+                  <div class="row g-2 align-items-end contact-row" data-form>
+                    {{ cform.contact_id }}
+                    {{ cform.DELETE|add_class:"d-none" }}
+                    <div class="col-md-4">
+                      <label class="form-label mb-1">Номер телефону *</label>
+                      {{ cform.phone|add_class:"form-control" }}
+                      {% if cform.phone.errors %}<div class="invalid-feedback d-block">{{ cform.phone.errors|striptags }}</div>{% endif %}
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label mb-1">Контактне лице *</label>
+                      {{ cform.contact_name|add_class:"form-control" }}
+                      {% if cform.contact_name.errors %}<div class="invalid-feedback d-block">{{ cform.contact_name.errors|striptags }}</div>{% endif %}
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label mb-1">Email</label>
+                      {{ cform.email|add_class:"form-control" }}
+                      {% if cform.email.errors %}<div class="invalid-feedback d-block">{{ cform.email.errors|striptags }}</div>{% endif %}
+                    </div>
+                    <div class="col-md-1 d-flex">
+                      <button type="button" class="btn btn-outline-danger w-100 remove-contact">Видалити</button>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+              <button type="button" class="btn btn-outline-primary btn-sm mt-2" id="addContactBtn">
+                <i class="bi bi-plus-lg me-1"></i>Додати контакт
+              </button>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Спосіб доставки *</label>
+              {{ form.delivery_method|add_class:"form-select form-select-lg" }}
+              {% if form.delivery_method.errors %}<div class="invalid-feedback d-block">{{ form.delivery_method.errors|striptags }}</div>{% endif %}
+            </div>
+            <div class="col-md-6" id="deliveryBranchField">
+              <label class="form-label fw-semibold">Вантажне відділення (від 200кг)</label>
+              {{ form.delivery_branch|add_class:"form-control form-control-lg" }}
+              {% if form.delivery_branch.errors %}<div class="invalid-feedback d-block">{{ form.delivery_branch.errors|striptags }}</div>{% endif %}
             </div>
             <div class="col-12">
               <label class="form-label fw-semibold">Примітка</label>
@@ -101,5 +155,70 @@
         new bootstrap.Alert(el).close();
       });
     }, 4000);
+
+    document.addEventListener('DOMContentLoaded', function () {
+      const methodSelect = document.getElementById('id_delivery_method');
+      const branchField = document.getElementById('deliveryBranchField');
+      const contactsContainer = document.getElementById('contactsContainer');
+      const addContactBtn = document.getElementById('addContactBtn');
+      const totalForms = document.getElementById('id_contacts-TOTAL_FORMS');
+      const emptyIndex = () => parseInt(totalForms.value || '0', 10);
+
+      function toggleBranchField() {
+        if (!methodSelect || !branchField) return;
+        const show = methodSelect.value === 'nova_poshta';
+        branchField.classList.toggle('d-none', !show);
+      }
+
+      function bindRemove(btn) {
+        btn.addEventListener('click', function () {
+          const row = btn.closest('[data-form]');
+          if (!row) return;
+          const delInput = row.querySelector('input[name$="-DELETE"]');
+          if (delInput) {
+            delInput.checked = true;
+          }
+          row.classList.add('d-none');
+        });
+      }
+
+      if (methodSelect) {
+        methodSelect.addEventListener('change', toggleBranchField);
+        toggleBranchField();
+      }
+
+      contactsContainer.querySelectorAll('.remove-contact').forEach(bindRemove);
+
+      if (addContactBtn) {
+        addContactBtn.addEventListener('click', function () {
+          const idx = emptyIndex();
+          const row = document.createElement('div');
+          row.className = 'row g-2 align-items-end contact-row';
+          row.setAttribute('data-form', '1');
+          row.innerHTML = `
+            <input type="hidden" name="contacts-${idx}-contact_id" id="id_contacts-${idx}-contact_id">
+            <input type="checkbox" name="contacts-${idx}-DELETE" id="id_contacts-${idx}-DELETE" class="d-none">
+            <div class="col-md-4">
+              <label class="form-label mb-1">Номер телефону *</label>
+              <input type="text" name="contacts-${idx}-phone" class="form-control" id="id_contacts-${idx}-phone">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label mb-1">Контактне лице *</label>
+              <input type="text" name="contacts-${idx}-contact_name" class="form-control" id="id_contacts-${idx}-contact_name">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label mb-1">Email</label>
+              <input type="email" name="contacts-${idx}-email" class="form-control" id="id_contacts-${idx}-email">
+            </div>
+            <div class="col-md-1 d-flex">
+              <button type="button" class="btn btn-outline-danger w-100 remove-contact">Видалити</button>
+            </div>
+          `;
+          contactsContainer.appendChild(row);
+          totalForms.value = idx + 1;
+          bindRemove(row.querySelector('.remove-contact'));
+        });
+      }
+    });
   </script>
 {% endblock %}

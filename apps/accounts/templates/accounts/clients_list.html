@@ -61,8 +61,9 @@
             </td>
             <td>
               <div class="d-flex flex-wrap gap-2">
-                <a href="{% url 'accounts:profile_other' u.id %}" class="btn btn-sm btn-outline-primary">Редагувати</a>
-                <a href="{% url 'orders:transaction_create' %}?customer={{ u.id }}" class="btn btn-sm btn-outline-success">Створити транзакцію</a>
+                <a href="{% url 'accounts:profile_other' u.id %}" class="btn btn-sm btn-secondary">Переглянути</a>
+                <a href="{% url 'accounts:profile_other' u.id %}" class="btn btn-sm btn-primary">Редагувати</a>
+                <a href="{% url 'orders:transaction_create' %}?customer={{ u.id }}" class="btn btn-sm btn-success">Створити транзакцію</a>
               </div>
             </td>
           </tr>

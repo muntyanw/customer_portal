@@ -39,9 +39,15 @@
         {% endif %}
         <div>
           <div class="fw-bold">{{ request.user.email }}</div>
+          {% if request.user.is_superuser %}
+            <span class="badge bg-danger">Admin</span>
+          {% elif request.user.is_staff %}
+            <span class="badge bg-primary">Staff</span>
+          {% endif %}
           {% if is_manager %}
             <span class="badge bg-warning text-dark">Manager</span>
-          {% else %}
+          {% endif %}
+          {% if request.user.is_customer and not is_manager %}
             <span class="badge bg-light text-dark">Customer</span>
           {% endif %}
         </div>
@@ -92,7 +98,7 @@
            href="{% url 'accounts:profile' %}">
           <i class="bi bi-person-circle me-2"></i>Профіль
         </a>
-        {% if is_manager %}
+        {% if request.user.is_staff or request.user.is_superuser %}
           <a class="nav-link text-white" href="/admin/">
             <i class="bi bi-shield-lock me-2"></i>Адмінка
           </a>

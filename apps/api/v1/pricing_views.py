@@ -129,6 +129,7 @@ def system_preview(request):
     width_mm = data.get("width_mm")
     gabarit_height_mm = data.get("gabarit_height_mm")
     gabarit_width_flag = data.get("gabarit_width_flag")
+    fabric_height_flag = data.get("fabric_height_flag")
 
     # ---- numeric validation ----
     try:
@@ -148,6 +149,24 @@ def system_preview(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
         
+    def _to_bool(val):
+        if isinstance(val, bool):
+            return val
+        if val is None:
+            return False
+        if isinstance(val, str):
+            return val.strip().lower() in ("1", "true", "yes", "on")
+        return bool(val)
+
+    width_by_fabric = _to_bool(gabarit_width_flag)
+    height_by_fabric = _to_bool(fabric_height_flag)
+
+    if width_by_fabric:
+        width_mm += 44
+        gabarit_width_flag = False
+    if height_by_fabric:
+        gabarit_height_mm += 37
+
     if width_mm <= 0 or gabarit_height_mm <= 0:
         return Response(
             {"detail": "Ширина/висота мають бути > 0."},

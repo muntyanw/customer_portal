@@ -8,6 +8,18 @@ admin.site.site_title = "Wenster"
 admin.site.index_title = "Адміністрування"
 
 
+def _wenster_admin_has_permission(request):
+    user = request.user
+    if not user.is_active:
+        return False
+    if user.is_superuser:
+        return True
+    return user.is_staff and not getattr(user, "is_manager", False)
+
+
+admin.site.has_permission = _wenster_admin_has_permission
+
+
 @admin.register(Session)
 class SessionAdmin(admin.ModelAdmin):
     list_display = ("session_key", "user_email", "expire_date")
