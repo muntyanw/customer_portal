@@ -33,7 +33,7 @@
   </head>
   <body class="d-flex flex-column min-vh-100">
     <!-- Top Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm fixed-top">
       <div class="container-fluid">
         <a class="navbar-brand fw-bold d-flex align-items-center" href="{% url 'core:dashboard' %}">
           <img src="https://www.wenster.ua/image/catalog/brend/cart.png.png" alt="Logo" height="32" class="me-2 img-fluid rounded-3" />
@@ -134,7 +134,7 @@
     </nav>
 
     <!-- Main content -->
-    <main class="flex-grow-1">
+    <main class="flex-grow-1" style="padding-top: calc(var(--app-navbar-height, 56px) + 12px);">
       {% include 'partials/messages.html' %}
       <div class="container-fluid py-4">
         {% block content %}
@@ -171,5 +171,16 @@
         </div>
       </div>
     </div>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        const nav = document.querySelector('.navbar');
+        if (!nav) return;
+        const setHeight = () => {
+          document.documentElement.style.setProperty('--app-navbar-height', `${nav.offsetHeight}px`);
+        };
+        setHeight();
+        window.addEventListener('resize', setHeight);
+      });
+    </script>
   </body>
 </html>

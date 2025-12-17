@@ -4,7 +4,7 @@
   <div class="card-body d-flex flex-column gap-2">
     <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
       <div class="d-flex align-items-start gap-2">
-        {% if show_select %}
+        {% if show_select and order.status == order.STATUS_QUOTE %}
           <input class="form-check-input mt-1" type="checkbox" name="{{ select_name|default:'order_ids' }}" value="{{ order.id }}" form="{{ select_form|default:'bulkForm' }}" aria-label="Обрати замовлення">
         {% endif %}
         <div>
