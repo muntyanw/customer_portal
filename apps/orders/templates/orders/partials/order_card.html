@@ -37,7 +37,7 @@
         {% with badge=status_badges|get_item:order.status|default:"secondary" %}
           <span class="badge bg-{{ badge }}">{{ order.get_status_display }}</span>
         {% endwith %}
-        <div class="fw-semibold {% if show_rate %}fs-5{% endif %} mt-2">{{ order.total_uah_display|default:"0.00" }} грн</div>
+        <div class="fw-semibold {% if show_rate %}fs-5{% endif %} mt-2">{{ order.total_uah_display|default_if_none:0|floatformat:0 }} грн</div>
         {% if show_rate %}
           <div class="small text-muted">Курс: {{ order.display_rate|default:"0.00" }}</div>
         {% endif %}

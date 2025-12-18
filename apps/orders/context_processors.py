@@ -1,6 +1,7 @@
 # apps/orders/context_processors.py
 from decimal import Decimal
 from .services_currency import get_current_eur_rate
+from .models import CurrencyRate
 from .views import compute_balance
 
 
@@ -14,8 +15,16 @@ def currency_rate(request):
     except Exception:
         rate = Decimal("0")
 
+    rate_obj = (
+        CurrencyRate.objects.filter(currency="EUR")
+        .order_by("-updated_at")
+        .only("updated_at")
+        .first()
+    )
+
     return {
         "eur_rate": rate,
+        "eur_rate_updated_at": rate_obj.updated_at if rate_obj else None,
     }
 
 

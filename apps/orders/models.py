@@ -438,8 +438,8 @@ class OrderItem(models.Model):
 
     @property
     def total_eur(self):
-        """Total price including quantity of main item (accessories can be включені у subtotal_eur логікою калькулятора)."""
-        return float(self.subtotal_eur or 0) * self.quantity
+        """Total price for item (subtotal_eur already includes quantity in current builder flow)."""
+        return float(self.subtotal_eur or 0)
  
 
 class OrderComponentItem(models.Model):
@@ -750,3 +750,27 @@ class PaymentMessage(models.Model):
 
     def __str__(self):
         return self.text[:50]
+
+
+class CurrencyAutoUpdateSettings(models.Model):
+    """
+    EN: Auto-update settings for currency rate.
+    UA: Налаштування автооновлення курсу валюти.
+    """
+
+    auto_update = models.BooleanField(default=False)
+    update_times = models.JSONField(default=list, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Автооновлення курсу"
+        verbose_name_plural = "Автооновлення курсу"
+
+    def __str__(self):
+        status = "on" if self.auto_update else "off"
+        return f"Currency auto-update ({status})"
+
+    @classmethod
+    def get_solo(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj

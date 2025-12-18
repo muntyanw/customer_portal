@@ -1,13 +1,13 @@
 from django.urls import path
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import render
 
 app_name = "core"
 
-@login_required
-def dashboard(request):
-    return render(request, "core/dashboard.html")
+from . import views
 
 urlpatterns = [
-    path("", dashboard, name="dashboard"),
+    path("", views.dashboard, name="dashboard"),
+    path("news/", views.news_list, name="news_list"),
+    path("news/new/", views.news_create, name="news_create"),
+    path("news/<int:pk>/edit/", views.news_edit, name="news_edit"),
+    path("news/<int:pk>/ack/", views.news_acknowledge, name="news_ack"),
 ]

@@ -24,6 +24,7 @@
           <th><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'full_name' %}-full_name{% else %}full_name{% endif %}">ПІБ</a></th>
           <th><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'phone' %}-phone{% else %}phone{% endif %}">Телефон</a></th>
           <th>Організація</th>
+          <th>Баланс</th>
           <th>Кредит</th>
           <th>Менеджер</th>
           <th>Дії</th>
@@ -43,6 +44,14 @@
             <td>{{ u.customerprofile.full_name|default:"—" }}</td>
             <td>{{ u.customerprofile.phone|default:"—" }}</td>
             <td>{{ u.customerprofile.organization.name|default:"—" }}</td>
+            <td>
+              {% with bal=balances|get_item:u.id %}
+                <a class="{% if bal < 0 %}text-danger{% else %}text-success{% endif %}"
+                   href="{% url 'orders:balances' %}?customer={{ u.id }}">
+                  {{ bal|default:"0.00" }}
+                </a>
+              {% endwith %}
+            </td>
             <td>
               <form method="post" class="d-inline-flex align-items-center gap-1">
                 {% csrf_token %}

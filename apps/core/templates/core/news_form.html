@@ -1,0 +1,32 @@
+{% extends "core/dashboard_base.html" %}
+
+{% block dashboard_title %}{% if is_edit %}Редагувати новину{% else %}Нова новина{% endif %}{% endblock %}
+{% block dashboard_heading %}{% if is_edit %}Редагувати новину{% else %}Нова новина{% endif %}{% endblock %}
+
+{% block dashboard_content %}
+  <form method="post" class="d-flex flex-column gap-3">
+    {% csrf_token %}
+    <div>
+      <label class="form-label">Заголовок</label>
+      {{ form.title }}
+      {% if form.title.errors %}
+        <div class="text-danger small">{{ form.title.errors|join:", " }}</div>
+      {% endif %}
+    </div>
+    <div>
+      <label class="form-label">Текст</label>
+      {{ form.body }}
+      {% if form.body.errors %}
+        <div class="text-danger small">{{ form.body.errors|join:", " }}</div>
+      {% endif %}
+    </div>
+    <div class="form-check">
+      {{ form.is_active }}
+      <label class="form-check-label" for="{{ form.is_active.id_for_label }}">Активна</label>
+    </div>
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">Зберегти</button>
+      <a href="{% url 'core:news_list' %}" class="btn btn-outline-secondary">Скасувати</a>
+    </div>
+  </form>
+{% endblock %}

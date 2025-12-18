@@ -540,6 +540,9 @@
     function eurToUah(x) {
       return money(parseFloat(x || 0) * eur_rate);
     }
+    function uahTotal(x) {
+      return String(Math.ceil(parseFloat(x || 0) * eur_rate));
+    }
 
     function getCsrf() {
       const m = document.querySelector('meta[name="csrf-token"]');
@@ -749,8 +752,8 @@
       const sumWithMarkup = sumTotal * (1 + markupPercent / 100);
 
       $('#componentsOrderTotal').text(money(sumTotal));
-      $('#componentsOrderTotalBaseUah').text(eurToUah(sumTotal));
-      $('#componentsOrderTotalUah').text(eurToUah(sumWithMarkup));
+      $('#componentsOrderTotalBaseUah').text(uahTotal(sumTotal));
+      $('#componentsOrderTotalUah').text(uahTotal(sumWithMarkup));
     }
 
     // ---------- Add / remove rows ----------

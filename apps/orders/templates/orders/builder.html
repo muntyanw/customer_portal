@@ -367,6 +367,9 @@
     function eurToUah(x) {
       return money(eurToUahRaw(x))
     }
+    function uahTotal(x) {
+      return String(Math.ceil(eurToUahRaw(x)))
+    }
 
     // UA: Записуємо курс, який піде на бекенд
     // EN: Save rate that will be sent to backend
@@ -1283,9 +1286,9 @@
       const markupPercent = Number($('#orderMarkup').val() || 0)
       const sumWithMarkup = sumTotal * (1 + markupPercent / 100)
 
-      $('#orderTotalBaseUah').text(eurToUah(sumTotal))
+      $('#orderTotalBaseUah').text(uahTotal(sumTotal))
       $('#orderTotal').text(money(sumTotal)) // hidden EUR base value for backend
-      $('#orderTotalUah').text(eurToUah(sumWithMarkup))
+      $('#orderTotalUah').text(uahTotal(sumWithMarkup))
       $('#orderTotalInput').val(money(sumTotal))
     }
 

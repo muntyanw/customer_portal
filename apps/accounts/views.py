@@ -7,6 +7,7 @@ from .forms import RegisterForm, LoginForm, ProfileForm, ContactFormSet
 from .models import User
 from apps.customers.models import CustomerProfile, CustomerContact
 from apps.accounts.roles import is_manager
+from apps.orders.views import compute_balance
 from apps.accounts.forms import ClientCreateForm
 
 def register_view(request):
@@ -185,8 +186,12 @@ def clients_list_view(request):
 
     users_qs = users_qs.order_by(ordering)
 
+    clients = list(users_qs)
+    balances = {u.id: compute_balance(u, force_personal=True) for u in clients}
+
     context = {
-        "clients": users_qs,
+        "clients": clients,
+        "balances": balances,
         "sort": sort,
         "q": q,
         "next_sort": lambda field: (f"-{field}" if sort == field else field),

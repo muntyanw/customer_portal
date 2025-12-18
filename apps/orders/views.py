@@ -18,11 +18,13 @@ from .models import (
     CurrencyRate,
     CurrencyRateHistory,
     OrderDeletionHistory,
+    CurrencyAutoUpdateSettings,
 )
 from apps.customers.models import CustomerProfile
 from apps.accounts.roles import is_manager
 import json
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+import re
 from django.contrib.admin.views.decorators import staff_member_required
 from django.conf import settings
 from django.core.mail import EmailMessage, send_mail
@@ -55,6 +57,58 @@ def _to_decimal(value, default="0"):
         return Decimal(default)
 
 
+_TIME_RE = re.compile(r"^(\d{1,2}):(\d{2})$")
+
+
+class CurrencyAutoUpdateForm(forms.Form):
+    auto_update = forms.BooleanField(
+        required=False,
+        label="Оновлювати курс автоматично",
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+    update_times = forms.CharField(
+        required=False,
+        label="Часи оновлення",
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control",
+                "placeholder": "08:30, 12:00, 16:30",
+            }
+        ),
+        help_text="Формат HH:MM, кілька значень через кому або пробіл.",
+    )
+
+    def clean_update_times(self):
+        raw = (self.cleaned_data.get("update_times") or "").strip()
+        if not raw:
+            return []
+
+        raw = raw.replace(";", ",").replace("\u00a0", " ")
+        parts = re.split(r"[,\\s]+", raw)
+        times = []
+        seen = set()
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            if "." in part and ":" not in part:
+                part = part.replace(".", ":")
+            match = _TIME_RE.match(part)
+            if not match:
+                raise forms.ValidationError("Час має бути у форматі HH:MM (наприклад, 09:30).")
+            hour = int(match.group(1))
+            minute = int(match.group(2))
+            if hour > 23 or minute > 59:
+                raise forms.ValidationError("Час має бути у форматі HH:MM (наприклад, 09:30).")
+            normalized = f"{hour:02d}:{minute:02d}"
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            times.append(normalized)
+
+        return times
+
+
 def _orders_scope(user):
     if is_manager(user):
         return Order.objects.all()
@@ -74,6 +128,9 @@ def _order_rate(order, current_rate: Decimal) -> Decimal:
         return Decimal(order.eur_rate)
     return Decimal(current_rate or 0)
 
+def _round_uah_total(value: Decimal) -> Decimal:
+    return Decimal(value or 0).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+
 
 def _order_base_total(order) -> Decimal:
     """
@@ -82,12 +139,10 @@ def _order_base_total(order) -> Decimal:
     stored = Decimal(order.total_eur or 0)
     if stored > 0:
         return stored
-    agg = order.items.annotate(
-        line_total=ExpressionWrapper(
-            F("subtotal_eur") * F("quantity"),
-            output_field=DecimalField(max_digits=18, decimal_places=2),
-        )
-    ).aggregate(total=Sum("line_total")).get("total") or Decimal("0")
+    # subtotal_eur already includes quantity from the builder UI
+    agg = order.items.aggregate(
+        total=Sum("subtotal_eur")
+    ).get("total") or Decimal("0")
     return agg
 
 STATUS_LABELS = dict(Order.STATUS_CHOICES)
@@ -105,17 +160,17 @@ def _set_order_totals_uah(orders, current_rate: Decimal):
         rate = _order_rate(o, current_rate)
         total_eur = _order_base_total(o)
         o.display_rate = rate
-        o.total_uah_display = (total_eur * rate).quantize(Decimal("0.01"))
+        o.total_uah_display = _round_uah_total(total_eur * rate)
     return orders
 
 
 def _order_total_uah(order, current_rate: Decimal) -> Decimal:
-    return (_order_base_total(order) * _order_rate(order, current_rate)).quantize(Decimal("0.01"))
+    return _round_uah_total(_order_base_total(order) * _order_rate(order, current_rate))
 
 
 def _orders_total_uah(orders_qs, current_rate: Decimal) -> Decimal:
     return sum(
-        (_order_base_total(o) * _order_rate(o, current_rate)).quantize(Decimal("0.01"))
+        _round_uah_total(_order_base_total(o) * _order_rate(o, current_rate))
         for o in orders_qs
     )
 
@@ -262,7 +317,8 @@ def _build_order_workbook(order):
             if qty_val <= 0 or price_val <= 0:
                 continue
             label = option_labels.get(field, field)
-            sum_uah = price_uah(price_val, qty_val)
+            # price fields already store total for the selected qty
+            sum_uah = price_uah(price_val)
             rows.append(["", label, "", "", "", "", "", "", "", "", float(qty_val), sum_uah])
             total_opts += Decimal(sum_uah)
         return rows, total_opts
@@ -273,7 +329,7 @@ def _build_order_workbook(order):
         ws.append([f"Поз. {idx}", f"Замовлення № {order.pk} від {created_str}"])
         ws.append(headers)
 
-        base_uah = price_uah(it.subtotal_eur, it.quantity)
+        base_uah = price_uah(it.subtotal_eur)
         opt_rows, total_opts = add_option_rows(it)
 
         ws.append([
@@ -314,7 +370,7 @@ def _build_order_workbook(order):
             total_order_uah += Decimal(price_uah_val)
         ws.append([])
 
-    total_cell.value = float(total_order_uah.quantize(Decimal("0.01"))) if total_order_uah else 0
+    total_cell.value = float(_round_uah_total(total_order_uah)) if total_order_uah else 0
 
     buffer = BytesIO()
     wb.save(buffer)
@@ -353,7 +409,7 @@ def _send_order_in_work_email(order, request, workbook_payload=None):
     total_uah = getattr(order, "total_uah_display", "")
     if not total_uah:
         try:
-            total_uah = (Decimal(order.total_eur or 0) * Decimal(order.eur_rate or 0)).quantize(Decimal("0.01"))
+            total_uah = _round_uah_total(Decimal(order.total_eur or 0) * Decimal(order.eur_rate or 0))
         except Exception:
             total_uah = ""
     if total_uah != "":
@@ -396,7 +452,7 @@ def _prepare_to_work(order, request):
     order.save(update_fields=["eur_rate", "eur_rate_at_creation"])
 
     balance_before = compute_balance(order.customer)
-    order_total_uah = (_order_base_total(order) * Decimal(current_rate or 0)).quantize(Decimal("0.01"))
+    order_total_uah = _round_uah_total(_order_base_total(order) * Decimal(current_rate or 0))
     projected_balance = balance_before - order_total_uah
     shortage = projected_balance * -1 if projected_balance < 0 else Decimal("0")
     try:
@@ -443,9 +499,16 @@ def _apply_status_change(order, new_status, request):
     return True
 
 
-def compute_balance(user):
+def compute_balance(user, force_personal: bool = False):
     current_rate = get_current_eur_rate()
-    orders_qs = _orders_scope(user).filter(
+    if force_personal:
+        orders_qs = Order.objects.filter(customer=user)
+        tx_qs = Transaction.objects.filter(customer=user)
+    else:
+        orders_qs = _orders_scope(user)
+        tx_qs = _transactions_scope(user)
+
+    orders_qs = orders_qs.filter(
         status__in=[
             Order.STATUS_IN_WORK,
             Order.STATUS_READY,
@@ -453,7 +516,7 @@ def compute_balance(user):
         ]
     )
     orders_sum_uah = _orders_total_uah(orders_qs, current_rate)
-    tx_total_uah = _transactions_total_uah(_transactions_scope(user))
+    tx_total_uah = _transactions_total_uah(tx_qs)
     return tx_total_uah - orders_sum_uah
 
 
@@ -701,18 +764,30 @@ def order_notifications_settings(request):
 
     emails_qs = NotificationEmail.objects.order_by("email")
     payments_qs = PaymentMessage.objects.order_by("-created_at")
+    currency_settings = CurrencyAutoUpdateSettings.get_solo()
 
     if request.method == "POST":
         email_formset = EmailFormSet(request.POST, queryset=emails_qs, prefix="emails")
         payment_formset = PaymentFormSet(request.POST, queryset=payments_qs, prefix="payments")
-        if email_formset.is_valid() and payment_formset.is_valid():
+        currency_form = CurrencyAutoUpdateForm(request.POST, prefix="currency")
+        if email_formset.is_valid() and payment_formset.is_valid() and currency_form.is_valid():
             email_formset.save()
             payment_formset.save()
+            currency_settings.auto_update = currency_form.cleaned_data["auto_update"]
+            currency_settings.update_times = currency_form.cleaned_data["update_times"]
+            currency_settings.save(update_fields=["auto_update", "update_times"])
             messages.success(request, "Налаштування збережено.")
             return redirect("orders:notifications_settings")
     else:
         email_formset = EmailFormSet(queryset=emails_qs, prefix="emails")
         payment_formset = PaymentFormSet(queryset=payments_qs, prefix="payments")
+        currency_form = CurrencyAutoUpdateForm(
+            prefix="currency",
+            initial={
+                "auto_update": currency_settings.auto_update,
+                "update_times": ", ".join(currency_settings.update_times or []),
+            },
+        )
 
     return render(
         request,
@@ -720,6 +795,7 @@ def order_notifications_settings(request):
         {
             "email_formset": email_formset,
             "payment_formset": payment_formset,
+            "currency_form": currency_form,
         },
     )
 
@@ -927,17 +1003,9 @@ def order_builder(request, pk=None):
             default=str(order.eur_rate or get_current_eur_rate()),
         )
 
-        items_total = (
-            order.items.annotate(
-                line_total=ExpressionWrapper(
-                    F("subtotal_eur") * F("quantity"),
-                    output_field=DecimalField(max_digits=18, decimal_places=2),
-                )
-            )
-            .aggregate(total=Sum("line_total"))
-            .get("total")
-            or Decimal("0")
-        )
+        items_total = order.items.aggregate(
+            total=Sum("subtotal_eur")
+        ).get("total") or Decimal("0")
 
         total_with_markup = items_total * (Decimal("1") + markup_percent / Decimal("100"))
 
@@ -1135,6 +1203,7 @@ def balances_history(request):
     status_filter = request.GET.get("status") or ""
     customer_filter = request.GET.get("customer") or ""
     type_filter = request.GET.get("type") or ""
+    negative_only = request.GET.get("negative") in ("1", "true", "on")
     balance_user = request.user
 
     orders_qs = (
@@ -1158,6 +1227,23 @@ def balances_history(request):
         orders_qs = orders_qs.filter(customer=balance_user)
         tx_qs = tx_qs.filter(customer=balance_user)
 
+    customers_filter_list = (
+        User.objects.filter(orders__isnull=False).select_related("customerprofile").distinct()
+        if is_manager(request.user) else []
+    )
+
+    if negative_only and is_manager(request.user):
+        negative_customer_ids = []
+        for u in customers_filter_list:
+            if compute_balance(u) < 0:
+                negative_customer_ids.append(u.id)
+        if negative_customer_ids:
+            orders_qs = orders_qs.filter(customer_id__in=negative_customer_ids)
+            tx_qs = tx_qs.filter(customer_id__in=negative_customer_ids)
+        else:
+            orders_qs = orders_qs.none()
+            tx_qs = tx_qs.none()
+
     current_rate = get_current_eur_rate()
     orders_qs = _set_order_totals_uah(orders_qs, current_rate)
     filtered_balance = _transactions_total_uah(tx_qs) - _orders_total_uah(orders_qs, current_rate)
@@ -1169,17 +1255,13 @@ def balances_history(request):
         events.append({"type": "transaction", "created_at": tx.created_at, "object": tx})
     events.sort(key=lambda x: x["created_at"], reverse=True)
 
-    customers_filter_list = (
-        User.objects.filter(orders__isnull=False).select_related("customerprofile").distinct()
-        if is_manager(request.user) else []
-    )
-
     context = {
         "events": events,
         "statuses": Order.STATUS_CHOICES,
         "status_filter": status_filter,
         "customer_filter": customer_filter,
         "type_filter": type_filter,
+        "negative_only": negative_only,
         "customer_options": customers_filter_list,
         "balance": compute_balance(balance_user),
         "balance_user": balance_user,

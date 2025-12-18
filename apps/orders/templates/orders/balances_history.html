@@ -4,6 +4,9 @@
 {% block dashboard_heading %}
   <div class="d-flex align-items-center gap-3 flex-wrap">
     <span>{% if request.user.is_manager %}Баланси{% else %}Баланс{% endif %}</span>
+    <span class="{% if filtered_balance < 0 %}text-danger{% else %}text-success{% endif %}">
+      {{ filtered_balance|default_if_none:0|floatformat:0 }} грн
+    </span>
   </div>
 {% endblock %}
 
@@ -31,6 +34,12 @@
                 </option>
               {% endfor %}
             </select>
+          </div>
+          <div class="col-auto">
+            <div class="form-check mt-4">
+              <input class="form-check-input" type="checkbox" id="negativeOnly" name="negative" value="1" {% if negative_only %}checked{% endif %}>
+              <label class="form-check-label" for="negativeOnly">Негативні баланси</label>
+            </div>
           </div>
         {% endif %}
         <div class="col-auto">

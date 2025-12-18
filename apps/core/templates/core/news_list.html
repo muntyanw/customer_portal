@@ -1,0 +1,53 @@
+{% extends "core/dashboard_base.html" %}
+
+{% block dashboard_title %}Новини{% endblock %}
+{% block dashboard_heading %}Новини{% endblock %}
+
+{% block dashboard_content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="text-muted">Керування новинами для клієнтів</div>
+    <a class="btn btn-primary btn-sm" href="{% url 'core:news_create' %}">
+      Додати новину
+    </a>
+  </div>
+
+  {% if news_items %}
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th>Заголовок</th>
+            <th>Статус</th>
+            <th>Оновлено</th>
+            <th>Автор</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in news_items %}
+            <tr>
+              <td>
+                <div class="fw-semibold">{{ item.title }}</div>
+                <div class="small text-muted">{{ item.created_at|date:"d.m.Y H:i" }}</div>
+              </td>
+              <td>
+                {% if item.is_active %}
+                  <span class="badge bg-success">Активна</span>
+                {% else %}
+                  <span class="badge bg-secondary">Неактивна</span>
+                {% endif %}
+              </td>
+              <td>{{ item.updated_at|date:"d.m.Y H:i" }}</td>
+              <td>{{ item.created_by|default:"—" }}</td>
+              <td class="text-end">
+                <a class="btn btn-sm btn-outline-primary" href="{% url 'core:news_edit' item.id %}">Редагувати</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="text-muted">Новин поки немає.</div>
+  {% endif %}
+{% endblock %}

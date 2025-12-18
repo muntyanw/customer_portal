@@ -74,6 +74,10 @@
             href="{% url 'accounts:clients_list' %}">
             <i class="bi bi-people me-2"></i>Користувачі
           </a>
+          <a class="nav-link text-white {% if request.resolver_match.url_name == 'news_list' or request.resolver_match.url_name == 'news_create' or request.resolver_match.url_name == 'news_edit' %}active{% endif %}"
+            href="{% url 'core:news_list' %}">
+            <i class="bi bi-megaphone me-2"></i>Новини
+          </a>
           <a class="nav-link text-white {% if request.resolver_match.url_name == 'notifications_settings' %}active{% endif %}"
             href="{% url 'orders:notifications_settings' %}">
             <i class="bi bi-gear me-2"></i>Налаштування

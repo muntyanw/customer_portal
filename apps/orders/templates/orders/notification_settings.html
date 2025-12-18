@@ -1,7 +1,7 @@
 {% extends 'core/dashboard_base.html' %}
 
 {% block dashboard_title %}Налаштування{% endblock %}
-{% block dashboard_heading %}Налаштування · Сповіщення{% endblock %}
+{% block dashboard_heading %}Налаштування · Сповіщення та курс{% endblock %}
 
 {% block dashboard_content %}
   <form method="post" class="d-flex flex-column gap-4">
@@ -44,6 +44,24 @@
             {% endfor %}
           </tbody>
         </table>
+      </div>
+    </section>
+
+    <section>
+      <h5 class="mb-3">Курс EUR · Автооновлення</h5>
+      <div class="form-check form-switch mb-2">
+        {{ currency_form.auto_update }}
+        {{ currency_form.auto_update.label_tag }}
+      </div>
+      <div class="mb-1">
+        {{ currency_form.update_times.label_tag }}
+        {{ currency_form.update_times }}
+        {% if currency_form.update_times.help_text %}
+          <div class="form-text">{{ currency_form.update_times.help_text }}</div>
+        {% endif %}
+        {% if currency_form.update_times.errors %}
+          <div class="text-danger small">{{ currency_form.update_times.errors|join:", " }}</div>
+        {% endif %}
       </div>
     </section>
 

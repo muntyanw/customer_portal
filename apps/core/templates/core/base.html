@@ -55,23 +55,47 @@
           <ul class="navbar-nav ms-auto">
             {% if request.user.is_authenticated %}
 
+              {% if news_unread %}
+                <li class="nav-item d-flex align-items-center ms-lg-3">
+                  <a class="nav-link text-white position-relative" href="{% url 'core:dashboard' %}">
+                    Новини
+                    {% if news_unread_count %}
+                      <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                        {{ news_unread_count }}
+                      </span>
+                    {% endif %}
+                  </a>
+                </li>
+              {% endif %}
+
               {% if user_balance is not None %}
                 <li class="nav-item d-flex align-items-center ms-lg-3">
-                  <span class="badge rounded-pill {% if user_balance < 0 %}bg-danger{% else %}bg-success{% endif %} me-2 px-3 py-2">
+                  <a class="badge rounded-pill {% if user_balance < 0 %}bg-danger{% else %}bg-success{% endif %} me-2 px-3 py-2 text-white text-decoration-none"
+                     href="{% url 'orders:balances' %}">
                     <i class="bi bi-cash-coin me-1"></i>
                     Баланс:
-                    <span class="fw-bold ms-1">{{ user_balance|default:"0.00" }} грн</span>
-                  </span>
+                    <span class="fw-bold ms-1">{{ user_balance|default_if_none:0|floatformat:0 }} грн</span>
+                  </a>
                 </li>
               {% endif %}
 
               {# Блок курсу EUR #}
               <li class="nav-item d-flex align-items-center ms-lg-3 flex-wrap gap-2">
-                <span class="badge rounded-pill bg-warning text-dark px-3 py-2">
-                  <i class="bi bi-currency-exchange me-1"></i>
-                  Курс EUR:
-                  <span class="fw-bold ms-1">{{ eur_rate|default:"0.00" }}</span>
-                </span>
+                <div class="position-relative d-inline-block me-4">
+                  <span class="badge rounded-pill bg-warning text-dark px-3 py-2">
+                    <i class="bi bi-currency-exchange me-1"></i>
+                    Курс EUR:
+                    <span class="fw-bold ms-1">{{ eur_rate|default:"0.00" }}</span>
+                  </span>
+                  <span class="small text-white-50 position-absolute start-0 top-100 mt-1 text-nowrap">
+                    Оновлено:
+                    {% if eur_rate_updated_at %}
+                      {{ eur_rate_updated_at|date:"d.m.Y H:i" }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </span>
+                </div>
 
                 {% if request.user.is_staff %}
                   <form action="{% url 'orders:update_eur_rate' %}" method="post" class="d-inline mb-0" onsubmit="return confirm('Оновити курс EUR онлайн?');">

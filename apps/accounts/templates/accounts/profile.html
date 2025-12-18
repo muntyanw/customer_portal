@@ -10,9 +10,9 @@
       <div class="card-body p-4">
         <div class="d-flex align-items-center mb-4">
           {% if target_user.customerprofile.avatar %}
-            <img src="{{ target_user.customerprofile.avatar.url }}" class="rounded-circle border me-3" width="72" height="72" alt="avatar">
+            <img src="{{ target_user.customerprofile.avatar.url }}" class="rounded-circle border me-3 avatar-click" width="72" height="72" alt="avatar" role="button" title="Змінити аватар">
           {% else %}
-            <img src="/static/media/avatar.png" class="rounded-circle border me-3" width="72" height="72" alt="avatar">
+            <img src="/static/media/avatar.png" class="rounded-circle border me-3 avatar-click" width="72" height="72" alt="avatar" role="button" title="Змінити аватар">
           {% endif %}
           <div>
             <h2 class="h5 fw-semibold mb-0">{{ target_user.email }}</h2>
@@ -107,8 +107,7 @@
               {% if form.note.errors %}<div class="invalid-feedback d-block">{{ form.note.errors|striptags }}</div>{% endif %}
             </div>
             <div class="col-12">
-              <label class="form-label fw-semibold">Аватар</label>
-              {{ form.avatar }}
+              {{ form.avatar|add_class:"d-none" }}
               {% if form.avatar.errors %}<div class="invalid-feedback d-block">{{ form.avatar.errors|striptags }}</div>{% endif %}
             </div>
             {% if can_edit_credit and form.credit_allowed %}
@@ -144,6 +143,9 @@
 {% block head_extra %}
   {{ block.super }}
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    .avatar-click { cursor: pointer; }
+  </style>
 {% endblock %}
 
 {% block body_extra %}
@@ -157,6 +159,12 @@
     }, 4000);
 
     document.addEventListener('DOMContentLoaded', function () {
+      const avatarTrigger = document.querySelector('.avatar-click');
+      const avatarInput = document.getElementById('id_avatar');
+      if (avatarTrigger && avatarInput) {
+        avatarTrigger.addEventListener('click', () => avatarInput.click());
+      }
+
       const methodSelect = document.getElementById('id_delivery_method');
       const branchField = document.getElementById('deliveryBranchField');
       const contactsContainer = document.getElementById('contactsContainer');

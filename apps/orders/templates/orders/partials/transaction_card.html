@@ -4,9 +4,9 @@
     <div>
       <div class="fw-semibold">
         {% if not is_manager and tx.type == tx.DEBIT %}
-          Транзакція · Проплата від мене · {{ tx.amount|floatformat:2 }} € · {{ tx.amount_uah|floatformat:2 }} грн
+          Транзакція · Проплата від мене · {{ tx.amount|floatformat:2 }} € · {{ tx.amount_uah|floatformat:0 }} грн
         {% else %}
-          Транзакція · {{ tx.get_type_display }} · {{ tx.amount|floatformat:2 }} € · {{ tx.amount_uah|floatformat:2 }} грн
+          Транзакція · {{ tx.get_type_display }} · {{ tx.amount|floatformat:2 }} € · {{ tx.amount_uah|floatformat:0 }} грн
         {% endif %}
       </div>
       {% with profile=tx.customer.customerprofile %}

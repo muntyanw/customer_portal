@@ -4,4 +4,27 @@
 
 {% block dashboard_content %}
  <h1>Вітаємо, {{ request.user.email }}</h1>
+
+ {% if news_items %}
+   <div class="mt-4">
+     <h5 class="mb-3">Новини</h5>
+     <div class="d-flex flex-column gap-3">
+       {% for item in news_items %}
+         <div class="border rounded-3 p-3">
+           <div class="d-flex justify-content-between align-items-start gap-3">
+             <div>
+               <div class="fw-semibold">{{ item.title }}</div>
+               <div class="small text-muted">{{ item.created_at|date:"d.m.Y H:i" }}</div>
+             </div>
+             <form method="post" action="{% url 'core:news_ack' item.id %}">
+               {% csrf_token %}
+               <button type="submit" class="btn btn-sm btn-outline-primary">Ознайомлений</button>
+             </form>
+           </div>
+           <div class="mt-2">{{ item.body|linebreaksbr }}</div>
+         </div>
+       {% endfor %}
+     </div>
+   </div>
+ {% endif %}
 {% endblock %}
