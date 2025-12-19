@@ -150,6 +150,20 @@
           {% endif %}
         </div>
       {% endif %}
+      {% if proposal_page_url or proposal_excel_url %}
+        <div class="d-flex flex-wrap gap-2 mt-2">
+          {% if proposal_page_url %}
+            <a class="btn btn-outline-secondary" href="{{ proposal_page_url }}" target="_blank">
+              <i class="bi bi-file-earmark-text me-1"></i> Комерційна пропозиція (сторінка)
+            </a>
+          {% endif %}
+          {% if proposal_excel_url %}
+            <a class="btn btn-outline-secondary" href="{{ proposal_excel_url }}">
+              <i class="bi bi-file-earmark-excel me-1"></i> Комерційна пропозиція (Excel)
+            </a>
+          {% endif %}
+        </div>
+      {% endif %}
     </div>
     </fieldset>
   </form>
@@ -415,7 +429,7 @@
 
     // EN: EUR rate (may come as "49,3149" → we normalize)
     // UA: Курс EUR (може бути з комою, нормалізуємо)
-    const eur_rate = parseFloat('{{ eur_rate|default:"0.00" }}'.replace(',', '.')) || 0;
+    const eur_rate = parseFloat('{{ builder_rate|default:"0.00" }}'.replace(',', '.')) || 0;
     const markup_initial = parseFloat('{{ order.markup_percent|default:"0" }}'.replace(',', '.')) || 0;
 
     // EN: Data cache from /api/v1/pricing/components-list

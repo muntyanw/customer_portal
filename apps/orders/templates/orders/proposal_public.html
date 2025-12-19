@@ -1,0 +1,157 @@
+{% load l10n %}
+<!DOCTYPE html>
+<html lang="uk" data-bs-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Комерційна пропозиція №{{ order.id }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
+    <style>
+      body { background: #f8f9fa; }
+      .page-container { max-width: 1080px; margin: 24px auto; }
+      @media print {
+        .no-print { display: none !important; }
+        body { background: white; }
+        .card { box-shadow: none !important; border: 1px solid #dee2e6; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page-container px-3 px-md-0">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+        <div>
+          <h1 class="h4 mb-1">Комерційна пропозиція №{{ order.id }}</h1>
+          <div class="text-muted small">
+            Створено: {{ order.created_at|date:'d.m.Y H:i' }}
+          </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 no-print">
+          {% if proposal_excel_url %}
+            <a class="btn btn-outline-primary btn-sm" href="{{ proposal_excel_url }}">
+              <i class="bi bi-file-earmark-excel me-1"></i> Комерційна пропозиція (Excel)
+            </a>
+          {% endif %}
+          <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.print()">
+            <i class="bi bi-printer me-1"></i> Друк
+          </button>
+        </div>
+      </div>
+
+      <div class="card shadow-sm mb-3">
+        <div class="card-body">
+          <div class="d-flex flex-wrap gap-4 align-items-center">
+            <div>
+              <div class="text-muted small text-uppercase">Вартість замовлення</div>
+              <div class="fw-semibold">{{ total_with_markup_uah|default_if_none:0|floatformat:0 }} грн</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {% if items %}
+        <h5 class="mb-3">Тканинні ролети</h5>
+        <div class="d-flex flex-column gap-3">
+          {% for it in items %}
+            <div class="card shadow-sm">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                  <div class="fw-semibold">Позиція {{ it.index }}</div>
+                  <div class="text-muted small">К-сть: {{ it.quantity }}</div>
+                </div>
+                <div class="small">
+                  <div class="d-flex justify-content-between border-bottom py-1">
+                    <span class="text-muted">Система</span>
+                    <span class="fw-semibold text-end">{{ it.system_sheet }}</span>
+                  </div>
+                  <div class="d-flex justify-content-between border-bottom py-1">
+                    <span class="text-muted">Колір системи</span>
+                    <span class="fw-semibold text-end">{{ it.table_section }}</span>
+                  </div>
+                  <div class="d-flex justify-content-between border-bottom py-1">
+                    <span class="text-muted">Тканина</span>
+                    <span class="fw-semibold text-end">{{ it.fabric_name }} {% if it.fabric_color_code %}({{ it.fabric_color_code }}){% endif %}</span>
+                  </div>
+                  <div class="d-flex justify-content-between border-bottom py-1">
+                    <span class="text-muted">Ширина, мм</span>
+                    <span class="fw-semibold text-end">{{ it.width_fabric_mm }}</span>
+                  </div>
+                  <div class="d-flex justify-content-between border-bottom py-1">
+                    <span class="text-muted">Висота, мм</span>
+                    <span class="fw-semibold text-end">{{ it.height_gabarit_mm }}</span>
+                  </div>
+                  <div class="d-flex justify-content-between border-bottom py-1">
+                    <span class="text-muted">Сторона керування</span>
+                    <span class="fw-semibold text-end">{{ it.control_side|default:"—" }}</span>
+                  </div>
+                  <div class="d-flex justify-content-between py-1">
+                    <span class="text-muted">Вартість</span>
+                    <span class="fw-semibold text-end">{{ it.subtotal_uah|floatformat:0 }} грн</span>
+                  </div>
+                  {% if it.note %}
+                    <div class="d-flex justify-content-between border-top pt-1">
+                      <span class="text-muted">Примітка</span>
+                      <span class="text-end">{{ it.note }}</span>
+                    </div>
+                  {% endif %}
+                </div>
+
+                {% if it.options %}
+                  <div class="mt-3">
+                    <div class="small text-muted mb-1">Додаткові опції</div>
+                    <ul class="list-unstyled mb-0">
+                      {% for opt in it.options %}
+                        <li>
+                          <span class="fw-semibold">{{ opt.label }}</span>
+                          {% if opt.qty %} · {{ opt.qty }}{% endif %}
+                          — {{ opt.price_uah|floatformat:0 }} грн
+                        </li>
+                      {% endfor %}
+                    </ul>
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% if components %}
+        <h5 class="mt-4 mb-3">Комплектуючі</h5>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr class="text-muted">
+                <th>Найменування</th>
+                <th>Колір</th>
+                <th>Од. вим.</th>
+                <th class="text-end">К-сть</th>
+                <th class="text-end">Сума, грн</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for comp in components %}
+                <tr>
+                  <td>{{ comp.name }}</td>
+                  <td>{{ comp.color }}</td>
+                  <td>{{ comp.unit }}</td>
+                  <td class="text-end">{{ comp.quantity }}</td>
+                  <td class="text-end">{{ comp.total_uah|floatformat:0 }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+
+      {% if order.note %}
+        <div class="card shadow-sm mt-3">
+          <div class="card-body">
+            <div class="small text-muted mb-1">Примітка до замовлення</div>
+            <div>{{ order.note }}</div>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  </body>
+</html>

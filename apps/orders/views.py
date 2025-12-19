@@ -27,6 +27,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 from django.contrib.admin.views.decorators import staff_member_required
 from django.conf import settings
+from django.core import signing
 from django.core.mail import EmailMessage, send_mail
 from django.core.files.base import ContentFile
 from io import BytesIO
@@ -37,7 +38,7 @@ from .utils_components import parse_components_from_post
 from django.urls import reverse
 from .services_currency import get_current_eur_rate, update_eur_rate_from_nbu
 from django.views.decorators.http import require_POST
-from django.http import JsonResponse
+from django.http import JsonResponse, Http404, HttpResponse
 from django.utils.http import url_has_allowed_host_and_scheme
 
         
@@ -58,6 +59,72 @@ def _to_decimal(value, default="0"):
 
 
 _TIME_RE = re.compile(r"^(\d{1,2}):(\d{2})$")
+_PROPOSAL_SALT = "orders-proposal-link-v1"
+OPTION_LABELS = {
+    "magnets_price_eur": "Фіксація магнітами",
+    "cord_pvc_tension_price_eur": "Фіксація Леска ПВХ з дотяжкою",
+    "cord_copper_barrel_price_eur": "Фіксація Леска з мідною діжкою",
+    "magnet_fix_price_eur": "Фіксація магнітами (доп.)",
+    "top_pvc_clip_pair_price_eur": "Кліпса кріплення для верхньої планки ПВХ, пара",
+    "top_pvc_bar_tape_price_eur_mp": "Верхня планка ПВХ зі скотчем (монтаж без свердління), за м.п.",
+    "bottom_wide_bar_price_eur_mp": "Нижня широка планка, за м.п.",
+    "top_bar_scotch_price_eur_mp": "Верхній скотч, за м.п.",
+    "metal_cord_fix_price_eur": "Металева фіксація шнура",
+    "middle_bracket_price_eur": "Проміжковий кронштейн, шт",
+    "remote_5ch_price_eur": "5-ти канальний пульт ДУ, шт",
+    "remote_15ch_price_eur": "15-ти канальний пульт ДУ, шт",
+    "motor_with_remote_price_eur": "Електродвигун з одноканальним пультом ДУ (входить до вартості), шт",
+    "motor_no_remote_price_eur": "Електродвигун без пульта, шт",
+    "metal_kronsht_price_eur": "Металевий кронштейн, шт",
+    "adapter_mosel_internal_price_eur": "Адаптер внутрішній MOSel",
+    "adapter_mosel_external_price_eur": "Адаптер зовнішній MOSel",
+}
+
+
+def _proposal_token(order: Order) -> str:
+    """Generate a signed token for public commercial proposal links."""
+    return signing.dumps({"order": order.pk}, salt=_PROPOSAL_SALT)
+
+
+def _order_from_token(token: str) -> Order:
+    """Return order for a signed token or 404."""
+    try:
+        data = signing.loads(token, salt=_PROPOSAL_SALT)
+    except signing.BadSignature:
+        raise Http404("Неправильне посилання.")
+    order_id = (data or {}).get("order")
+    if not order_id:
+        raise Http404("Замовлення не знайдено.")
+    return get_object_or_404(Order, pk=order_id)
+
+
+def _collect_item_options(item: OrderItem, rate: Decimal):
+    """
+    Build list of option rows for public proposal with EUR/UAH.
+    """
+    options = []
+    for field in [f.name for f in OrderItem._meta.fields if f.name.endswith("_price_eur")]:
+        price = getattr(item, field, None)
+        if price in (None, ""):
+            continue
+        qty_field = field.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
+        qty_val = getattr(item, qty_field, 0) or 0
+        try:
+            price_val = Decimal(price)
+            qty_val_dec = Decimal(qty_val)
+        except Exception:
+            continue
+        if price_val <= 0 or qty_val_dec <= 0:
+            continue
+        options.append(
+            {
+                "label": OPTION_LABELS.get(field, field),
+                "qty": qty_val_dec,
+                "price_eur": price_val,
+                "price_uah": _round_uah_total(price_val * Decimal(rate or 0)),
+            }
+        )
+    return options
 
 
 class CurrencyAutoUpdateForm(forms.Form):
@@ -242,7 +309,7 @@ def _payment_shortage_context(order):
     }
 
 
-def _build_order_workbook(order):
+def _build_order_workbook(order, save_to_file: bool = True):
     wb = Workbook()
     ws = wb.active
     ws.title = "Замовлення"
@@ -273,26 +340,6 @@ def _build_order_workbook(order):
 
     created_str = order.created_at.astimezone(timezone.get_current_timezone()).strftime("%d.%m.%y") if order.created_at else ""
 
-    option_labels = {
-        "magnets_price_eur": "Фіксація магнітами",
-        "cord_pvc_tension_price_eur": "Фіксація Леска ПВХ з дотяжкою",
-        "cord_copper_barrel_price_eur": "Фіксація Леска з мідною діжкою",
-        "magnet_fix_price_eur": "Фіксація магнітами (доп.)",
-        "top_pvc_clip_pair_price_eur": "Кліпса кріплення для верхньої планки ПВХ, пара",
-        "top_pvc_bar_tape_price_eur_mp": "Верхня планка ПВХ зі скотчем (монтаж без свердління), за м.п.",
-        "bottom_wide_bar_price_eur_mp": "Нижня широка планка, за м.п.",
-        "top_bar_scotch_price_eur_mp": "Верхній скотч, за м.п.",
-        "metal_cord_fix_price_eur": "Металева фіксація шнура",
-        "middle_bracket_price_eur": "Проміжковий кронштейн, шт",
-        "remote_5ch_price_eur": "5-ти канальний пульт ДУ, шт",
-        "remote_15ch_price_eur": "15-ти канальний пульт ДУ, шт",
-        "motor_with_remote_price_eur": "Електродвигун з одноканальним пультом ДУ (входить до вартості), шт",
-        "motor_no_remote_price_eur": "Електродвигун без пульта, шт",
-        "metal_kronsht_price_eur": "Металевий кронштейн, шт",
-        "adapter_mosel_internal_price_eur": "Адаптер внутрішній MOSel",
-        "adapter_mosel_external_price_eur": "Адаптер зовнішній MOSel",
-    }
-
     def control_label(val):
         if val == "left":
             return "Ліве"
@@ -316,7 +363,7 @@ def _build_order_workbook(order):
                 continue
             if qty_val <= 0 or price_val <= 0:
                 continue
-            label = option_labels.get(field, field)
+            label = OPTION_LABELS.get(field, field)
             # price fields already store total for the selected qty
             sum_uah = price_uah(price_val)
             rows.append(["", label, "", "", "", "", "", "", "", "", float(qty_val), sum_uah])
@@ -376,7 +423,92 @@ def _build_order_workbook(order):
     wb.save(buffer)
     buffer.seek(0)
     filename = f"order_{order.pk}.xlsx"
-    order.workbook_file.save(filename, ContentFile(buffer.getvalue()), save=False)
+    if save_to_file:
+        order.workbook_file.save(filename, ContentFile(buffer.getvalue()), save=False)
+    return filename, buffer.getvalue()
+
+
+def _build_proposal_workbook(order):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Пропозиція"
+
+    rate = _order_rate(order, get_current_eur_rate())
+    base_total_eur = _order_base_total(order)
+    markup = Decimal(order.markup_percent or 0)
+    total_with_markup_uah = _round_uah_total(
+        base_total_eur * (Decimal("1") + markup / Decimal("100")) * Decimal(rate or 0)
+    )
+    created_str = (
+        order.created_at.astimezone(timezone.get_current_timezone()).strftime("%d.%m.%Y %H:%M")
+        if order.created_at
+        else ""
+    )
+
+    ws.append([f"Комерційна пропозиція №{order.pk}"])
+    if created_str:
+        ws.append(["Створено", created_str])
+    ws.append(["Вартість замовлення, грн", float(total_with_markup_uah)])
+    ws.append([])
+
+    def add_row(label, value):
+        ws.append([label, value])
+
+    def control_label(val):
+        if val == "left":
+            return "Ліве"
+        if val == "right":
+            return "Праве"
+        return val or ""
+
+    for idx, it in enumerate(order.items.all(), start=1):
+        ws.append([f"Позиція {idx}"])
+        ws.append(["Характеристика", "Значення"])
+        fabric = it.fabric_name or ""
+        if it.fabric_color_code:
+            fabric = f"{fabric} ({it.fabric_color_code})" if fabric else it.fabric_color_code
+
+        add_row("Система", it.system_sheet)
+        add_row("Колір системи", it.table_section)
+        add_row("Тканина", fabric)
+        add_row("Ширина, мм", it.width_fabric_mm)
+        add_row("Висота, мм", it.height_gabarit_mm)
+        add_row("Сторона керування", control_label(it.control_side))
+        subtotal_uah = _round_uah_total(Decimal(it.subtotal_eur or 0) * Decimal(rate or 0))
+        add_row("Вартість, грн", float(subtotal_uah))
+        if it.note:
+            add_row("Примітка", it.note)
+
+        options = _collect_item_options(it, rate)
+        if options:
+            ws.append(["Додаткові опції", ""])
+            for opt in options:
+                qty = opt.get("qty") or ""
+                price_uah = opt.get("price_uah") or Decimal("0")
+                detail = f"{qty} · {price_uah} грн" if qty not in ("", None) else f"{price_uah} грн"
+                add_row(opt.get("label", ""), detail)
+        ws.append([])
+
+    if order.component_items.exists():
+        ws.append(["Комплектуючі"])
+        ws.append(["Характеристика", "Значення"])
+        for comp in order.component_items.all():
+            total_uah = _round_uah_total(
+                Decimal(comp.price_eur or 0) * Decimal(comp.quantity or 0) * Decimal(rate or 0)
+            )
+            add_row("Найменування", comp.name)
+            if comp.color:
+                add_row("Колір", comp.color)
+            if comp.unit:
+                add_row("Од. вим.", comp.unit)
+            add_row("Кількість", float(comp.quantity or 0))
+            add_row("Сума, грн", float(total_uah))
+            ws.append([])
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    filename = f"proposal_{order.pk}.xlsx"
     return filename, buffer.getvalue()
 
 
@@ -629,6 +761,9 @@ def order_list(request):
     show_bulk_select = quote_orders_count > 1
     payment_message_text = _get_payment_message_text() or ""
     payment_shortage_map = {}
+    proposal_tokens = {o.id: _proposal_token(o) for o in orders_qs}
+    proposal_page_urls = {oid: reverse("orders:proposal_page", args=[tok]) for oid, tok in proposal_tokens.items()}
+    proposal_excel_urls = {oid: reverse("orders:proposal_excel", args=[tok]) for oid, tok in proposal_tokens.items()}
     if quote_orders_count:
         for o in orders_qs:
             if o.status != Order.STATUS_QUOTE or o.customer_id != request.user.id:
@@ -656,6 +791,8 @@ def order_list(request):
         "payment_shortage_map": payment_shortage_map,
         "payment_shortage_json": json.dumps(payment_shortage_map),
         "user_balance": compute_balance(balance_user),
+        "proposal_page_urls": proposal_page_urls,
+        "proposal_excel_urls": proposal_excel_urls,
     }
     return render(request, "orders/order_list.html", context)
 
@@ -700,6 +837,9 @@ def order_components_list(request):
     show_bulk_select = quote_orders_count > 1
     payment_message_text = _get_payment_message_text() or ""
     payment_shortage_map = {}
+    proposal_tokens = {o.id: _proposal_token(o) for o in qs}
+    proposal_page_urls = {oid: reverse("orders:proposal_page", args=[tok]) for oid, tok in proposal_tokens.items()}
+    proposal_excel_urls = {oid: reverse("orders:proposal_excel", args=[tok]) for oid, tok in proposal_tokens.items()}
     if quote_orders_count:
         for o in qs:
             if o.status != Order.STATUS_QUOTE or o.customer_id != request.user.id:
@@ -727,6 +867,8 @@ def order_components_list(request):
         "payment_shortage_map": payment_shortage_map,
         "payment_shortage_json": json.dumps(payment_shortage_map),
         "user_balance": compute_balance(balance_user),
+        "proposal_page_urls": proposal_page_urls,
+        "proposal_excel_urls": proposal_excel_urls,
     }
     return render(request, "orders/order_list.html", context)
 
@@ -1113,18 +1255,23 @@ def order_builder(request, pk=None):
 
     shortage_ctx = _payment_shortage_context(order)
     payment_prompt = request.session.pop("payment_prompt", None)
+    proposal_token = _proposal_token(order) if order else None
+    proposal_page_url = reverse("orders:proposal_page", args=[proposal_token]) if proposal_token else None
+    proposal_excel_url = reverse("orders:proposal_excel", args=[proposal_token]) if proposal_token else None
 
     return render(request, "orders/builder.html", {
         "order": order,
         "items_json": items_json,
         "PRICE_SHEET_URL": PRICE_SHEET_URL,
         "status_logs": status_logs,
-        "eur_rate": builder_rate,
+        "builder_rate": builder_rate,
         "next_status_label": next_status_label,
         "readonly": readonly,
         "payment_message_text": (payment_prompt or {}).get("text") or _get_payment_message_text(),
         "payment_shortage": payment_prompt or shortage_ctx,
         "status_badges": STATUS_BADGES,
+        "proposal_page_url": proposal_page_url,
+        "proposal_excel_url": proposal_excel_url,
     })
     
     
@@ -1247,6 +1394,9 @@ def balances_history(request):
     current_rate = get_current_eur_rate()
     orders_qs = _set_order_totals_uah(orders_qs, current_rate)
     filtered_balance = _transactions_total_uah(tx_qs) - _orders_total_uah(orders_qs, current_rate)
+    proposal_tokens = {o.id: _proposal_token(o) for o in orders_qs}
+    proposal_page_urls = {oid: reverse("orders:proposal_page", args=[tok]) for oid, tok in proposal_tokens.items()}
+    proposal_excel_urls = {oid: reverse("orders:proposal_excel", args=[tok]) for oid, tok in proposal_tokens.items()}
 
     events = []
     for o in orders_qs:
@@ -1270,6 +1420,8 @@ def balances_history(request):
         "filtered_balance": filtered_balance,
         "status_badges": STATUS_BADGES,
         "status_labels": STATUS_LABELS,
+        "proposal_page_urls": proposal_page_urls,
+        "proposal_excel_urls": proposal_excel_urls,
     }
     return render(request, "orders/balances_history.html", context)
 
@@ -1371,6 +1523,9 @@ def order_components_builder(request, pk):
 
     payment_prompt = request.session.pop("payment_prompt", None)
     shortage_ctx = _payment_shortage_context(order)
+    proposal_token = _proposal_token(order)
+    proposal_page_url = reverse("orders:proposal_page", args=[proposal_token])
+    proposal_excel_url = reverse("orders:proposal_excel", args=[proposal_token])
     context = {
         "order": order,
         "PRICE_SHEET_URL": PRICE_SHEET_URL,
@@ -1378,9 +1533,11 @@ def order_components_builder(request, pk):
         "status_logs": order.status_logs.all(),
         "readonly": readonly,
         "next_status_label": STATUS_LABELS.get(order.next_status()) if order else None,
-        "eur_rate": order.eur_rate or get_current_eur_rate(),
+        "builder_rate": order.eur_rate or get_current_eur_rate(),
         "payment_message_text": (payment_prompt or {}).get("text") or _get_payment_message_text(),
         "payment_shortage": payment_prompt or shortage_ctx,
+        "proposal_page_url": proposal_page_url,
+        "proposal_excel_url": proposal_excel_url,
     }
 
     return render(request, "orders/components_builder.html", context)
@@ -1496,6 +1653,89 @@ def update_status_bulk(request):
         messages.warning(request, f"Не вдалося запустити: {failed}.")
 
     return redirect(next_url)
+
+
+def order_proposal_page(request, token: str):
+    """
+    Public read-only commercial proposal page (no auth required).
+    """
+    order = _order_from_token(token)
+    rate = _order_rate(order, get_current_eur_rate())
+    base_total_eur = _order_base_total(order)
+    markup = Decimal(order.markup_percent or 0)
+    total_with_markup_eur = base_total_eur * (Decimal("1") + markup / Decimal("100"))
+    total_base_uah = _round_uah_total(base_total_eur * rate)
+    total_with_markup_uah = _round_uah_total(total_with_markup_eur * rate)
+
+    items_payload = []
+    for idx, it in enumerate(order.items.all(), start=1):
+        options = _collect_item_options(it, rate)
+        subtotal_eur = Decimal(it.subtotal_eur or 0)
+        items_payload.append(
+            {
+                "index": idx,
+                "system_sheet": it.system_sheet,
+                "table_section": it.table_section,
+                "fabric_name": it.fabric_name,
+                "fabric_color_code": it.fabric_color_code,
+                "width_fabric_mm": it.width_fabric_mm,
+                "height_gabarit_mm": it.height_gabarit_mm,
+                "gabarit_width_flag": it.gabarit_width_flag,
+                "fabric_height_flag": it.fabric_height_flag,
+                "roll_height_info": it.roll_height_info,
+                "control_side": it.control_side,
+                "quantity": it.quantity,
+                "subtotal_eur": subtotal_eur,
+                "subtotal_uah": _round_uah_total(subtotal_eur * rate),
+                "note": it.note,
+                "options": options,
+            }
+        )
+
+    components_payload = []
+    for comp in order.component_items.all():
+        price_eur = Decimal(comp.price_eur or 0)
+        qty = Decimal(comp.quantity or 0)
+        total_eur = price_eur * qty
+        components_payload.append(
+            {
+                "name": comp.name,
+                "color": comp.color,
+                "unit": comp.unit,
+                "price_eur": price_eur,
+                "quantity": qty,
+                "total_eur": total_eur,
+                "total_uah": _round_uah_total(total_eur * rate),
+            }
+        )
+
+    proposal_excel_url = reverse("orders:proposal_excel", args=[token])
+    context = {
+        "order": order,
+        "rate": rate,
+        "base_total_eur": base_total_eur,
+        "total_with_markup_eur": total_with_markup_eur,
+        "total_base_uah": total_base_uah,
+        "total_with_markup_uah": total_with_markup_uah,
+        "markup_percent": markup,
+        "items": items_payload,
+        "components": components_payload,
+        "proposal_excel_url": proposal_excel_url,
+    }
+    return render(request, "orders/proposal_public.html", context)
+
+
+def order_proposal_excel(request, token: str):
+    """Public XLSX download for commercial proposal."""
+    order = _order_from_token(token)
+    filename, data = _build_proposal_workbook(order)
+    response = HttpResponse(
+        data,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename=\"{filename}\"'
+    return response
+
 
 @login_required
 def order_components_builder_new(request):

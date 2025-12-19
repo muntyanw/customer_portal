@@ -75,7 +75,7 @@
           {% else %}
             {% url 'orders:builder_edit' o.id as order_view_url %}
           {% endif %}
-          {% include 'orders/partials/order_card.html' with order=o view_url=order_view_url show_type=True show_rate=True show_last_status=True status_badges=status_badges %}
+          {% include 'orders/partials/order_card.html' with order=o view_url=order_view_url show_type=True show_rate=True show_last_status=True status_badges=status_badges proposal_page_urls=proposal_page_urls proposal_excel_urls=proposal_excel_urls %}
           {% endwith %}
         {% else %}
           {% with tx=e.object %}

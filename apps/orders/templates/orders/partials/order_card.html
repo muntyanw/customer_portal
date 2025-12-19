@@ -1,39 +1,40 @@
 {% load form_tags %}
 {% with card_cls=card_class|default:"card border-0 shadow-sm" %}
 <div class="{{ card_cls }}">
-  <div class="card-body d-flex flex-column gap-2">
-    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
-      <div class="d-flex align-items-start gap-2">
+  <div class="card-body p-3">
+    <div class="row g-2 align-items-start">
+      <div class="col-lg-8 col-md-7 d-flex align-items-start gap-2">
         {% if show_select and order.status == order.STATUS_QUOTE %}
           <input class="form-check-input mt-1" type="checkbox" name="{{ select_name|default:'order_ids' }}" value="{{ order.id }}" form="{{ select_form|default:'bulkForm' }}" aria-label="Обрати замовлення">
         {% endif %}
         <div>
-        <div class="fw-semibold">Замовлення № {{ order.id }}</div>
-        <div class="small text-muted">{{ order.created_at|date:'d.m.Y H:i' }}</div>
-        {% if order.customer %}
-          {% with profile=order.customer.customerprofile %}
+          <div class="fw-semibold">Замовлення № {{ order.id }}</div>
+          <div class="small text-muted">{{ order.created_at|date:'d.m.Y H:i' }}</div>
+          {% if order.customer %}
+            {% with profile=order.customer.customerprofile %}
+              <div class="small text-muted">
+                Клієнт:
+                <a href="{% url 'accounts:profile_other' order.customer.id %}">
+                  {% if profile.full_name %}{{ profile.full_name }}{% else %}{{ order.customer }}{% endif %}
+                </a>
+                {% if profile.phone %} · {{ profile.phone }}{% endif %}
+              </div>
+            {% endwith %}
+          {% endif %}
+          {% if show_type %}
             <div class="small text-muted">
-              Клієнт:
-              <a href="{% url 'accounts:profile_other' order.customer.id %}">
-                {% if profile.full_name %}{{ profile.full_name }}{% else %}{{ order.customer }}{% endif %}
-              </a>
-              {% if profile.phone %} · {{ profile.phone }}{% endif %}
+              Тип: {% if order.component_items.all|length %}Комплектуючі{% else %}Ролети{% endif %}
             </div>
-          {% endwith %}
-        {% endif %}
-        {% if show_type %}
-          <div class="small text-muted">
-            Тип: {% if order.component_items.all|length %}Комплектуючі{% else %}Ролети{% endif %}
-          </div>
-        {% endif %}
-        {% if order.note and show_note|default_if_none:True %}
-          <div class="small text-muted" title="{{ order.note }}">
-            {{ order.note|truncatechars:160 }}
-          </div>
-        {% endif %}
+          {% endif %}
+          {% if order.note and show_note|default_if_none:True %}
+            <div class="small text-muted" title="{{ order.note }}">
+              {{ order.note|truncatechars:160 }}
+            </div>
+          {% endif %}
+        </div>
       </div>
-      </div>
-      <div class="text-end">
+
+      <div class="col-auto ms-lg-auto text-lg-end">
         {% with badge=status_badges|get_item:order.status|default:"secondary" %}
           <span class="badge bg-{{ badge }}">{{ order.get_status_display }}</span>
         {% endwith %}
@@ -48,21 +49,11 @@
         {% endif %}
       </div>
     </div>
-    {% if show_last_status %}
-      <div class="small text-muted">
-        Останній статус: {% with log=order.status_logs.first %}{% if log %}{{ log.get_status_display }} · {{ log.created_at|date:'d.m.Y H:i' }} · {{ log.user }}{% else %}—{% endif %}{% endwith %}
-      </div>
-    {% endif %}
     {% if view_url or delete_url or send_to_work_url %}
-      <div class="d-flex flex-wrap gap-2">
-        {% if view_url %}
-          <a class="btn btn-sm btn-outline-primary" href="{{ view_url }}">
-            <i class="bi bi-eye me-1"></i> {{ view_label|default:"Переглянути" }}
-          </a>
-        {% endif %}
+      <div class="d-flex flex-wrap gap-2 mt-2">
         {% if send_to_work_url %}
           {% if order.status == order.STATUS_QUOTE %}
-            <form method="post" action="{{ send_to_work_url }}" class="d-inline">
+            <form method="post" action="{{ send_to_work_url }}">
               {% csrf_token %}
               <input type="hidden" name="status_action" value="to_work">
               {% with badge=status_badges|get_item:order.STATUS_IN_WORK|default:"success" %}
@@ -81,7 +72,7 @@
             {% with prev=order.prev_status %}
               {% if prev %}
                 {% with badge=status_badges|get_item:prev|default:"secondary" %}
-                  <form method="post" action="{{ send_to_work_url }}" class="d-inline">
+                  <form method="post" action="{{ send_to_work_url }}">
                     {% csrf_token %}
                     <input type="hidden" name="status_action" value="prev">
                     <button type="submit" class="btn btn-sm btn-{{ badge }}">
@@ -95,7 +86,7 @@
               {% with nxt=order.next_status %}
                 {% if nxt %}
                   {% with badge=status_badges|get_item:nxt|default:"secondary" %}
-                    <form method="post" action="{{ send_to_work_url }}" class="d-inline">
+                    <form method="post" action="{{ send_to_work_url }}">
                       {% csrf_token %}
                       <input type="hidden" name="status_action" value="next">
                       <button type="submit" class="btn btn-sm btn-{{ badge }}">
@@ -108,13 +99,35 @@
             {% endif %}
           {% endif %}
         {% endif %}
+        {% if view_url %}
+          <a class="btn btn-sm btn-primary" href="{{ view_url }}">
+            <i class="bi bi-eye me-1"></i> {{ view_label|default:"Переглянути" }}
+          </a>
+        {% endif %}
+        {% with page_url=proposal_page_urls|get_item:order.id excel_url=proposal_excel_urls|get_item:order.id %}
+          {% if page_url %}
+            <a class="btn btn-sm btn-warning text-dark" href="{{ page_url }}" target="_blank">
+              <i class="bi bi-file-earmark-text me-1"></i> Комерційна пропозиція (сторінка)
+            </a>
+          {% endif %}
+          {% if excel_url %}
+            <a class="btn btn-sm btn-success" href="{{ excel_url }}">
+              <i class="bi bi-file-earmark-excel me-1"></i> Комерційна пропозиція (Excel)
+            </a>
+          {% endif %}
+        {% endwith %}
         {% if delete_url %}
           {% if request.user.is_manager or order.status == order.STATUS_QUOTE %}
-            <a class="btn btn-sm btn-outline-danger" href="{{ delete_url }}">
+            <a class="btn btn-sm btn-danger" href="{{ delete_url }}">
               <i class="bi bi-trash me-1"></i> Видалити
             </a>
           {% endif %}
         {% endif %}
+      </div>
+    {% endif %}
+    {% if show_last_status %}
+      <div class="small text-muted mt-2">
+        Останній статус: {% with log=order.status_logs.first %}{% if log %}{{ log.get_status_display }} · {{ log.created_at|date:'d.m.Y H:i' }} · {{ log.user }}{% else %}—{% endif %}{% endwith %}
       </div>
     {% endif %}
   </div>

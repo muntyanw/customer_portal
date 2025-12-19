@@ -15,6 +15,8 @@ urlpatterns = [
     # білдер ролетів
     path("builder/", views.order_builder, name="builder"),
     path("builder/<int:pk>/", views.order_builder, name="builder_edit"),
+    path("proposal/<str:token>/", views.order_proposal_page, name="proposal_page"),
+    path("proposal/<str:token>/excel/", views.order_proposal_excel, name="proposal_excel"),
 
     # 🔹 створити нове замовлення під комплектуючі
     path(

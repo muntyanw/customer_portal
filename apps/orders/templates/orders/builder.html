@@ -156,6 +156,22 @@
           {% endif %}
         </div>
       {% endif %}
+      {% if order %}
+        {% if proposal_page_url or proposal_excel_url %}
+          <div class="d-flex flex-wrap gap-2 mt-2">
+            {% if proposal_page_url %}
+              <a class="btn btn-outline-secondary" href="{{ proposal_page_url }}" target="_blank">
+                <i class="bi bi-file-earmark-text me-1"></i> Комерційна пропозиція (сторінка)
+              </a>
+            {% endif %}
+            {% if proposal_excel_url %}
+              <a class="btn btn-outline-secondary" href="{{ proposal_excel_url }}">
+                <i class="bi bi-file-earmark-excel me-1"></i> Комерційна пропозиція (Excel)
+              </a>
+            {% endif %}
+          </div>
+        {% endif %}
+      {% endif %}
     </div>
 
     <div class="d-grid mt-3">
@@ -276,7 +292,7 @@
     const isManager = {{ request.user.is_manager|yesno:"true,false" }}
     const isOwner = {{ request.user.id }} === {{ order.customer_id|default:request.user.id }}
     const eur_rate = parseFloat(
-      '{{ eur_rate|default:"0.00" }}'
+      '{{ builder_rate|default:"0.00" }}'
         .replace(/\s/g, '')
         .replace(',', '.')
     )
