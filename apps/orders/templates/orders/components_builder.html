@@ -14,19 +14,16 @@
   <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
   <style>
     .order-summary-bar {
-      position: sticky;
-      top: 0;
-      z-index: 1020;
+      position: static;
       background: var(--bs-body-bg);
       border-bottom: 1px solid var(--bs-border-color);
+      box-shadow: none;
+      padding: 0.75rem 1rem;
     }
-    .order-total-bar {
-      position: sticky;
-      bottom: 0;
-      z-index: 1030;
-      background: var(--bs-body-bg);
-      border-top: 1px solid var(--bs-border-color);
-    }
+.order-total-bar {
+  background: var(--bs-body-bg);
+  border-top: 1px solid var(--bs-border-color);
+}
     .component-card .price-box .kv {
       display: flex;
       justify-content: space-between;
@@ -40,6 +37,39 @@
       gap: 0.75rem;
       font-weight: 600;
       font-size: 1.05rem;
+    }
+    .order-summary-label {
+      font-size: 0.8rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: var(--bs-body-color);
+    }
+    .order-summary-value {
+      font-weight: 700;
+      font-size: 1.35rem;
+      color: var(--bs-body-color);
+    }
+    .order-summary-note {
+      min-width: 260px;
+    }
+    @media (max-width: 576px) {
+      .order-summary-bar {
+        padding: 0.5rem 0.75rem;
+      }
+      .order-summary-label {
+        font-size: 0.65rem;
+      }
+      .order-summary-value {
+        font-size: 1.1rem;
+      }
+      .order-summary-bar .form-control-sm {
+        padding: 0.3rem 0.5rem;
+        font-size: 0.9rem;
+      }
+      .order-summary-bar .d-flex.flex-wrap {
+        gap: 0.35rem;
+      }
     }
     .readonly-mode .select2-container,
     .readonly-mode .select2-selection {
@@ -62,8 +92,8 @@
       </div>
       <div class="d-flex flex-wrap align-items-center gap-2">
         <div class="d-flex flex-wrap gap-2">
-          <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="btn btn-outline-primary btn-sm">Відкрити прайс (Комплектація)</a>
-          <a href="https://docs.google.com/document/d/1uz2k8hqnaLxlmxB-u1BUmaEmW3pw4QIF/edit" target="_blank" class="btn btn-outline-secondary btn-sm">Технічні характеристики</a>
+          <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="btn btn-primary btn-sm">Відкрити прайс (Комплектація)</a>
+          <a href="https://docs.google.com/document/d/1uz2k8hqnaLxlmxB-u1BUmaEmW3pw4QIF/edit" target="_blank" class="btn btn-secondary btn-sm text-white">Технічні характеристики</a>
         </div>
         <div class="ms-auto d-flex align-items-center gap-2">
           <span class="text-muted small text-uppercase">Статус</span>
@@ -75,11 +105,14 @@
       <input type="url" class="form-control" id="componentsPriceUrl" name="price_url" value="{{ PRICE_SHEET_URL }}" required style="display: none;" />
     </div>
 
-        <div class="order-summary-bar p-3 rounded-3 shadow-sm mb-3">
-      <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
-        <div class="small text-secondary text-uppercase">Загальна вартість замовлення</div>
-        <div class="d-flex align-items-center gap-2">
-          <label class="form-label mb-0 small text-uppercase text-secondary" for="orderMarkup">Зробити націнку на роздріб, %</label>
+    <div class="order-summary-bar p-3 rounded-3 shadow-sm mb-3">
+      <div class="d-flex flex-wrap align-items-end gap-3">
+        <div class="d-flex flex-column">
+          <div class="order-summary-label mb-1">Всього, грн</div>
+          <div class="order-summary-value"><span id="componentsOrderTotalBaseUah">0.00</span></div>
+        </div>
+        <div class="d-flex flex-column">
+          <label class="order-summary-label mb-1" for="orderMarkup">Націнка на роздріб, %</label>
           <input
             type="number"
             step="0.01"
@@ -90,19 +123,53 @@
             value="{{ order.markup_percent|default:'0' }}"
           />
         </div>
-        <div class="d-flex flex-wrap gap-4 text-end">
-          <div>
-            <div class="small text-secondary">Ціна для дилера, грн</div>
-            <div class="fw-semibold"><span id="componentsOrderTotalBaseUah">0.00</span></div>
-          </div>
-          <div>
-            <div class="small text-secondary">Ціна з націнкою, грн</div>
-            <div class="fw-semibold"><span id="componentsOrderTotalUah">0.00</span></div>
-          </div>
+        <div class="d-flex flex-column">
+          <div class="order-summary-label mb-1">З націнкою</div>
+          <div class="order-summary-value"><span id="componentsOrderTotalUah">0.00</span></div>
+        </div>
+        <div class="flex-grow-1 order-summary-note ms-lg-auto">
+          <label class="order-summary-label mb-1" for="componentsOrderNote">Примітка до замовлення</label>
+          <input
+            type="text"
+            class="form-control form-control-sm"
+            id="componentsOrderNote"
+            name="note"
+            placeholder="Коротка примітка..."
+            value="{{ order.note|default_if_none:'' }}"
+            {% if readonly %}disabled{% endif %}
+          />
         </div>
       </div>
       <div class="d-none">
         <span id="componentsOrderTotal">0.00</span>
+      </div>
+    </div>
+
+    <div class="row g-2 align-items-end mb-3">
+      <div class="col-12 col-md-6">
+        <label class="form-label small fw-semibold" for="extraServiceLabel">Додаткова послуга</label>
+        <input
+          type="text"
+          class="form-control"
+          id="extraServiceLabel"
+          name="extra_service_label"
+          placeholder="Доставка, монтаж тощо"
+          value="{{ order.extra_service_label|default_if_none:'' }}"
+          {% if readonly %}disabled{% endif %}
+        />
+      </div>
+      <div class="col-12 col-md-3">
+        <label class="form-label small fw-semibold" for="extraServiceAmount">Сума, грн</label>
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          class="form-control"
+          id="extraServiceAmount"
+          name="extra_service_amount_uah"
+          value="{{ order.extra_service_amount_uah|default_if_none:'0' }}"
+          {% if readonly %}disabled{% endif %}
+        />
       </div>
     </div>
 
@@ -117,17 +184,8 @@
 
     <!-- Підсумок по замовленню -->
     <div class="order-total-bar mt-3 p-3 rounded-3 shadow-sm">
-      <div class="mt-2">
-        <label class="form-label fw-semibold">Примітка до замовлення</label>
-        <textarea
-          class="form-control"
-          name="note"
-          rows="3"
-          placeholder="Вкажіть додаткову інформацію..."
-          {% if readonly %}disabled{% endif %}>{{ order.note|default_if_none:"" }}</textarea>
-      </div>
       {% if not readonly %}
-        <div class="d-flex flex-wrap gap-2 mt-3">
+        <div class="d-flex flex-wrap gap-2">
           <button type="submit" class="btn btn-primary" name="status_action" value="save" data-status-action="save">Зберегти</button>
           {% if order %}
             {% if order.status == order.STATUS_QUOTE %}
@@ -153,12 +211,12 @@
       {% if proposal_page_url or proposal_excel_url %}
         <div class="d-flex flex-wrap gap-2 mt-2">
           {% if proposal_page_url %}
-            <a class="btn btn-outline-secondary" href="{{ proposal_page_url }}" target="_blank">
-              <i class="bi bi-file-earmark-text me-1"></i> Комерційна пропозиція (сторінка)
+            <a class="btn btn-warning text-dark" href="{{ proposal_page_url }}" target="_blank">
+              <i class="bi bi-eye me-1"></i> Комерційна пропозиція (сторінка)
             </a>
           {% endif %}
           {% if proposal_excel_url %}
-            <a class="btn btn-outline-secondary" href="{{ proposal_excel_url }}">
+            <a class="btn btn-success" href="{{ proposal_excel_url }}">
               <i class="bi bi-file-earmark-excel me-1"></i> Комерційна пропозиція (Excel)
             </a>
           {% endif %}
@@ -221,12 +279,6 @@
       </div>
     </div>
   </div>
-
-  {% if not readonly %}
-  <div class="d-grid mt-3">
-    <button type="submit" form="componentsOrderForm" class="btn btn-success btn-lg" name="status_action" value="save" data-status-action="save">Зберегти замовлення</button>
-  </div>
-  {% endif %}
 
   {% if status_logs %}
     <div class="card border-0 shadow-sm mt-3">
@@ -764,10 +816,13 @@
 
       const markupPercent = Number($('#orderMarkup').val() || 0);
       const sumWithMarkup = sumTotal * (1 + markupPercent / 100);
+      const extraServiceUah = Number($('#extraServiceAmount').val() || 0);
+      const baseUah = eurToUahRaw(sumTotal);
+      const withMarkupUah = eurToUahRaw(sumWithMarkup);
 
       $('#componentsOrderTotal').text(money(sumTotal));
-      $('#componentsOrderTotalBaseUah').text(uahTotal(sumTotal));
-      $('#componentsOrderTotalUah').text(uahTotal(sumWithMarkup));
+      $('#componentsOrderTotalBaseUah').text(String(Math.ceil(baseUah + extraServiceUah)));
+      $('#componentsOrderTotalUah').text(String(Math.ceil(withMarkupUah + extraServiceUah)));
     }
 
     // ---------- Add / remove rows ----------
@@ -807,6 +862,9 @@
     }
 
     $('#orderMarkup').on('input change', function () {
+      recalcComponentsPrice();
+    });
+    $('#extraServiceAmount').on('input change', function () {
       recalcComponentsPrice();
     });
 

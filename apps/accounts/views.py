@@ -8,7 +8,6 @@ from .models import User
 from apps.customers.models import CustomerProfile, CustomerContact
 from apps.accounts.roles import is_manager
 from apps.orders.views import compute_balance
-from apps.accounts.forms import ClientCreateForm
 
 def register_view(request):
     # Only managers/admins can create accounts via this form
@@ -127,9 +126,11 @@ def profile_view(request, pk=None):
         {
             "form": form,
             "target_user": target_user,
+            "profile_instance": profile,
             "can_edit_credit": can_edit_credit,
             "can_edit_role": can_edit_role,
             "contact_formset": contact_formset,
+            "is_creation": False,
         },
     )
 
@@ -205,28 +206,68 @@ def client_create_view(request):
         messages.error(request, "Доступ заборонено.")
         return redirect("core:dashboard")
 
+    target_user = User(is_customer=True, is_manager=False)
+    profile = CustomerProfile(user=target_user)
+    setattr(target_user, "customerprofile", profile)
+
+    can_edit_credit = True
+    can_edit_role = True
+
     if request.method == "POST":
-        form = ClientCreateForm(request.POST)
-        if form.is_valid():
-            user = User.objects.create(
-                email=form.cleaned_data["email"],
-                username=form.cleaned_data["email"],
-                is_customer=True,
-                is_manager=False,
-            )
-            user.set_password(form.cleaned_data["password"])
-            user.save()
-            CustomerProfile.objects.get_or_create(
-                user=user,
-                defaults={
-                    "full_name": form.cleaned_data.get("full_name", ""),
-                    "phone": form.cleaned_data.get("phone", ""),
-                    "contact_email": form.cleaned_data.get("contact_email", ""),
-                    "note": form.cleaned_data.get("note", ""),
-                },
-            )
+        form = ProfileForm(
+            request.POST,
+            request.FILES,
+            user_instance=target_user,
+            profile_instance=profile,
+            can_edit_credit=can_edit_credit,
+            can_edit_role=can_edit_role,
+            creating=True,
+        )
+        contact_formset = ContactFormSet(request.POST, prefix="contacts")
+        if form.is_valid() and contact_formset.is_valid():
+            user = form.save()
+            profile = getattr(user, "customerprofile", None) or CustomerProfile.objects.get(user=user)
+            existing_ids = set()
+            for cform in contact_formset:
+                data = cform.cleaned_data
+                if not data:
+                    continue
+                if data.get("DELETE"):
+                    continue
+                phone = (data.get("phone") or "").strip()
+                name = (data.get("contact_name") or "").strip()
+                email = (data.get("email") or "").strip()
+                if not phone and not name and not email:
+                    continue
+                contact = CustomerContact.objects.create(
+                    profile=profile,
+                    phone=phone,
+                    contact_name=name,
+                    email=email,
+                )
+                existing_ids.add(contact.id)
             messages.success(request, "Клієнта створено.")
             return redirect("accounts:clients_list")
     else:
-        form = ClientCreateForm()
-    return render(request, "accounts/client_create.html", {"form": form})
+        form = ProfileForm(
+            user_instance=target_user,
+            profile_instance=profile,
+            can_edit_credit=can_edit_credit,
+            can_edit_role=can_edit_role,
+            creating=True,
+        )
+        contact_formset = ContactFormSet(initial=[], prefix="contacts")
+
+    return render(
+        request,
+        "accounts/profile.html",
+        {
+            "form": form,
+            "target_user": target_user,
+            "profile_instance": profile,
+            "can_edit_credit": can_edit_credit,
+            "can_edit_role": can_edit_role,
+            "contact_formset": contact_formset,
+            "is_creation": True,
+        },
+    )

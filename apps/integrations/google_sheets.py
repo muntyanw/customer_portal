@@ -164,6 +164,49 @@ def pick_width_band(width_bands: List[str], width_mm: int) -> Optional[int]:
     return None
 
 
+def _compute_price_detail(
+    *,
+    fabric: Dict,
+    width_mm: int,
+    gabarit_height_mm: int,
+    bands: List[Any],
+    band_idx: int,
+    base_cell: Any,
+    magnets_price: Optional[Q] = None,
+) -> Dict[str, Any]:
+    """
+    UA: Розрахунок бази/доплати + перевірка ширини по висоті рулону.
+    EN: Compute base/surcharge and enforce roll-height width limit.
+    """
+    if base_cell is None:
+        raise ValueError("Ціна відсутня у вибраній смузі")
+
+    limit = fabric.get("gabarit_limit_mm") or 0
+    roll_mm = fabric.get("roll_height_mm") or 0
+    base = Q(base_cell)
+
+    if gabarit_height_mm <= limit:
+        surcharge = Q("0.00")
+    else:
+        over = gabarit_height_mm - limit
+        steps = (over + 99) // 100  # кожні 10см, заокруглення догори
+        surcharge = round_money(base * Q("0.10") * Q(int(steps)))
+
+    # Якщо висота виробу перевищує габаритну — ширина обмежується висотою рулону
+    if gabarit_height_mm > limit and roll_mm and width_mm > roll_mm:
+        raise ValueError("При перевищенні габаритної висоти ширина не може бути більшою за висоту рулону")
+
+    return {
+        "gabarit_limit_mm": limit or None,
+        "roll_height_mm": roll_mm or None,
+        "band_index": band_idx,
+        "band_label": bands[band_idx] if bands and band_idx < len(bands) else None,
+        "base_price_eur": str(round_money(base)),
+        "surcharge_height_eur": str(surcharge),
+        "magnets_price_eur": str(round_money(magnets_price or Q("0.00"))),
+    }
+
+
 def fillOptions(sheet_name, result, ws, header_row, section_title=""):
     
         # 6) Extra magnets price (for Falshi sheet only)
@@ -431,10 +474,11 @@ def parse_sheet_price_section(
     result = {}
 
     wb = _download_workbook(google_sheet_url, force_refresh=False)
-    if sheet_name not in wb.sheetnames:
+    sheet_name_clean = (sheet_name or "").strip()
+    if sheet_name_clean not in wb.sheetnames:
         raise ValueError(f"Sheet '{sheet_name}' not found in workbook")
 
-    ws = wb[sheet_name]
+    ws = wb[sheet_name_clean]
 
     all_sections = find_sections_by_headers(
         ws,
@@ -448,7 +492,7 @@ def parse_sheet_price_section(
     result["sheet_name"] = sheet_name or ""
     result["sections"] = all_sections or None
     
-    cg = getConfigBySheetName(sheet_name)
+    cg = getConfigBySheetName(sheet_name_clean)
     if cg.gbDiffWidthMm:
         result["GbDiffWidthMm"] = cg.gbDiffWidthMm
     else:
@@ -579,6 +623,7 @@ def parse_sheet_price_section(
     result["section_title"] = section_title or ""
     result["fabrics"] = fabrics or None
     result["section"] = target or ""
+    result["GbDiffWidthMm"] = cg.gbDiffWidthMm or 0
     
     result = fillOptions(sheet_name, result, ws, header_row, section_title=section_title)
 
@@ -604,32 +649,22 @@ def parse_sheet_price_section(
         raise ValueError("Тканину не знайдено у вибраній секції")
 
     base_cell = fabric["prices_by_band"][idx]
-    if base_cell is None:
-        raise ValueError("Ціна відсутня у вибраній смузі")
-
-    base = Q(base_cell)
-
-    limit = fabric["gabarit_limit_mm"] or 0
-    if gabarit_height_mm <= limit:
-        surcharge = Q("0.00")
-    else:
-        over = gabarit_height_mm - limit
-        steps = (over + 99) // 100  # кожні 10см, заокруглення догори
-        surcharge = round_money(base * Q("0.10") * Q(int(steps)))
-        
-    if gabarit_height_mm > limit and gb_width_mm > limit:
-        raise ValueError("Габарітна ширина та висота не можуть бути одночасно більше габарітноі висоти рулону")
-
-
-        
-    result["gabarit_limit_mm"] = limit or None
-    result["gb_width_mm"] = gb_width_mm or None
-    result["band_index"] = idx or None
-    result["band_label"] = (
-        width_bands[idx] if width_bands and idx < len(width_bands) else None
+    detail = _compute_price_detail(
+        fabric=fabric,
+        width_mm=gb_width_mm,
+        gabarit_height_mm=gabarit_height_mm,
+        bands=width_bands,
+        band_idx=idx,
+        base_cell=base_cell,
     )
-    result["base_price_eur"] = str(round_money(base)) if base else None
-    result["surcharge_height_eur"] = str(surcharge) if surcharge else None
+
+    result["gabarit_limit_mm"] = detail["gabarit_limit_mm"]
+    result["roll_height_mm"] = detail["roll_height_mm"]
+    result["gb_width_mm"] = gb_width_mm or None
+    result["band_index"] = detail["band_index"]
+    result["band_label"] = detail["band_label"]
+    result["base_price_eur"] = detail["base_price_eur"]
+    result["surcharge_height_eur"] = detail["surcharge_height_eur"]
 
     return result
 
@@ -675,29 +710,26 @@ def price_preview_section(
         raise ValueError("Тканину не знайдено у вибраній секції")
 
     base_cell = fabric["prices_by_band"][idx]
-    if base_cell is None:
-        raise ValueError("Ціна відсутня у вибраній смузі")
-
-    base = Q(base_cell)
-
-    limit = fabric["gabarit_limit_mm"] or 0
-    if gabarit_height_mm <= limit:
-        surcharge = Q("0.00")
-    else:
-        over = gabarit_height_mm - limit
-        steps = (over + 99) // 100  # кожні 10см, заокруглення догори
-        surcharge = round_money(base * Q("0.10") * Q(int(steps)))
-
     magnets_price = parsed.get("magnets_price_eur") or Q("0.00")
 
+    detail = _compute_price_detail(
+        fabric=fabric,
+        width_mm=width_mm,
+        gabarit_height_mm=gabarit_height_mm,
+        bands=bands,
+        band_idx=idx,
+        base_cell=base_cell,
+        magnets_price=magnets_price,
+    )
+
     return {
-        "roll_height_mm": fabric["roll_height_mm"],
-        "gabarit_limit_mm": limit,
-        "band_index": idx,
-        "band_label": bands[idx],
-        "base_price_eur": str(round_money(base)),
-        "surcharge_height_eur": str(surcharge),
-        "magnets_price_eur": str(round_money(magnets_price)),
+        "roll_height_mm": detail["roll_height_mm"],
+        "gabarit_limit_mm": detail["gabarit_limit_mm"],
+        "band_index": detail["band_index"],
+        "band_label": detail["band_label"],
+        "base_price_eur": detail["base_price_eur"],
+        "surcharge_height_eur": detail["surcharge_height_eur"],
+        "magnets_price_eur": detail["magnets_price_eur"],
     }
     
 

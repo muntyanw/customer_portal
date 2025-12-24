@@ -11,53 +11,69 @@
 {% block dashboard_content %}
   <div class="card shadow-sm mb-3">
     <div class="card-body">
-      <form method="get" class="row g-2 align-items-end">
-        <div class="col-md-4 col-lg-3">
-          <label class="form-label">Статус</label>
-          <select name="status" class="form-select">
-            <option value="">Усі</option>
-            {% for code,label in statuses %}
-              <option value="{{ code }}" {% if status_filter == code %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        {% if customer_options %}
-          <div class="col-md-4 col-lg-3">
-            <label class="form-label">Клієнт</label>
-            <select name="customer" class="form-select">
+      <div class="d-flex justify-content-between align-items-center d-md-none mb-2">
+        <div class="fw-semibold">Фільтри</div>
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse" aria-expanded="false" aria-controls="filtersCollapse">
+          Показати / Сховати
+        </button>
+      </div>
+      <div class="collapse d-md-block" id="filtersCollapse">
+        <form method="get" class="d-flex flex-wrap align-items-end gap-2">
+          <div class="filter-field">
+            <label class="form-label mb-1">Статус</label>
+            <select name="status" class="form-select form-select-sm filter-narrow">
               <option value="">Усі</option>
-              {% for c in customer_options %}
-                <option value="{{ c.id }}" {% if customer_filter|add:'0' == c.id|add:'0' %}selected{% endif %}>
-                  {% if c.customerprofile.full_name %}{{ c.customerprofile.full_name }}{% else %}{{ c }}{% endif %}
-                </option>
+              {% for code,label in statuses %}
+                <option value="{{ code }}" {% if status_filter == code %}selected{% endif %}>{{ label }}</option>
               {% endfor %}
             </select>
           </div>
-        {% endif %}
-        <div class="col-md-2 col-lg-2">
-          <label class="form-label">№ замовлення</label>
-          <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm" placeholder="Наприклад: 123">
-        </div>
-        <div class="col-auto d-flex gap-2">
-          <button type="submit" class="btn btn-primary">Фільтрувати</button>
-          {% if list_mode == 'components' %}
-            <a href="{% url 'orders:components_list' %}" class="btn btn-outline-secondary">Скинути</a>
-          {% else %}
-            <a href="{% url 'orders:list' %}" class="btn btn-outline-secondary">Скинути</a>
+          {% if customer_options %}
+            <div class="filter-field client">
+              <label class="form-label mb-1">Клієнт</label>
+              <select name="customer" id="customerFilter" class="form-select form-select-sm filter-narrow">
+                <option value="">Усі</option>
+                {% for c in customer_options %}
+                  <option value="{{ c.id }}" {% if customer_filter|add:'0' == c.id|add:'0' %}selected{% endif %}>
+                    {% if c.customerprofile.full_name %}{{ c.customerprofile.full_name }}{% else %}{{ c }}{% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
           {% endif %}
-        </div>
-        <div class="col ms-auto d-flex justify-content-end align-items-end gap-2">
-          {% if list_mode == 'components' %}
-            <a href="{% url 'orders:components_builder_create' %}" class="btn btn-success">
-              <i class="bi bi-tools me-1"></i> Нове замовлення (Комплектуючі)
-            </a>
-          {% else %}
-            <a href="{% url 'orders:builder' %}" class="btn btn-success">
-              <i class="bi bi-plus-lg me-1"></i> Нове замовлення (Ролети)
-            </a>
-          {% endif %}
-        </div>
-      </form>
+          <div class="filter-field">
+            <label class="form-label mb-1">№ замовлення</label>
+            <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm filter-narrow" placeholder="Наприклад: 123">
+          </div>
+          <div class="filter-field">
+            <label class="form-label mb-1">Від дати</label>
+            <input type="date" name="date_from" value="{{ date_from }}" class="form-control form-control-sm filter-narrow">
+          </div>
+          <div class="filter-field">
+            <label class="form-label mb-1">До дати</label>
+            <input type="date" name="date_to" value="{{ date_to }}" class="form-control form-control-sm filter-narrow">
+          </div>
+          <div class="d-flex gap-2 align-items-end">
+            <button type="submit" class="btn btn-primary btn-sm">Фільтрувати</button>
+            {% if list_mode == 'components' %}
+              <a href="{% url 'orders:components_list' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
+            {% else %}
+              <a href="{% url 'orders:list' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
+            {% endif %}
+          </div>
+          <div class="ms-auto d-flex justify-content-end align-items-end gap-2">
+            {% if list_mode == 'components' %}
+              <a href="{% url 'orders:components_builder_create' %}" class="btn btn-success">
+                <i class="bi bi-tools me-1"></i> Нове замовлення (Комплектуючі)
+              </a>
+            {% else %}
+              <a href="{% url 'orders:builder' %}" class="btn btn-success">
+                <i class="bi bi-plus-lg me-1"></i> Нове замовлення (Ролети)
+              </a>
+            {% endif %}
+          </div>
+        </form>
+      </div>
     </div>
   </div>
 
@@ -119,6 +135,21 @@
 
 {% block body_extra %}
   {{ block.super }}
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+  <style>
+    .filter-narrow { min-width: 110px; max-width: 140px; }
+    .filter-field { min-width: 110px; max-width: 140px; }
+    .filter-field.client { min-width: 220px; max-width: 280px; }
+    @media (max-width: 767.98px) {
+      .filter-narrow,
+      .filter-field,
+      .filter-field.client {
+        min-width: 100%;
+        max-width: 100%;
+      }
+    }
+  </style>
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       const isManager = {{ request.user.is_manager|yesno:"true,false" }};
@@ -140,6 +171,15 @@
       const cancelBtn = document.getElementById('paymentListCancelBtn');
       let pendingForm = null;
       let modal = null;
+
+      const $clientSelect = $('#customerFilter');
+      if ($clientSelect.length) {
+        $clientSelect.select2({
+          width: '100%',
+          placeholder: 'Клієнт',
+          allowClear: true,
+        });
+      }
 
       if (modalEl) {
         modal = new bootstrap.Modal(modalEl);

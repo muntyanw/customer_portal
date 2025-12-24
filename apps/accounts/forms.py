@@ -38,7 +38,11 @@ class ProfileForm(forms.Form):
         self.profile_instance = kwargs.pop("profile_instance")
         can_edit_credit = kwargs.pop("can_edit_credit", False)
         can_edit_role = kwargs.pop("can_edit_role", False)
+        self.creating = kwargs.pop("creating", False)
         super().__init__(*args, **kwargs)
+        if self.creating:
+            self.fields["password"] = forms.CharField(label="Пароль", widget=forms.PasswordInput, required=True)
+            self.fields["password2"] = forms.CharField(label="Підтвердити пароль", widget=forms.PasswordInput, required=True)
         self.fields["email"].initial = self.user_instance.email
         self.fields["company_name"].initial = self.profile_instance.company_name
         self.fields["full_name"].initial = self.profile_instance.full_name
@@ -56,6 +60,9 @@ class ProfileForm(forms.Form):
             self.fields["is_manager"].initial = bool(getattr(self.user_instance, "is_manager", False))
         else:
             self.fields.pop("is_manager", None)
+        if self.creating:
+            # ensure password fields rendered after other fields
+            self.order_fields(list(self.fields.keys()))
         for field in self.fields.values():
             if isinstance(field.widget, forms.Textarea):
                 field.widget.attrs.update({"class": "form-control"})
@@ -66,11 +73,19 @@ class ProfileForm(forms.Form):
     def save(self):
         self.user_instance.email = self.cleaned_data["email"]
         self.user_instance.username = self.cleaned_data["email"]
-        update_fields = ["email", "username"]
+        is_new = self.user_instance.pk is None
         if "is_manager" in self.cleaned_data:
             self.user_instance.is_manager = bool(self.cleaned_data.get("is_manager", False))
-            update_fields.append("is_manager")
-        self.user_instance.save(update_fields=update_fields)
+        if self.creating:
+            self.user_instance.is_customer = True
+            if "password" in self.cleaned_data:
+                self.user_instance.set_password(self.cleaned_data["password"])
+            self.user_instance.save()
+        else:
+            update_fields = ["email", "username"]
+            if "is_manager" in self.cleaned_data:
+                update_fields.append("is_manager")
+            self.user_instance.save(update_fields=update_fields)
 
         self.profile_instance.company_name = self.cleaned_data.get("company_name", "")
         self.profile_instance.full_name = self.cleaned_data.get("full_name", "")
@@ -84,11 +99,16 @@ class ProfileForm(forms.Form):
             self.profile_instance.credit_allowed = self.cleaned_data.get("credit_allowed", False)
         if self.cleaned_data.get("avatar"):
             self.profile_instance.avatar = self.cleaned_data["avatar"]
+        if is_new and not getattr(self.profile_instance, "user_id", None):
+            self.profile_instance.user = self.user_instance
         self.profile_instance.save()
         return self.user_instance
 
     def clean(self):
         cleaned = super().clean()
+        if self.creating:
+            if cleaned.get("password") != cleaned.get("password2"):
+                self.add_error("password2", "Паролі не співпадають")
         method = cleaned.get("delivery_method")
         branch = (cleaned.get("delivery_branch") or "").strip()
         if method == CustomerProfile.DELIVERY_NP and not branch:

@@ -1,12 +1,23 @@
 {% extends 'core/dashboard_base.html' %}
-{% block dashboard_title %}Видалити замовлення{% endblock %}
+{% block dashboard_title %}{% if restore %}Відновити замовлення{% else %}Видалити замовлення{% endif %}{% endblock %}
 
 {% block dashboard_content %}
-<h3>Видалити замовлення #{{ order.id }}?</h3>
+<h3>
+  {% if restore %}
+    Відновити замовлення #{{ order.id }} з кошика?
+  {% else %}
+    Перемістити замовлення #{{ order.id }} до кошика?
+  {% endif %}
+</h3>
 
 <form method="post">
     {% csrf_token %}
-    <button class="btn btn-danger">Так, видалити</button>
-    <a href="{% url 'orders:detail' order.id %}" class="btn btn-secondary">Скасувати</a>
+    {% if restore %}
+      <button class="btn btn-primary">Так, відновити</button>
+      <a href="{% url 'orders:trash' %}" class="btn btn-secondary">Скасувати</a>
+    {% else %}
+      <button class="btn btn-danger">Так, перемістити</button>
+      <a href="{% url 'orders:detail' order.id %}" class="btn btn-secondary">Скасувати</a>
+    {% endif %}
 </form>
 {% endblock %}

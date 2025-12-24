@@ -23,7 +23,7 @@ from .models import (
 from apps.customers.models import CustomerProfile
 from apps.accounts.roles import is_manager
 import json
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_UP
 import re
 from django.contrib.admin.views.decorators import staff_member_required
 from django.conf import settings
@@ -95,7 +95,7 @@ def _order_from_token(token: str) -> Order:
     order_id = (data or {}).get("order")
     if not order_id:
         raise Http404("Замовлення не знайдено.")
-    return get_object_or_404(Order, pk=order_id)
+    return get_object_or_404(Order, pk=order_id, deleted=False)
 
 
 def _collect_item_options(item: OrderItem, rate: Decimal):
@@ -178,8 +178,40 @@ class CurrencyAutoUpdateForm(forms.Form):
 
 def _orders_scope(user):
     if is_manager(user):
-        return Order.objects.all()
-    return Order.objects.filter(customer=user)
+        return Order.objects.filter(deleted=False)
+    return Order.objects.filter(customer=user, deleted=False)
+
+
+def _parse_date_range(params):
+    """
+    Read date_from/date_to from GET params, fallback to last 30 days ending today.
+    Returns (date_from, date_to, date_from_str, date_to_str).
+    """
+    date_from_str = (params.get("date_from") or "").strip()
+    date_to_str = (params.get("date_to") or "").strip()
+    date_from = None
+    date_to = None
+
+    if date_from_str:
+        try:
+            date_from = datetime.datetime.strptime(date_from_str, "%Y-%m-%d").date()
+        except ValueError:
+            date_from = None
+    if date_to_str:
+        try:
+            date_to = datetime.datetime.strptime(date_to_str, "%Y-%m-%d").date()
+        except ValueError:
+            date_to = None
+
+    today = timezone.localdate()
+    if not date_to:
+        date_to = today
+        date_to_str = date_to.isoformat()
+    if not date_from:
+        date_from = date_to - datetime.timedelta(days=30)
+        date_from_str = date_from.isoformat()
+
+    return date_from, date_to, date_from_str, date_to_str
 
 
 def _transactions_scope(user):
@@ -196,7 +228,8 @@ def _order_rate(order, current_rate: Decimal) -> Decimal:
     return Decimal(current_rate or 0)
 
 def _round_uah_total(value: Decimal) -> Decimal:
-    return Decimal(value or 0).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    # Округлюємо завжди вгору (ceil) для узгодження з фронтом
+    return Decimal(value or 0).quantize(Decimal("1"), rounding=ROUND_UP)
 
 
 def _order_base_total(order) -> Decimal:
@@ -227,17 +260,20 @@ def _set_order_totals_uah(orders, current_rate: Decimal):
         rate = _order_rate(o, current_rate)
         total_eur = _order_base_total(o)
         o.display_rate = rate
-        o.total_uah_display = _round_uah_total(total_eur * rate)
+        extra_uah = Decimal(getattr(o, "extra_service_amount_uah", 0) or 0)
+        o.total_uah_display = _round_uah_total(total_eur * rate * (Decimal("1") + Decimal(o.markup_percent or 0) / Decimal("100")) + extra_uah)
     return orders
 
 
 def _order_total_uah(order, current_rate: Decimal) -> Decimal:
-    return _round_uah_total(_order_base_total(order) * _order_rate(order, current_rate))
+    extra_uah = Decimal(getattr(order, "extra_service_amount_uah", 0) or 0)
+    total = _order_base_total(order) * _order_rate(order, current_rate) * (Decimal("1") + Decimal(order.markup_percent or 0) / Decimal("100")) + extra_uah
+    return _round_uah_total(total)
 
 
 def _orders_total_uah(orders_qs, current_rate: Decimal) -> Decimal:
     return sum(
-        _round_uah_total(_order_base_total(o) * _order_rate(o, current_rate))
+        _round_uah_total(_order_base_total(o) * _order_rate(o, current_rate) * (Decimal("1") + Decimal(o.markup_percent or 0) / Decimal("100")) + Decimal(getattr(o, "extra_service_amount_uah", 0) or 0))
         for o in orders_qs
     )
 
@@ -436,18 +472,30 @@ def _build_proposal_workbook(order):
     rate = _order_rate(order, get_current_eur_rate())
     base_total_eur = _order_base_total(order)
     markup = Decimal(order.markup_percent or 0)
+    extra_uah = Decimal(getattr(order, "extra_service_amount_uah", 0) or 0)
     total_with_markup_uah = _round_uah_total(
-        base_total_eur * (Decimal("1") + markup / Decimal("100")) * Decimal(rate or 0)
+        base_total_eur * (Decimal("1") + markup / Decimal("100")) * Decimal(rate or 0) + extra_uah
     )
     created_str = (
         order.created_at.astimezone(timezone.get_current_timezone()).strftime("%d.%m.%Y %H:%M")
         if order.created_at
         else ""
     )
+    profile = getattr(order.customer, "customerprofile", None)
+    customer_name = getattr(profile, "company_name", "") or getattr(profile, "full_name", "") or str(order.customer)
+    customer_phone = getattr(profile, "phone", "") or ""
+    customer_full_name = getattr(profile, "full_name", "") or str(order.customer)
+    customer_address = getattr(profile, "trade_address", "") or ""
 
     ws.append([f"Комерційна пропозиція №{order.pk}"])
     if created_str:
         ws.append(["Створено", created_str])
+    ws.append(["Клієнт", customer_name])
+    ws.append(["Телефон", customer_phone])
+    ws.append(["ПІБ", customer_full_name])
+    ws.append(["Адреса", customer_address])
+    if extra_uah:
+        ws.append(["Додаткова послуга", f"{order.extra_service_label or 'Послуга'} — {float(extra_uah)} грн"])
     ws.append(["Вартість замовлення, грн", float(total_with_markup_uah)])
     ws.append([])
 
@@ -634,7 +682,7 @@ def _apply_status_change(order, new_status, request):
 def compute_balance(user, force_personal: bool = False):
     current_rate = get_current_eur_rate()
     if force_personal:
-        orders_qs = Order.objects.filter(customer=user)
+        orders_qs = Order.objects.filter(customer=user, deleted=False)
         tx_qs = Transaction.objects.filter(customer=user)
     else:
         orders_qs = _orders_scope(user)
@@ -688,6 +736,7 @@ class TransactionForm(forms.ModelForm):
         self.fields["customer"].widget.attrs.update({"class": "form-select", "data-customer-picker": "true"})
         self.fields["type"].widget.attrs.update({"class": "form-select"})
         self.fields["order"].widget.attrs.update({"class": "form-select"})
+        self.fields["order"].queryset = Order.objects.filter(deleted=False)
         self.fields["amount"].label = "Сума, грн"
         self.fields["payment_type"].label = "Вид оплати"
         self.fields["account_number"].label = "Номер рахунку (для 'На рахунок')"
@@ -731,6 +780,7 @@ def order_list(request):
     status_filter = request.GET.get("status") or ""
     customer_filter = request.GET.get("customer") or ""
     q = (request.GET.get("q") or "").strip()
+    date_from, date_to, date_from_str, date_to_str = _parse_date_range(request.GET)
     balance_user = request.user
     orders_qs = (
         _orders_scope(request.user)
@@ -744,6 +794,10 @@ def order_list(request):
 
     if status_filter:
         orders_qs = orders_qs.filter(status=status_filter)
+    if date_from:
+        orders_qs = orders_qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        orders_qs = orders_qs.filter(created_at__date__lte=date_to)
 
     if customer_filter and is_manager(request.user):
         balance_user = get_object_or_404(User, pk=customer_filter)
@@ -780,6 +834,8 @@ def order_list(request):
         "statuses": Order.STATUS_CHOICES,
         "status_filter": status_filter,
         "customer_filter": customer_filter,
+        "date_from": date_from_str,
+        "date_to": date_to_str,
         "customer_options": customers_filter_list,
         "list_mode": "rollers",
         "status_badges": STATUS_BADGES,
@@ -807,6 +863,7 @@ def order_components_list(request):
     status_filter = request.GET.get("status") or ""
     customer_filter = request.GET.get("customer") or ""
     q = (request.GET.get("q") or "").strip()
+    date_from, date_to, date_from_str, date_to_str = _parse_date_range(request.GET)
     balance_user = request.user
 
     qs = (
@@ -821,6 +878,10 @@ def order_components_list(request):
 
     if status_filter:
         qs = qs.filter(status=status_filter)
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
     if customer_filter and is_manager(request.user):
         balance_user = get_object_or_404(User, pk=customer_filter)
         qs = qs.filter(customer=balance_user)
@@ -857,6 +918,8 @@ def order_components_list(request):
         "statuses": Order.STATUS_CHOICES,
         "status_filter": status_filter,
         "customer_filter": customer_filter,
+        "date_from": date_from_str,
+        "date_to": date_to_str,
         "customer_options": customers_filter_list,
         "status_badges": STATUS_BADGES,
         "status_labels": STATUS_LABELS,
@@ -954,9 +1017,9 @@ def order_update(request, pk: int):
     Manager — будь-які.
     """
     if is_manager(request.user):
-        order = get_object_or_404(Order, pk=pk)
+        order = get_object_or_404(Order, pk=pk, deleted=False)
     else:
-        order = get_object_or_404(Order, pk=pk, customer=request.user)
+        order = get_object_or_404(Order, pk=pk, customer=request.user, deleted=False)
 
     if request.method == "POST":
         form = OrderForm(request.POST, request.FILES, instance=order)
@@ -985,9 +1048,9 @@ def order_builder(request, pk=None):
     # Получение или создание ордера
     if pk:
         if is_manager(request.user):
-            order = get_object_or_404(Order, pk=pk)
+            order = get_object_or_404(Order, pk=pk, deleted=False)
         else:
-            order = get_object_or_404(Order, pk=pk, customer=request.user)
+            order = get_object_or_404(Order, pk=pk, customer=request.user, deleted=False)
     else:
         order = None
 
@@ -1013,6 +1076,8 @@ def order_builder(request, pk=None):
                 status=Order.STATUS_QUOTE,
             )
         order.note = (request.POST.get("note") or "").strip()
+        order.extra_service_label = (request.POST.get("extra_service_label") or "").strip()
+        extra_service_amount_uah = _to_decimal(request.POST.get("extra_service_amount_uah"), default="0")
 
         # Для менеджера можно добавить присвоение customer
         profile = getattr(request.user, "customerprofile", None)
@@ -1151,12 +1216,13 @@ def order_builder(request, pk=None):
 
         total_with_markup = items_total * (Decimal("1") + markup_percent / Decimal("100"))
 
+        order.extra_service_amount_uah = extra_service_amount_uah.quantize(Decimal("0.01"))
         order.markup_percent = markup_percent.quantize(Decimal("0.01"))
         order.eur_rate = eur_rate_value
         if not order.eur_rate_at_creation:
             order.eur_rate_at_creation = eur_rate_value
         order.total_eur = items_total.quantize(Decimal("0.01"))
-        order.save(update_fields=["markup_percent", "eur_rate", "total_eur", "eur_rate_at_creation", "note"])
+        order.save(update_fields=["markup_percent", "eur_rate", "total_eur", "eur_rate_at_creation", "note", "extra_service_label", "extra_service_amount_uah"])
 
         new_status = order.status
         if action == "to_work":
@@ -1284,9 +1350,9 @@ def order_delete(request, pk: int):
     """
     redirect_target = "orders:list"
     if is_manager(request.user):
-        order = get_object_or_404(Order, pk=pk)
+        order = get_object_or_404(Order, pk=pk, deleted=False)
     else:
-        order = get_object_or_404(Order, pk=pk, customer=request.user)
+        order = get_object_or_404(Order, pk=pk, customer=request.user, deleted=False)
 
     # Ограничение: клієнт може видаляти лише статус "Прорахунок"
     if (not is_manager(request.user)) and order.status != Order.STATUS_QUOTE:
@@ -1298,18 +1364,53 @@ def order_delete(request, pk: int):
         redirect_target = "orders:components_list"
 
     if request.method == "POST":
+        order.deleted = True
+        order.deleted_at = timezone.now()
+        if request.user.is_authenticated:
+            order.deleted_by = request.user
+        order.save(update_fields=["deleted", "deleted_at", "deleted_by"])
         OrderDeletionHistory.objects.create(
             order_id=order.pk,
             order_title=order.title,
             customer_email=getattr(order.customer, "email", "") or "",
             deleted_by=request.user if request.user.is_authenticated else None,
         )
-        order.delete()
-        messages.success(request, "Замовлення видалено.")
+        messages.success(request, "Замовлення переміщено до кошика.")
         return redirect(redirect_target)
 
-    # GET → страница подтверждения (если хочешь)
-    return render(request, "orders/delete_confirm.html", {"order": order})
+    # GET → страница підтвердження
+    return render(request, "orders/delete_confirm.html", {"order": order, "soft": True})
+
+
+@login_required
+def order_trash_list(request):
+    qs = Order.objects.filter(deleted=True).select_related("customer", "customer__customerprofile")
+    if not is_manager(request.user):
+        qs = qs.filter(customer=request.user)
+    qs = qs.order_by("-deleted_at", "-id")
+    return render(
+        request,
+        "orders/trash_list.html",
+        {"orders": qs, "is_manager": is_manager(request.user)},
+    )
+
+
+@login_required
+def order_restore(request, pk: int):
+    if is_manager(request.user):
+        order = get_object_or_404(Order, pk=pk, deleted=True)
+    else:
+        order = get_object_or_404(Order, pk=pk, customer=request.user, deleted=True)
+
+    if request.method == "POST":
+        order.deleted = False
+        order.deleted_at = None
+        order.deleted_by = None
+        order.save(update_fields=["deleted", "deleted_at", "deleted_by"])
+        messages.success(request, "Замовлення відновлено.")
+        return redirect("orders:trash")
+
+    return render(request, "orders/delete_confirm.html", {"order": order, "restore": True})
 
 
 @login_required
@@ -1433,7 +1534,7 @@ def order_components_builder(request, pk):
     EN: Builder for order components (sheet 'Комплектація').
     UA: Білдер комплектуючих для замовлення (аркуш 'Комплектація').
     """
-    order = get_object_or_404(Order, pk=pk)
+    order = get_object_or_404(Order, pk=pk, deleted=False)
     readonly = bool(order and (not is_manager(request.user) and order.status != Order.STATUS_QUOTE))
 
     if request.method == "POST":
@@ -1444,6 +1545,8 @@ def order_components_builder(request, pk):
         action = request.POST.get("status_action") or "save"
         components = parse_components_from_post(request.POST)
         order.note = (request.POST.get("note") or "").strip()
+        order.extra_service_label = (request.POST.get("extra_service_label") or "").strip()
+        order.extra_service_amount_uah = _to_decimal(request.POST.get("extra_service_amount_uah"), default="0").quantize(Decimal("0.01"))
         markup_percent = _to_decimal(request.POST.get("markup_percent"), default=str(order.markup_percent or "0"))
 
         # EN: Replace all existing components with new list
@@ -1482,7 +1585,7 @@ def order_components_builder(request, pk):
             new_status = order.prev_status()
         # Default save keeps current status
 
-        order.save(update_fields=["total_eur", "eur_rate", "markup_percent", "note"])
+        order.save(update_fields=["total_eur", "eur_rate", "markup_percent", "note", "extra_service_label", "extra_service_amount_uah"])
 
         if new_status and not _apply_status_change(order, new_status, request):
             return redirect(reverse("orders:order_components_builder", kwargs={"pk": order.pk}))
@@ -1554,9 +1657,9 @@ def update_status_preview(request, pk):
         return redirect(redirect_back)
 
     if is_manager(request.user):
-        order = get_object_or_404(Order, pk=pk)
+        order = get_object_or_404(Order, pk=pk, deleted=False)
     else:
-        order = get_object_or_404(Order, pk=pk, customer=request.user)
+        order = get_object_or_404(Order, pk=pk, customer=request.user, deleted=False)
 
     if request.method == "GET" and "status_action" not in request.GET:
         messages.warning(request, "Невірний запит.")
@@ -1628,7 +1731,7 @@ def update_status_bulk(request):
         messages.warning(request, "Оберіть хоча б одне замовлення.")
         return redirect(next_url)
 
-    qs = Order.objects.filter(pk__in=order_ids)
+    qs = Order.objects.filter(pk__in=order_ids, deleted=False)
     if not is_manager(request.user):
         qs = qs.filter(customer=request.user)
 
@@ -1660,12 +1763,18 @@ def order_proposal_page(request, token: str):
     Public read-only commercial proposal page (no auth required).
     """
     order = _order_from_token(token)
+    profile = getattr(order.customer, "customerprofile", None)
+    customer_name = getattr(profile, "company_name", "") or getattr(profile, "full_name", "") or str(order.customer)
+    customer_phone = getattr(profile, "phone", "") or ""
+    customer_full_name = getattr(profile, "full_name", "") or str(order.customer)
+    customer_address = getattr(profile, "trade_address", "") or ""
     rate = _order_rate(order, get_current_eur_rate())
     base_total_eur = _order_base_total(order)
     markup = Decimal(order.markup_percent or 0)
     total_with_markup_eur = base_total_eur * (Decimal("1") + markup / Decimal("100"))
-    total_base_uah = _round_uah_total(base_total_eur * rate)
-    total_with_markup_uah = _round_uah_total(total_with_markup_eur * rate)
+    extra_uah = Decimal(getattr(order, "extra_service_amount_uah", 0) or 0)
+    total_base_uah = _round_uah_total(base_total_eur * rate + extra_uah)
+    total_with_markup_uah = _round_uah_total(total_with_markup_eur * rate + extra_uah)
 
     items_payload = []
     for idx, it in enumerate(order.items.all(), start=1):
@@ -1712,6 +1821,12 @@ def order_proposal_page(request, token: str):
     proposal_excel_url = reverse("orders:proposal_excel", args=[token])
     context = {
         "order": order,
+        "customer_info": {
+            "name": customer_name,
+            "phone": customer_phone,
+            "full_name": customer_full_name,
+            "address": customer_address,
+        },
         "rate": rate,
         "base_total_eur": base_total_eur,
         "total_with_markup_eur": total_with_markup_eur,

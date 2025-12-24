@@ -98,6 +98,10 @@
           
           
         </a>
+        <a class="nav-link text-white {% if request.resolver_match.url_name == 'trash' %}active{% endif %}"
+           href="{% url 'orders:trash' %}">
+          <i class="bi bi-trash3 me-2"></i>Кошик замовлень
+        </a>
         <a class="nav-link text-white {% if request.resolver_match.url_name == 'profile' %}active{% endif %}"
            href="{% url 'accounts:profile' %}">
           <i class="bi bi-person-circle me-2"></i>Профіль

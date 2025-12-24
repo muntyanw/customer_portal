@@ -45,6 +45,22 @@
               <div class="text-muted small text-uppercase">Вартість замовлення</div>
               <div class="fw-semibold">{{ total_with_markup_uah|default_if_none:0|floatformat:0 }} грн</div>
             </div>
+            {% if order.extra_service_amount_uah %}
+              <div>
+                <div class="text-muted small text-uppercase">Додаткова послуга</div>
+                <div class="fw-semibold">{{ order.extra_service_label|default:"Послуга" }} — {{ order.extra_service_amount_uah|floatformat:0 }} грн</div>
+              </div>
+            {% endif %}
+            <div class="ms-auto">
+              <div class="text-muted small text-uppercase">Клієнт</div>
+              <div class="fw-semibold">{{ customer_info.name }}</div>
+              <div class="small text-muted">
+                {{ customer_info.full_name }}{% if customer_info.phone %} · {{ customer_info.phone }}{% endif %}
+              </div>
+              {% if customer_info.address %}
+                <div class="small text-muted">{{ customer_info.address }}</div>
+              {% endif %}
+            </div>
           </div>
         </div>
       </div>

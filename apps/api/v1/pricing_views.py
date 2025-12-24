@@ -158,8 +158,9 @@ def system_preview(request):
             return val.strip().lower() in ("1", "true", "yes", "on")
         return bool(val)
 
-    width_by_fabric = _to_bool(gabarit_width_flag)
-    height_by_fabric = _to_bool(fabric_height_flag)
+    system_is_flat = "плоска" in system_sheet.lower()
+    width_by_fabric = system_is_flat and _to_bool(gabarit_width_flag)
+    height_by_fabric = system_is_flat and _to_bool(fabric_height_flag)
 
     if width_by_fabric:
         width_mm += 44

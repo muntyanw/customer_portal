@@ -1,0 +1,46 @@
+{% extends 'core/dashboard_base.html' %}
+
+{% block dashboard_title %}Кошик замовлень{% endblock %}
+{% block dashboard_heading %}Кошик замовлень{% endblock %}
+
+{% block dashboard_content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <a href="{% url 'orders:list' %}" class="btn btn-outline-secondary btn-sm">
+      ← Повернутись до списку
+    </a>
+  </div>
+
+  {% if orders %}
+    <div class="d-flex flex-column gap-3">
+      {% for o in orders %}
+        <div class="card shadow-sm border-0">
+          <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+              <div>
+                <div class="fw-semibold">Замовлення №{{ o.id }}</div>
+                <div class="text-muted small">Статус: {{ o.get_status_display }}</div>
+                <div class="text-muted small">
+                  Видалено: {{ o.deleted_at|date:'d.m.Y H:i' }}{% if o.deleted_by %} · {{ o.deleted_by }}{% endif %}
+                </div>
+                <div class="text-muted small">
+                  Клієнт: {% if o.customer.customerprofile.full_name %}{{ o.customer.customerprofile.full_name }}{% else %}{{ o.customer }}{% endif %}
+                </div>
+              </div>
+              <form method="post" action="{% url 'orders:restore' o.id %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-primary btn-sm">
+                  Відновити
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="text-center text-muted py-5">
+      <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+      Кошик порожній.
+    </div>
+  {% endif %}
+{% endblock %}

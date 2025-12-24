@@ -53,8 +53,8 @@ sheetConfigs: dict[sheetName, sheetConfig] = {
     sheetName.vidkr25yiBesta: sheetConfig(gbDiffWidthMm=35),
     sheetName.vidkr25yiDn: sheetConfig(gbDiffWidthMm=30),
 
-    sheetName.vidkrPruzhynna: sheetConfig(gbDiffWidthMm=35),
-    sheetName.zakrPruzhPpodibBesta: sheetConfig(gbDiffWidthMm=20),
+    sheetName.vidkrPruzhynna: sheetConfig(gbDiffWidthMm=35, exist_control_side=0),
+    sheetName.zakrPruzhPpodibBesta: sheetConfig(gbDiffWidthMm=20, exist_control_side=0),
 
     sheetName.vidkr32yiLouvolitte: sheetConfig(gbDiffWidthMm=35),
     sheetName.vidkr47yiDvyhunAboLouvolit: sheetConfig(gbDiffWidthMm=50),
@@ -67,7 +67,17 @@ sheetConfigs: dict[sheetName, sheetConfig] = {
 # Поиск по строке названия листа
 # ---------------------------------------------
 def getConfigBySheetName(sheet_title: str) -> sheetConfig:
+    """
+    Возвращает конфиг листа по человеку-читаемому названию вкладки.
+    Делаем сравнение с обрезкой пробелов и без чувствительности к регистру,
+    потому что названия листов из Google Sheets могут приходить с лишними пробелами.
+    """
+    normalized = (sheet_title or "").strip()
     for key, cfg in sheetConfigs.items():
-        if key.value == sheet_title:
+        if key.value == normalized:
+            return cfg
+    norm_lower = normalized.casefold()
+    for key, cfg in sheetConfigs.items():
+        if key.value.casefold() == norm_lower:
             return cfg
     raise KeyError(f"sheet config not found: {sheet_title}")

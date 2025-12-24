@@ -1,7 +1,15 @@
 {% extends "core/dashboard_base.html" %}
 {% load form_tags %}
 {% block dashboard_title %}Профіль користувача{% endblock %}
-{% block dashboard_heading %}{% if target_user and target_user != request.user %}Профіль клієнта{% else %}Мій профіль{% endif %}{% endblock %}
+{% block dashboard_heading %}
+  {% if is_creation %}
+    Створення клієнта
+  {% elif target_user and target_user != request.user %}
+    Профіль клієнта
+  {% else %}
+    Мій профіль
+  {% endif %}
+{% endblock %}
 
 {% block dashboard_content %}
 <div class="row justify-content-center">
@@ -9,8 +17,8 @@
     <div class="card border-0 shadow-sm rounded-4">
       <div class="card-body p-4">
         <div class="d-flex align-items-center mb-4">
-          {% if target_user.customerprofile.avatar %}
-            <img src="{{ target_user.customerprofile.avatar.url }}" class="rounded-circle border me-3 avatar-click" width="72" height="72" alt="avatar" role="button" title="Змінити аватар">
+          {% if profile_instance and profile_instance.avatar %}
+            <img src="{{ profile_instance.avatar.url }}" class="rounded-circle border me-3 avatar-click" width="72" height="72" alt="avatar" role="button" title="Змінити аватар">
           {% else %}
             <img src="/static/media/avatar.png" class="rounded-circle border me-3 avatar-click" width="72" height="72" alt="avatar" role="button" title="Змінити аватар">
           {% endif %}
@@ -43,6 +51,20 @@
               {{ form.phone|add_class:"form-control form-control-lg" }}
               {% if form.phone.errors %}<div class="invalid-feedback d-block">{{ form.phone.errors|striptags }}</div>{% endif %}
             </div>
+            {% if form.password %}
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Пароль</label>
+                {{ form.password|add_class:"form-control form-control-lg" }}
+                {% if form.password.errors %}<div class="invalid-feedback d-block">{{ form.password.errors|striptags }}</div>{% endif %}
+              </div>
+            {% endif %}
+            {% if form.password2 %}
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Підтвердження пароля</label>
+                {{ form.password2|add_class:"form-control form-control-lg" }}
+                {% if form.password2.errors %}<div class="invalid-feedback d-block">{{ form.password2.errors|striptags }}</div>{% endif %}
+              </div>
+            {% endif %}
             <div class="col-md-6">
               <label class="form-label fw-semibold">Назва компанії *</label>
               {{ form.company_name|add_class:"form-control form-control-lg" }}
@@ -190,12 +212,32 @@
         });
       }
 
+      function formatPhone(val) {
+        const digits = (val || '').replace(/\D/g, '').slice(0, 10);
+        const parts = [];
+        if (digits.length > 0) parts.push(digits.slice(0, 3));
+        if (digits.length > 3) parts.push(digits.slice(3, 6));
+        if (digits.length > 6) parts.push(digits.slice(6, 8));
+        if (digits.length > 8) parts.push(digits.slice(8, 10));
+        return parts.join('-');
+      }
+
+      function bindPhoneMask(input) {
+        if (!input) return;
+        input.addEventListener('input', function () {
+          this.value = formatPhone(this.value);
+        });
+      }
+
       if (methodSelect) {
         methodSelect.addEventListener('change', toggleBranchField);
         toggleBranchField();
       }
 
       contactsContainer.querySelectorAll('.remove-contact').forEach(bindRemove);
+      // mask existing phone fields
+      bindPhoneMask(document.getElementById('id_phone'));
+      contactsContainer.querySelectorAll('input[name$="-phone"]').forEach(bindPhoneMask);
 
       if (addContactBtn) {
         addContactBtn.addEventListener('click', function () {
@@ -225,6 +267,7 @@
           contactsContainer.appendChild(row);
           totalForms.value = idx + 1;
           bindRemove(row.querySelector('.remove-contact'));
+          bindPhoneMask(row.querySelector('input[name$="-phone"]'));
         });
       }
     });

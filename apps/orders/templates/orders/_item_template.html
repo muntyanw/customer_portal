@@ -21,7 +21,7 @@
           <br />
           <br />
           <br />
-          <label class="form-label"><strong>Колір системи</strong></label>
+          <label class="form-label mt-3"><strong>Колір системи</strong></label>
           <select name="table_section" class="form-select table-section" disabled>
             <option value="">Спочатку оберіть систему…</option>
           </select>
@@ -36,7 +36,7 @@
           <br />
           <br />
           <br />
-          <div class="mb-2">
+          <div class="mb-2 mt-3">
             <label class="form-label"><strong>Колір тканини</strong></label>
             <select name="fabric_color_code" class="form-select fabric-color-code">
               <option value="" selected disabled>— Оберіть колір —</option>
@@ -51,9 +51,9 @@
               <input type="number" min="0" name="width_fabric_mm" class="form-control w-mm mb-2" placeholder="введіть мм" disabled />
               <div class="form-check mt-1 gabarit-width-flag">
                 <input class="form-check-input bottom-fixation" type="checkbox" name="gabarit_width_flag" disabled>
-                <label class="form-check-label ms-1">Ширина по тканині</label>
+                <label class="form-check-label ms-1 gabarit-width-label">Габаритна ширина</label>
               </div>
-              <div class="mt-3">
+              <div class="mt-3 height-block">
                 <label class="form-label"><strong>Висота, мм</strong></label>
                 <input type="number" min="0" name="height_gabarit_mm" class="form-control h-mm" placeholder="введіть мм" disabled />
                 <div class="form-check mt-1 fabric-height-flag">
@@ -71,7 +71,7 @@
                   <option value="right">Праворуч</option>
                 </select>
               </div>
-              <label class="form-label"><strong>Кількість виробів</strong></label>
+              <label class="form-label mt-3"><strong>Кількість виробів</strong></label>
               <input type="number" name="quantity" class="form-control qty" min="1" step="1" value="1" disabled />
             </div>
           </div>

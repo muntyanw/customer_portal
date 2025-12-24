@@ -46,5 +46,7 @@ urlpatterns = [
     path("<int:pk>/", views.order_detail, name="detail"),
     path("<int:pk>/edit/", views.order_update, name="update"),
     path("<int:pk>/delete/", views.order_delete, name="delete"),
+    path("trash/", views.order_trash_list, name="trash"),
+    path("trash/<int:pk>/restore/", views.order_restore, name="restore"),
     path("currency/update-eur/", views.update_eur_rate_view, name="update_eur_rate"),
 ]

@@ -60,6 +60,27 @@ class Order(models.Model):
         default=Decimal("0"),
         help_text="Процент націнки, що застосовано до замовлення",
     )
+    extra_service_label = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Назва додаткової послуги"
+    )
+    extra_service_amount_uah = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0"),
+        help_text="Сума додаткової послуги, грн"
+    )
+    deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="soft_deleted_orders",
+    )
     workbook_file = models.FileField(upload_to="order_exports/", blank=True, null=True)
 
     def __str__(self):
