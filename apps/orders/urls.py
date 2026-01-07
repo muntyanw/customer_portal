@@ -11,6 +11,7 @@ urlpatterns = [
     # список замовлень з комплектуючими
     path("components/", views.order_components_list, name="components_list"),
     path("balances/", views.balances_history, name="balances"),
+    path("balances/users/", views.balances_users, name="balances_users"),
 
     # білдер ролетів
     path("builder/", views.order_builder, name="builder"),
@@ -38,6 +39,9 @@ urlpatterns = [
 
     # транзакції
     path("transactions/new/", views.transaction_create, name="transaction_create"),
+    path("transactions/trash/", views.transaction_trash, name="transaction_trash"),
+    path("transactions/<int:pk>/restore/", views.transaction_restore, name="transaction_restore"),
+    path("transactions/<int:pk>/delete/", views.transaction_delete, name="transaction_delete"),
     path("settings/notifications/", views.order_notifications_settings, name="notifications_settings"),
     path("currency/history/", views.currency_rate_history, name="currency_history"),
 

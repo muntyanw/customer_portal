@@ -1,6 +1,6 @@
 {% extends 'core/base.html' %}
 {% block content %}
-<h2>Замовлення #{{ order.id }}</h2>
+<h2>Замовлення №{{ order.id }}</h2>
 <p><strong>Title:</strong> {{ order.title }}</p>
 <p><strong>Status:</strong> {{ order.get_status_display }}</p>
 <p><strong>Description:</strong> {{ order.description|linebreaksbr }}</p>

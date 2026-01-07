@@ -1,0 +1,57 @@
+{% extends "core/dashboard_base.html" %}
+{% load form_tags %}
+{% block dashboard_title %}Баланси{% endblock %}
+{% block dashboard_heading %}Баланси{% endblock %}
+
+{% block dashboard_content %}
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <form method="get" class="d-flex flex-wrap align-items-center gap-2">
+      <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm" placeholder="Пошук (ПІБ, email, телефон, компанія)">
+      <button type="submit" class="btn btn-primary btn-sm">Фільтрувати</button>
+      <a href="{% url 'orders:balances_users' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
+    </form>
+  </div>
+
+  <div class="table-responsive shadow-sm rounded-3">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'full_name' %}-full_name{% else %}full_name{% endif %}">ПІБ / Компанія</a></th>
+          <th>Email</th>
+          <th>Телефон</th>
+          <th class="text-end"><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'balance' %}-balance{% else %}balance{% endif %}">Баланс, грн</a></th>
+          <th class="text-end">Дії</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in clients %}
+          {% with profile=u.customerprofile %}
+          <tr>
+            <td>
+              <div class="fw-semibold">{{ profile.full_name|default:u.email }}</div>
+              {% if profile.company_name %}<div class="text-muted small">{{ profile.company_name }}</div>{% endif %}
+            </td>
+            <td>{{ u.email|default:"—" }}</td>
+            <td>{{ profile.phone|default:"—" }}</td>
+            <td class="text-end">
+              {% with bal=balances|get_item:u.id %}
+                <span class="fw-semibold {% if bal < 0 %}text-danger{% else %}text-success{% endif %}">{{ bal|floatformat:2 }}</span>
+              {% endwith %}
+            </td>
+            <td class="text-end">
+              <div class="d-flex flex-wrap justify-content-end gap-2">
+                <a class="btn btn-sm btn-outline-primary" href="{% url 'orders:balances' %}?customer={{ u.id }}">Переглянути</a>
+                <a class="btn btn-sm btn-success" href="{% url 'orders:transaction_create' %}?customer={{ u.id }}">Створити транзакцію</a>
+              </div>
+            </td>
+          </tr>
+          {% endwith %}
+        {% empty %}
+          <tr>
+            <td colspan="5" class="text-center text-muted py-4">Немає клієнтів</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

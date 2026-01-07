@@ -2,10 +2,38 @@
 body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: #f7f2e9;
+}
+
+.card {
+  background-color: #fbf7ef;
 }
 
 .navbar-brand {
   letter-spacing: .2px;
+}
+
+.navbar .navbar-brand .portal-title {
+  display: inline;
+}
+
+@media (max-width: 576px) {
+  .navbar .navbar-brand .portal-title {
+    display: none !important;
+  }
+  .portal-logo-mobile {
+    height: 60px !important;
+    width: auto !important;
+  }
+}
+
+.portal-balance-badge,
+.portal-rate-badge {
+  min-width: 180px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
 #global-loader .loader-backdrop {
@@ -104,6 +132,7 @@ body {
   margin: 0 40px 20px 0;      
 }
 
+
 /* UA: Стиль картки опції / EN: Single option card styling */
 .price-option-card {
   transition: box-shadow 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
@@ -136,6 +165,3 @@ body {
   text-align: center;
   font-weight: 600;
 }
-
-
-

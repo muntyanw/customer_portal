@@ -120,7 +120,7 @@
             class="form-control form-control-sm"
             id="orderMarkup"
             name="markup_percent"
-            value="{{ order.markup_percent|default:'0' }}"
+            value="{{ order.markup_percent|default:'0'|floatformat:2 }}"
           />
         </div>
         <div class="d-flex flex-column">
@@ -160,16 +160,16 @@
       </div>
       <div class="col-12 col-md-3">
         <label class="form-label small fw-semibold" for="extraServiceAmount">Сума, грн</label>
-        <input
-          type="number"
-          step="0.01"
-          min="0"
-          class="form-control"
-          id="extraServiceAmount"
-          name="extra_service_amount_uah"
-          value="{{ order.extra_service_amount_uah|default_if_none:'0' }}"
-          {% if readonly %}disabled{% endif %}
-        />
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            class="form-control"
+            id="extraServiceAmount"
+            name="extra_service_amount_uah"
+            value="{{ order.extra_service_amount_uah|default_if_none:'0'|floatformat:2 }}"
+            {% if readonly %}disabled{% endif %}
+          />
       </div>
     </div>
 
@@ -211,12 +211,12 @@
       {% if proposal_page_url or proposal_excel_url %}
         <div class="d-flex flex-wrap gap-2 mt-2">
           {% if proposal_page_url %}
-            <a class="btn btn-warning text-dark" href="{{ proposal_page_url }}" target="_blank">
+            <a class="btn btn-warning text-dark proposal-link" href="{{ proposal_page_url }}" data-proposal-url="{{ proposal_page_url }}" target="_blank">
               <i class="bi bi-eye me-1"></i> Комерційна пропозиція (сторінка)
             </a>
           {% endif %}
           {% if proposal_excel_url %}
-            <a class="btn btn-success" href="{{ proposal_excel_url }}">
+            <a class="btn btn-success proposal-link" href="{{ proposal_excel_url }}" data-proposal-url="{{ proposal_excel_url }}">
               <i class="bi bi-file-earmark-excel me-1"></i> Комерційна пропозиція (Excel)
             </a>
           {% endif %}
@@ -380,12 +380,12 @@
   <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
   <script>
-    // UA: Виводимо тости зверху по центру на сторінці білдера
+    // UA: Виводимо тости ближче до центру екрана на сторінці білдера комплектуючих
     window.showToast = function (message, type = "primary") {
       const id = "toast-" + Math.random().toString(36).slice(2)
       const html = `
-        <div id="${id}" class="toast align-items-center text-bg-${type} border-0 position-fixed start-50 translate-middle-x shadow"
-             role="alert" aria-live="assertive" aria-atomic="true" style="z-index: 2000; top: 64px;">
+        <div id="${id}" class="toast align-items-center text-bg-${type} border-0 position-fixed top-50 start-50 translate-middle shadow"
+             role="alert" aria-live="assertive" aria-atomic="true" style="z-index: 2000;">
           <div class="d-flex">
             <div class="toast-body">${message}</div>
             <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
@@ -394,7 +394,7 @@
       `
       document.body.insertAdjacentHTML("beforeend", html)
       const el = document.getElementById(id)
-      const toast = new bootstrap.Toast(el, { delay: 3000 })
+      const toast = new bootstrap.Toast(el, { delay: 9000 })
       toast.show()
       el.addEventListener("hidden.bs.toast", () => el.remove())
     }
@@ -502,7 +502,8 @@
       }
       const markupInput = document.getElementById('orderMarkup');
       if (markupInput) {
-        markupInput.value = markup_initial;
+        const normMarkup = normalizeNumber(markup_initial, 0);
+        markupInput.value = normMarkup.toFixed(2);
       }
       const nextUrlInput = document.getElementById('nextUrlInput');
 
@@ -572,6 +573,23 @@
         unsavedModal.show();
       });
 
+      document.addEventListener('click', function (e) {
+        const link = e.target.closest('.proposal-link');
+        if (!link) return;
+        const url = link.dataset.proposalUrl || link.href;
+        if (!url) return;
+        e.preventDefault();
+        if (isDirty) {
+          const nextUrlInput = document.getElementById('nextUrlInput');
+          const statusActionInput = document.getElementById('statusActionInput');
+          if (nextUrlInput) nextUrlInput.value = url;
+          if (statusActionInput) statusActionInput.value = 'save';
+          document.getElementById('componentsOrderForm').requestSubmit();
+        } else {
+          window.open(url, '_blank');
+        }
+      });
+
       enforceReadonlyComponents();
       finishInit();
     })
@@ -601,13 +619,22 @@
       return (Math.round(parseFloat(x || 0) * 100) / 100).toFixed(2);
     }
 
+    // UA: Нормалізуємо число з можливою комою в крапку
+    function normalizeNumber(val, fallback = 0) {
+      const num = parseFloat((val ?? '').toString().replace(',', '.'));
+      return Number.isFinite(num) ? num : fallback;
+    }
+
     // UA: Перевід EUR → UAH (тільки фронт)
     // EN: Convert EUR → UAH (frontend only)
+    function eurToUahRaw(x) {
+      return Number(x || 0) * Number(eur_rate || 0);
+    }
     function eurToUah(x) {
-      return money(parseFloat(x || 0) * eur_rate);
+      return money(eurToUahRaw(x));
     }
     function uahTotal(x) {
-      return String(Math.ceil(parseFloat(x || 0) * eur_rate));
+      return String(Math.ceil(eurToUahRaw(x)));
     }
 
     function getCsrf() {
@@ -672,7 +699,13 @@
         throw new Error(err.detail || 'Не вдалося завантажити комплектуючі');
       }
 
-      const data = await resp.json();
+      let data;
+      try {
+        data = await resp.json();
+      } catch (err) {
+        console.error('components-list: invalid JSON', err);
+        throw new Error('Невірний формат даних комплектуючих');
+      }
       componentsData = data;
 
       // build name -> items map
@@ -691,8 +724,13 @@
     // ---------- Fill selects for card ----------
 
     async function fillNamesForComponentCard($card, preselectName) {
-      if (!componentsData) {
-        await loadComponentsList();
+      try {
+        if (!componentsData) {
+          await loadComponentsList();
+        }
+      } catch (err) {
+        window.showToast((err && err.message) ? err.message : 'Не вдалося завантажити комплектуючі з прайсу', 'danger');
+        return;
       }
       const $sel = $card.find('.component-name');
       $sel.empty();
@@ -706,10 +744,16 @@
       } else {
         $sel.val(null);
       }
-      $sel.trigger('change');
+      try {
+        $sel.trigger('change');
+      } catch (err) {
+        console.error('fillNamesForComponentCard: change handler failed', err);
+        window.showToast('Не вдалося оновити вибір комплектуючих', 'danger');
+      }
     }
 
     function fillColorsForComponentCard($card, name, preselectColor) {
+      if (!componentsData) return;
       const $sel = $card.find('.component-color');
       $sel.empty();
       $sel.append('<option value="">— Будь-який колір —</option>');
@@ -752,17 +796,17 @@
         let candidate = items.find((it) => (it.color || '') === (color || ''));
         if (!candidate) candidate = items[0];
 
-        if (candidate) {
-          unit = candidate.unit || '';
-          price = candidate.price_eur || '';
-        }
+      if (candidate) {
+        unit = candidate.unit || '';
+        price = candidate.price_eur || '';
       }
+    }
 
-      $card.find('.component-unit').val(unit);
-      const priceNum = parseFloat((price || '0').toString().replace(',', '.'));
-      $card.find('.component-price').val(priceNum ? money(priceNum) : '');
-      $card.find('.component-price-uah').val(eurToUah(priceNum));
-      applyQtyInputSettings($card);
+    $card.find('.component-unit').val(unit);
+    const priceNum = normalizeNumber(price, 0);
+    $card.find('.component-price').val(priceNum ? money(priceNum) : '');
+    $card.find('.component-price-uah').val(eurToUah(priceNum));
+    applyQtyInputSettings($card);
 
       updateHiddenFieldsFromCard($card);
       recalcComponentsPrice();
@@ -788,7 +832,7 @@
       $hiddenContainer.find('[data-field="color"]').val(values.color);
       $hiddenContainer.find('[data-field="unit"]').val(values.unit);
       $hiddenContainer.find('[data-field="price_eur"]').val(values.price_eur);
-      $hiddenContainer.find('[data-field="quantity"]').val(values.quantity);
+      $hiddenContainer.find('[data-field="quantity"]').val(normalizeNumber(values.quantity, 1));
     }
 
     function recalcComponentsPrice() {
@@ -796,8 +840,8 @@
 
       $componentsContainer.find('.component-card').each(function () {
         const $card = $(this);
-        const price = parseFloat(($card.find('.component-price').val() || '0').toString().replace(',', '.'));
-        const qty = parseFloat(($card.find('.component-qty').val() || '0').toString().replace(',', '.'));
+        const price = normalizeNumber($card.find('.component-price').val(), 0);
+        const qty = normalizeNumber($card.find('.component-qty').val(), 0);
 
         const subtotal = price * qty;
 
@@ -848,7 +892,7 @@
         $card.find('.component-price-uah').val(eurToUah(priceNum));
       }
       if (initial?.quantity) {
-        $card.find('.component-qty').val(initial.quantity);
+        $card.find('.component-qty').val(normalizeNumber(initial.quantity, 1));
       }
       applyQtyInputSettings($card);
 
@@ -873,9 +917,6 @@
     });
 
     $componentsContainer.on('click', '.remove-row', function () {
-      if ({{ readonly|yesno:"false,true" }} || '{{ order.status }}' !== '{{ order.STATUS_QUOTE }}') {
-        return;
-      }
       $(this).closest('.component-card').remove();
 
       // Перенумерация позиций
@@ -932,7 +973,7 @@
       $cards.each(function () {
         const $c = $(this);
         const name = $c.find('.component-name').val();
-        const qty = parseFloat($c.find('.component-qty').val() || '0');
+        const qty = normalizeNumber($c.find('.component-qty').val(), 0);
 
         if (!name || qty <= 0) {
           ok = false;
@@ -992,7 +1033,7 @@
         }
       } catch (e) {
         console.error(e);
-        window.showToast('Не вдалося завантажити комплектуючі з прайсу', 'danger');
+        window.showToast(e?.message || 'Не вдалося завантажити комплектуючі з прайсу', 'danger');
       } finally {
         finishInit();
       }

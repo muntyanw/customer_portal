@@ -608,6 +608,15 @@ class Transaction(models.Model):
         related_name="created_transactions",
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="deleted_transactions",
+    )
 
     class Meta:
         ordering = ["-created_at"]
@@ -630,6 +639,26 @@ class Transaction(models.Model):
 
             rate = get_current_eur_rate()
         return (Decimal(self.amount or 0) * rate).quantize(Decimal("0.01"))
+
+
+class TransactionDeletionHistory(models.Model):
+    transaction_id = models.IntegerField()
+    amount = models.DecimalField(max_digits=12, decimal_places=5)
+    customer_email = models.EmailField(blank=True)
+    deleted_at = models.DateTimeField(auto_now_add=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="transaction_deletions",
+    )
+
+    class Meta:
+        ordering = ["-deleted_at"]
+
+    def __str__(self):
+        return f"Transaction #{self.transaction_id} deleted"
 
 
 class CurrencyRate(models.Model):

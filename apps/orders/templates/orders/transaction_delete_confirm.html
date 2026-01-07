@@ -1,0 +1,13 @@
+{% extends 'core/dashboard_base.html' %}
+
+{% block dashboard_title %}Видалити транзакцію{% endblock %}
+
+{% block dashboard_content %}
+  <h3>Перемістити транзакцію №{{ tx.id }} до кошика?</h3>
+  <p class="text-muted">Сума: {{ tx.amount|floatformat:2 }} € ({{ tx.amount_uah|floatformat:0 }} грн)</p>
+  <form method="post">
+    {% csrf_token %}
+    <button class="btn btn-danger">Так, перемістити</button>
+    <a href="{% url 'orders:balances' %}" class="btn btn-secondary">Скасувати</a>
+  </form>
+{% endblock %}

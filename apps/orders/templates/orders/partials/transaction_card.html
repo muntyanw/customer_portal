@@ -19,16 +19,21 @@
         </div>
       {% endwith %}
       {% if tx.description %}
-        <div class="small text-muted">{{ tx.description }}</div>
+        <div class="small text-muted">{{ tx.description|safe }}</div>
       {% endif %}
     </div>
     <div class="text-end">
       <div class="small text-muted">Курс: {{ tx.eur_rate|default:"0.0000" }} грн</div>
       {% if tx.order %}
-        <div class="small text-muted">Замовлення № {{ tx.order.id }}</div>
+        <div class="small text-muted">Замовлення №{{ tx.order.id }}</div>
       {% endif %}
       {% if tx.created_by %}
         <div class="small text-muted">Створив: {{ tx.created_by }}</div>
+      {% endif %}
+      {% if is_manager %}
+        <div class="mt-1">
+          <a href="{% url 'orders:transaction_delete' tx.id %}" class="btn btn-sm btn-outline-danger">Видалити</a>
+        </div>
       {% endif %}
     </div>
   </div>

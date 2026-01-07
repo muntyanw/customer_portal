@@ -100,7 +100,7 @@
         {% url 'orders:update_status_preview' o.id as send_to_work_url %}
         {% endif %}
         {% url 'orders:delete' o.id as order_delete_url %}
-        {% include 'orders/partials/order_card.html' with order=o view_url=order_view_url delete_url=order_delete_url send_to_work_url=send_to_work_url card_class="card shadow-sm border-0" show_note=True show_last_status=True show_select=show_bulk_select select_form="bulkForm" status_badges=status_badges payment_message_text=payment_message_text payment_shortage_map=payment_shortage_map proposal_page_urls=proposal_page_urls proposal_excel_urls=proposal_excel_urls %}
+        {% include 'orders/partials/order_card.html' with order=o view_url=order_view_url delete_url=order_delete_url send_to_work_url=send_to_work_url card_class="card shadow-lg border-0" show_note=True show_last_status=True show_select=show_bulk_select select_form="bulkForm" status_badges=status_badges payment_message_text=payment_message_text payment_shortage_map=payment_shortage_map proposal_page_urls=proposal_page_urls proposal_excel_urls=proposal_excel_urls %}
       {% endfor %}
     </div>
   {% else %}

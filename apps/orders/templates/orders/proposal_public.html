@@ -52,7 +52,7 @@
               </div>
             {% endif %}
             <div class="ms-auto">
-              <div class="text-muted small text-uppercase">Клієнт</div>
+              {% comment %} <div class="text-muted small text-uppercase">Клієнт</div> {% endcomment %}
               <div class="fw-semibold">{{ customer_info.name }}</div>
               <div class="small text-muted">
                 {{ customer_info.full_name }}{% if customer_info.phone %} · {{ customer_info.phone }}{% endif %}
@@ -89,16 +89,16 @@
                     <span class="fw-semibold text-end">{{ it.fabric_name }} {% if it.fabric_color_code %}({{ it.fabric_color_code }}){% endif %}</span>
                   </div>
                   <div class="d-flex justify-content-between border-bottom py-1">
-                    <span class="text-muted">Ширина, мм</span>
+                    <span class="text-muted">Ширина{{ it.width_label_suffix }}, мм</span>
                     <span class="fw-semibold text-end">{{ it.width_fabric_mm }}</span>
                   </div>
                   <div class="d-flex justify-content-between border-bottom py-1">
-                    <span class="text-muted">Висота, мм</span>
+                    <span class="text-muted">Висота{{ it.height_label_suffix }}, мм</span>
                     <span class="fw-semibold text-end">{{ it.height_gabarit_mm }}</span>
                   </div>
                   <div class="d-flex justify-content-between border-bottom py-1">
                     <span class="text-muted">Сторона керування</span>
-                    <span class="fw-semibold text-end">{{ it.control_side|default:"—" }}</span>
+                    <span class="fw-semibold text-end">{{ it.control_side_label|default:"—" }}</span>
                   </div>
                   <div class="d-flex justify-content-between py-1">
                     <span class="text-muted">Вартість</span>

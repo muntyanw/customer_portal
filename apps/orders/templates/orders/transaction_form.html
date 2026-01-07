@@ -37,8 +37,19 @@
 
         <div class="row g-3">
           <div class="col-md-6">
-            <label class="form-label">Замовлення (необов’язково)</label>
-            {{ form.order }}
+            <label class="form-label">Замовлення</label>
+            <div class="dropdown w-100" id="orderPicker">
+              <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" data-order-toggle>
+                Оберіть замовлення
+              </button>
+              <div class="dropdown-menu w-100 p-2" data-order-menu>
+                <input type="text" class="form-control form-control-sm mb-2" id="orderSearch" placeholder="Пошук за номером або назвою">
+                <div class="order-options" style="max-height: 240px; overflow-y: auto;"></div>
+              </div>
+            </div>
+            <div class="d-none">
+              {{ form.orders }}
+            </div>
           </div>
           <div class="col-md-6" data-account-group>
             <label class="form-label">Номер рахунку (для «На рахунок»)</label>
@@ -102,6 +113,72 @@
 
       // початковий стан — звужений
       collapseList();
+    })();
+
+    // filter orders multiselect
+    (function() {
+      const select = document.querySelector("select[data-order-picker]");
+      const picker = document.getElementById("orderPicker");
+      if (!select || !picker) return;
+      const toggleBtn = picker.querySelector("[data-order-toggle]");
+      const menu = picker.querySelector("[data-order-menu]");
+      const optionsWrap = menu.querySelector(".order-options");
+      const searchInput = document.getElementById("orderSearch");
+
+      const updateSummary = () => {
+        const selected = Array.from(select.selectedOptions).filter((opt) => opt.value);
+        toggleBtn.textContent = selected.length ? `Вибрано: ${selected.length}` : "Оберіть замовлення";
+      };
+
+      const buildOptions = () => {
+        optionsWrap.innerHTML = "";
+        Array.from(select.options).forEach((opt) => {
+          if (!opt.value) return;
+          const item = document.createElement("div");
+          item.className = "form-check";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.className = "form-check-input";
+          cb.id = `order-opt-${opt.value}`;
+          cb.value = opt.value;
+          cb.checked = opt.selected;
+          cb.dataset.text = opt.text.toLowerCase();
+          const label = document.createElement("label");
+          label.className = "form-check-label";
+          label.htmlFor = cb.id;
+          label.textContent = opt.text;
+          cb.addEventListener("change", () => {
+            opt.selected = cb.checked;
+            updateSummary();
+          });
+          item.appendChild(cb);
+          item.appendChild(label);
+          optionsWrap.appendChild(item);
+        });
+      };
+
+      const filter = () => {
+        const query = (searchInput.value || "").trim().toLowerCase();
+        optionsWrap.querySelectorAll(".form-check").forEach((item) => {
+          const cb = item.querySelector("input");
+          const match = !query || cb.dataset.text.includes(query);
+          item.classList.toggle("d-none", !match);
+        });
+      };
+
+      toggleBtn.addEventListener("click", () => {
+        menu.classList.toggle("show");
+      });
+
+      document.addEventListener("click", (e) => {
+        if (!picker.contains(e.target)) {
+          menu.classList.remove("show");
+        }
+      });
+
+      searchInput.addEventListener("input", filter);
+      buildOptions();
+      updateSummary();
     })();
 
     // toggle account number visibility based on payment type

@@ -155,7 +155,7 @@
 
     <div class="row g-2 align-items-end mb-3">
       <div class="col-12 col-md-6">
-        <label class="form-label small fw-semibold" for="extraServiceLabel">Додаткова послуга</label>
+        <label class="form-label fw-semibold" for="extraServiceLabel">Додаткова послуга</label>
         <input
           type="text"
           class="form-control"
@@ -167,7 +167,7 @@
         />
       </div>
       <div class="col-12 col-md-3">
-        <label class="form-label small fw-semibold" for="extraServiceAmount">Сума, грн</label>
+        <label class="form-label fw-semibold" for="extraServiceAmount">Сума, грн</label>
         <input
           type="number"
           step="0.01"
@@ -218,12 +218,12 @@
         {% if proposal_page_url or proposal_excel_url %}
           <div class="d-flex flex-wrap gap-2 mt-2">
             {% if proposal_page_url %}
-              <a class="btn btn-warning text-dark" href="{{ proposal_page_url }}" target="_blank">
+              <a class="btn btn-warning text-dark proposal-link" href="{{ proposal_page_url }}" data-proposal-url="{{ proposal_page_url }}" target="_blank">
                 <i class="bi bi-eye me-1"></i> Комерційна пропозиція (сторінка)
               </a>
             {% endif %}
             {% if proposal_excel_url %}
-              <a class="btn btn-success" href="{{ proposal_excel_url }}">
+              <a class="btn btn-success proposal-link" href="{{ proposal_excel_url }}" data-proposal-url="{{ proposal_excel_url }}">
                 <i class="bi bi-file-earmark-excel me-1"></i> Комерційна пропозиція (Excel)
               </a>
             {% endif %}
@@ -317,12 +317,12 @@
   <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
   <script>
-    // UA: Виводимо тости зверху по центру на сторінці білдера
+    // UA: Виводимо тости ближче до центру екрана на сторінці білдера
     window.showToast = function (message, type = "primary") {
       const id = "toast-" + Math.random().toString(36).slice(2)
       const html = `
-        <div id="${id}" class="toast align-items-center text-bg-${type} border-0 position-fixed start-50 translate-middle-x shadow"
-             role="alert" aria-live="assertive" aria-atomic="true" style="z-index: 2000; top: 64px;">
+        <div id="${id}" class="toast align-items-center text-bg-${type} border-0 position-fixed top-50 start-50 translate-middle shadow"
+             role="alert" aria-live="assertive" aria-atomic="true" style="z-index: 2000;">
           <div class="d-flex">
             <div class="toast-body">${message}</div>
             <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
@@ -331,7 +331,7 @@
       `
       document.body.insertAdjacentHTML("beforeend", html)
       const el = document.getElementById(id)
-      const toast = new bootstrap.Toast(el, { delay: 3000 })
+      const toast = new bootstrap.Toast(el, { delay: 9000 })
       toast.show()
       el.addEventListener("hidden.bs.toast", () => el.remove())
     }
@@ -1029,6 +1029,23 @@
       }
     }
 
+    document.addEventListener('click', function (e) {
+      const link = e.target.closest('.proposal-link')
+      if (!link) return
+      const url = link.dataset.proposalUrl || link.href
+      if (!url) return
+      e.preventDefault()
+      if (isDirty) {
+        const nextUrlInput = document.getElementById('nextUrlInput')
+        const statusActionInput = document.getElementById('statusActionInput')
+        if (nextUrlInput) nextUrlInput.value = url
+        if (statusActionInput) statusActionInput.value = 'save'
+        document.getElementById('orderForm').requestSubmit()
+      } else {
+        window.open(url, '_blank')
+      }
+    })
+
     function copySelectOptionsFromPrevCard($card, selectClass) {
       const $prev = $card.prev('.item-card')
       if ($prev.length === 0) {
@@ -1178,6 +1195,7 @@
     })
 
     $container.on('click', '.remove-row', function () {
+      // allow удаление только в режиме прорахунку и когда не readonly
       if ({{ readonly|yesno:"false,true" }} || '{{ order.status }}' !== '{{ order.STATUS_QUOTE }}') {
         return
       }
@@ -1675,15 +1693,20 @@
       const surchargeOne = Number(data?.surcharge_height_eur || preSelectsPriceOptions.surcharge_height_eur || 0)
       const baseTotal = baseOne * qty
       const surchargeTotal = surchargeOne * qty
+      const displayTotal = baseTotal + surchargeTotal
 
-      $card.find('.base').text(money(baseTotal))
+      // Для відображення показуємо все як частину виробу,
+      // але в бекенд відправляємо окремо допис висоти.
+      $card.find('.base').text(money(displayTotal))
       $card.find('.base-input').val(money(baseTotal))
 
-      $card.find('.surcharge').text(money(surchargeTotal))
+      $card.find('.surcharge').text('0.00')
       $card.find('.surcharge-input').val(money(surchargeTotal))
+      const $surchargeRow = $card.find('.surcharge-row')
+      $surchargeRow.addClass('d-none')
 
-      $card.find('.base-uah').text(eurToUah(baseTotal))
-      $card.find('.surcharge-uah').text(eurToUah(surchargeTotal))
+      $card.find('.base-uah').text(eurToUah(displayTotal))
+      $card.find('.surcharge-uah').text('0.00')
 
       $card.find('.gb_width_mm').val((Number(preSelectsPriceOptions.gb_width_mm || data?.gb_width_mm || 0)))
 

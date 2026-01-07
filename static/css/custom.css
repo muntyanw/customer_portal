@@ -2,6 +2,11 @@
 body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: #f7f2e9;
+}
+
+.card {
+  background-color: #fbf7ef;
 }
 
 .navbar-brand {
@@ -136,6 +141,4 @@ body {
   text-align: center;
   font-weight: 600;
 }
-
-
 

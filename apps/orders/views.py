@@ -40,6 +40,7 @@ from .services_currency import get_current_eur_rate, update_eur_rate_from_nbu
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse, Http404, HttpResponse
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.html import format_html, format_html_join, conditional_escape
 
         
 def _get(lst, idx, default=""):
@@ -56,6 +57,23 @@ def _to_decimal(value, default="0"):
         return Decimal(value.replace(",", "."))
     except (InvalidOperation, AttributeError):
         return Decimal(default)
+
+
+def _to_int(value, default=0):
+    """EN: Safe int conversion with fallback. UA: Безпечне перетворення в int із запасним значенням."""
+    try:
+        return int((value or "").strip() or default)
+    except (ValueError, TypeError):
+        return int(default)
+
+
+def _control_side_label(val):
+    """EN: Human label for control side. UA: Людська назва сторони керування."""
+    if val == "left":
+        return "Ліве"
+    if val == "right":
+        return "Праве"
+    return val or ""
 
 
 _TIME_RE = re.compile(r"^(\d{1,2}):(\d{2})$")
@@ -98,11 +116,12 @@ def _order_from_token(token: str) -> Order:
     return get_object_or_404(Order, pk=order_id, deleted=False)
 
 
-def _collect_item_options(item: OrderItem, rate: Decimal):
+def _collect_item_options(item: OrderItem, rate: Decimal, markup_multiplier: Decimal = Decimal("1")):
     """
     Build list of option rows for public proposal with EUR/UAH.
     """
     options = []
+    rate_with_markup = Decimal(rate or 0) * Decimal(markup_multiplier or 1)
     for field in [f.name for f in OrderItem._meta.fields if f.name.endswith("_price_eur")]:
         price = getattr(item, field, None)
         if price in (None, ""):
@@ -121,7 +140,7 @@ def _collect_item_options(item: OrderItem, rate: Decimal):
                 "label": OPTION_LABELS.get(field, field),
                 "qty": qty_val_dec,
                 "price_eur": price_val,
-                "price_uah": _round_uah_total(price_val * Decimal(rate or 0)),
+                "price_uah": _round_uah_total(price_val * rate_with_markup),
             }
         )
     return options
@@ -216,8 +235,8 @@ def _parse_date_range(params):
 
 def _transactions_scope(user):
     if is_manager(user):
-        return Transaction.objects.select_related("customer", "customer__customerprofile", "created_by", "order")
-    return Transaction.objects.select_related("customer", "customer__customerprofile", "created_by", "order").filter(customer=user)
+        return Transaction.objects.select_related("customer", "customer__customerprofile", "created_by", "order").filter(deleted=False)
+    return Transaction.objects.select_related("customer", "customer__customerprofile", "created_by", "order").filter(customer=user, deleted=False)
 
 def _order_rate(order, current_rate: Decimal) -> Decimal:
     """
@@ -472,9 +491,10 @@ def _build_proposal_workbook(order):
     rate = _order_rate(order, get_current_eur_rate())
     base_total_eur = _order_base_total(order)
     markup = Decimal(order.markup_percent or 0)
+    markup_multiplier = Decimal("1") + markup / Decimal("100")
     extra_uah = Decimal(getattr(order, "extra_service_amount_uah", 0) or 0)
     total_with_markup_uah = _round_uah_total(
-        base_total_eur * (Decimal("1") + markup / Decimal("100")) * Decimal(rate or 0) + extra_uah
+        base_total_eur * markup_multiplier * Decimal(rate or 0) + extra_uah
     )
     created_str = (
         order.created_at.astimezone(timezone.get_current_timezone()).strftime("%d.%m.%Y %H:%M")
@@ -522,12 +542,12 @@ def _build_proposal_workbook(order):
         add_row("Ширина, мм", it.width_fabric_mm)
         add_row("Висота, мм", it.height_gabarit_mm)
         add_row("Сторона керування", control_label(it.control_side))
-        subtotal_uah = _round_uah_total(Decimal(it.subtotal_eur or 0) * Decimal(rate or 0))
+        subtotal_uah = _round_uah_total(Decimal(it.subtotal_eur or 0) * Decimal(rate or 0) * markup_multiplier)
         add_row("Вартість, грн", float(subtotal_uah))
         if it.note:
             add_row("Примітка", it.note)
 
-        options = _collect_item_options(it, rate)
+        options = _collect_item_options(it, rate, markup_multiplier)
         if options:
             ws.append(["Додаткові опції", ""])
             for opt in options:
@@ -542,7 +562,7 @@ def _build_proposal_workbook(order):
         ws.append(["Характеристика", "Значення"])
         for comp in order.component_items.all():
             total_uah = _round_uah_total(
-                Decimal(comp.price_eur or 0) * Decimal(comp.quantity or 0) * Decimal(rate or 0)
+                Decimal(comp.price_eur or 0) * Decimal(comp.quantity or 0) * Decimal(rate or 0) * markup_multiplier
             )
             add_row("Найменування", comp.name)
             if comp.color:
@@ -683,7 +703,7 @@ def compute_balance(user, force_personal: bool = False):
     current_rate = get_current_eur_rate()
     if force_personal:
         orders_qs = Order.objects.filter(customer=user, deleted=False)
-        tx_qs = Transaction.objects.filter(customer=user)
+        tx_qs = Transaction.objects.filter(customer=user, deleted=False)
     else:
         orders_qs = _orders_scope(user)
         tx_qs = _transactions_scope(user)
@@ -701,9 +721,16 @@ def compute_balance(user, force_personal: bool = False):
 
 
 class TransactionForm(forms.ModelForm):
+    orders = forms.ModelMultipleChoiceField(
+        queryset=Order.objects.none(),
+        required=True,
+        label="Замовлення",
+        widget=forms.SelectMultiple(attrs={"class": "form-select", "size": "6"}),
+    )
+
     class Meta:
         model = Transaction
-        fields = ["customer", "type", "amount", "description", "order", "payment_type", "account_number"]
+        fields = ["customer", "type", "amount", "description", "payment_type", "account_number"]
         widgets = {
             "description": forms.Textarea(attrs={"rows": 3}),
             "payment_type": forms.Select(attrs={"class": "form-select"}),
@@ -735,8 +762,15 @@ class TransactionForm(forms.ModelForm):
         self.fields["customer"].label_from_instance = _label
         self.fields["customer"].widget.attrs.update({"class": "form-select", "data-customer-picker": "true"})
         self.fields["type"].widget.attrs.update({"class": "form-select"})
-        self.fields["order"].widget.attrs.update({"class": "form-select"})
-        self.fields["order"].queryset = Order.objects.filter(deleted=False)
+        self.fields["orders"].queryset = Order.objects.filter(deleted=False)
+        self.fields["orders"].widget.attrs.update(
+            {
+                "class": "form-select",
+                "data-order-picker": "true",
+                "multiple": "multiple",
+                "size": "8",
+            }
+        )
         self.fields["amount"].label = "Сума, грн"
         self.fields["payment_type"].label = "Вид оплати"
         self.fields["account_number"].label = "Номер рахунку (для 'На рахунок')"
@@ -750,6 +784,8 @@ class TransactionForm(forms.ModelForm):
         cleaned = super().clean()
         ptype = cleaned.get("payment_type")
         acc = (cleaned.get("account_number") or "").strip()
+        if not cleaned.get("orders"):
+            raise forms.ValidationError("Оберіть хоча б одне замовлення.")
         if ptype == Transaction.PAY_ACCOUNT and not acc:
             raise forms.ValidationError("Для оплати на рахунок потрібно вказати номер рахунку.")
         if ptype != Transaction.PAY_ACCOUNT:
@@ -764,10 +800,30 @@ class TransactionForm(forms.ModelForm):
         return (amount_uah / rate).quantize(Decimal("0.00001"))
 
     def save(self, commit=True):
-        obj = super().save(commit=False)
-        obj.eur_rate = Decimal(self.current_rate or 0)
+        orders = list(self.cleaned_data.get("orders") or [])
+        order_for_link = orders[0] if orders else None
+        desc = (self.cleaned_data.get("description") or "").strip()
+        if orders:
+            ids = ", ".join(str(o.pk) for o in orders)
+            if desc:
+                desc = f"{desc} (Замовлення: {ids})"
+            else:
+                desc = f"Замовлення: {ids}"
+
+        obj = Transaction(
+            customer=self.cleaned_data.get("customer"),
+            type=self.cleaned_data.get("type"),
+            amount=self.cleaned_data.get("amount"),
+            eur_rate=Decimal(self.current_rate or 0),
+            description=desc,
+            payment_type=self.cleaned_data.get("payment_type"),
+            account_number=self.cleaned_data.get("account_number") or "",
+            order=order_for_link,
+        )
         if commit:
             obj.save()
+        # збережемо вибрані замовлення, щоб вюха могла оновити їх нотатки
+        self._selected_orders = orders
         return obj
 
 @login_required
@@ -1157,8 +1213,8 @@ def order_builder(request, pk=None):
                 table_section=_get(sections, idx, ""),
                 fabric_name=_get(fabrics, idx, ""),
                 fabric_color_code=_get(fabric_colors, idx, ""),
-                height_gabarit_mm=int(_get(h_list, idx, "0")),
-                width_fabric_mm=int(_get(w_list, idx, "0")),
+                height_gabarit_mm=_to_int(_get(h_list, idx, "0"), 0),
+                width_fabric_mm=_to_int(_get(w_list, idx, "0"), 0),
                 gabarit_width_flag=_get(gw_flags, idx) in ("on", "true", "1"),
                 fabric_height_flag=_get(gh_flags, idx) in ("on", "true", "1"),
                 base_price_eur=_to_decimal(_get(base_prices, idx)),
@@ -1184,20 +1240,20 @@ def order_builder(request, pk=None):
                 
                 middle_bracket_price_eur = _to_decimal(_get(middle_bracket_price_eur, idx)),
                 middle_bracket_qty = _to_decimal(_get(middle_bracket_qty, idx)),
-                remote_15ch_price_eur = _to_decimal(_get(remote_15ch_price_eur, idx)),
-                remote_15ch_qty = _to_decimal(_get(remote_15ch_qty, idx)),
-                remote_5ch_price_eur = _to_decimal(_get(remote_5ch_price_eur, idx)),
-                remote_5ch_qty = _to_decimal(_get(remote_5ch_qty, idx)),
-                motor_with_remote_price_eur = _to_decimal(_get(motor_with_remote_price_eur, idx)),
-                motor_with_remote_qty = _to_decimal(_get(motor_with_remote_qty, idx)),
-                motor_no_remote_price_eur = _to_decimal(_get(motor_no_remote_price_eur, idx)),
-                motor_no_remote_qty = _to_decimal(_get(motor_no_remote_qty, idx)),
-                metal_kronsht_price_eur = _to_decimal(_get(metal_kronsht_price_eur, idx)),
-                metal_kronsht_qty = _to_decimal(_get(metal_kronsht_qty, idx)),
+                remote_15ch_price_eur=_to_decimal(_get(remote_15ch_price_eur, idx)),
+                remote_15ch_qty=_to_decimal(_get(remote_15ch_qty, idx)),
+                remote_5ch_price_eur=_to_decimal(_get(remote_5ch_price_eur, idx)),
+                remote_5ch_qty=_to_decimal(_get(remote_5ch_qty, idx)),
+                motor_with_remote_price_eur=_to_decimal(_get(motor_with_remote_price_eur, idx)),
+                motor_with_remote_qty=_to_decimal(_get(motor_with_remote_qty, idx)),
+                motor_no_remote_price_eur=_to_decimal(_get(motor_no_remote_price_eur, idx)),
+                motor_no_remote_qty=_to_decimal(_get(motor_no_remote_qty, idx)),
+                metal_kronsht_price_eur=_to_decimal(_get(metal_kronsht_price_eur, idx)),
+                metal_kronsht_qty=_to_decimal(_get(metal_kronsht_qty, idx)),
         
                 subtotal_eur=_to_decimal(_get(subtotals, idx)),
                 roll_height_info=_get(roll_infos, idx, ""),
-                quantity=int(_get(qty_list, idx, "1")),
+                quantity=_to_int(_get(qty_list, idx, "1"), 1),
                 control_side=_get(control_sides, idx, "").strip(),
                 bottom_fixation=_get(bottom_fixations, idx) in ("on", "true", "1"),
                 pvc_plank=_get(pvc_planks, idx) in ("on", "true", "1"),
@@ -1369,12 +1425,6 @@ def order_delete(request, pk: int):
         if request.user.is_authenticated:
             order.deleted_by = request.user
         order.save(update_fields=["deleted", "deleted_at", "deleted_by"])
-        OrderDeletionHistory.objects.create(
-            order_id=order.pk,
-            order_title=order.title,
-            customer_email=getattr(order.customer, "email", "") or "",
-            deleted_by=request.user if request.user.is_authenticated else None,
-        )
         messages.success(request, "Замовлення переміщено до кошика.")
         return redirect(redirect_target)
 
@@ -1433,12 +1483,85 @@ def transaction_create(request):
             tx = form.save(commit=False)
             tx.created_by = request.user
             tx.save()
+
+            orders_selected = getattr(form, "_selected_orders", []) or []
+            # Оновлюємо опис транзакції посиланнями на замовлення
+            if orders_selected:
+                order_links = tuple(
+                    (request.build_absolute_uri(reverse("orders:builder_edit", args=[o.pk])), o.pk)
+                    for o in orders_selected
+                )
+                base_desc = conditional_escape(form.cleaned_data.get("description") or "")
+                links_html = format_html_join(", ", '<a href="{0}">#{1}</a>', order_links)
+                combined = format_html(
+                    "{}{}{}",
+                    base_desc,
+                    format_html(" — ") if base_desc and links_html else "",
+                    format_html("Замовлення: {0}", links_html) if links_html else "",
+                )
+                tx.description = combined
+                tx.save(update_fields=["description"])
+
+                # Додаємо примітку до замовлень з номером транзакції та лінком
+                tx_link = request.build_absolute_uri(reverse("orders:balances")) + f"?customer={tx.customer_id}"
+                tx_anchor = format_html('<a href="{0}">Транзакція №{1}</a>', tx_link, tx.pk)
+                for o in orders_selected:
+                    existing = o.note or ""
+                    append = format_html("{}", tx_anchor)
+                    if existing:
+                        new_note = format_html("{}\n{}", existing, append)
+                    else:
+                        new_note = append
+                    o.note = new_note
+                    o.save(update_fields=["note"])
+
             messages.success(request, "Транзакцію створено.")
             return redirect("orders:balances")
     else:
         form = TransactionForm(initial=initial)
 
     return render(request, "orders/transaction_form.html", {"form": form, "current_rate": current_rate})
+
+
+@login_required
+def transaction_delete(request, pk: int):
+    if not is_manager(request.user):
+        messages.error(request, "Видаляти транзакції може лише менеджер.")
+        return redirect("orders:balances")
+    tx = get_object_or_404(Transaction, pk=pk, deleted=False)
+    if request.method == "POST":
+        tx.deleted = True
+        tx.deleted_at = timezone.now()
+        tx.deleted_by = request.user
+        tx.save(update_fields=["deleted", "deleted_at", "deleted_by"])
+        messages.success(request, f"Транзакцію №{tx.pk} переміщено до кошика.")
+        return redirect("orders:balances")
+    return render(request, "orders/transaction_delete_confirm.html", {"tx": tx})
+
+
+@login_required
+def transaction_trash(request):
+    if not is_manager(request.user):
+        messages.error(request, "Доступ заборонено.")
+        return redirect("orders:balances")
+    txs = Transaction.objects.filter(deleted=True).select_related("customer", "customer__customerprofile", "deleted_by").order_by("-deleted_at")
+    return render(request, "orders/transaction_trash.html", {"transactions": txs})
+
+
+@login_required
+def transaction_restore(request, pk: int):
+    if not is_manager(request.user):
+        messages.error(request, "Доступ заборонено.")
+        return redirect("orders:balances")
+    tx = get_object_or_404(Transaction, pk=pk, deleted=True)
+    if request.method == "POST":
+        tx.deleted = False
+        tx.deleted_at = None
+        tx.deleted_by = None
+        tx.save(update_fields=["deleted", "deleted_at", "deleted_by"])
+        messages.success(request, f"Транзакцію №{tx.pk} відновлено.")
+        return redirect("orders:transaction_trash")
+    return render(request, "orders/transaction_restore_confirm.html", {"tx": tx})
 
 
 @login_required
@@ -1525,6 +1648,57 @@ def balances_history(request):
         "proposal_excel_urls": proposal_excel_urls,
     }
     return render(request, "orders/balances_history.html", context)
+
+
+@login_required
+def balances_users(request):
+    """
+    EN: List of customers with balances and quick links to their transactions.
+    UA: Список клієнтів із балансами та швидкими діями.
+    """
+    if not is_manager(request.user):
+        messages.error(request, "Доступ заборонено.")
+        return redirect("orders:balances")
+
+    User = get_user_model()
+    q = (request.GET.get("q") or "").strip()
+    sort = request.GET.get("sort") or "-balance"
+
+    users_qs = User.objects.filter(is_customer=True).select_related("customerprofile")
+    if q:
+        users_qs = users_qs.filter(
+            Q(email__icontains=q)
+            | Q(customerprofile__full_name__icontains=q)
+            | Q(customerprofile__phone__icontains=q)
+            | Q(customerprofile__company_name__icontains=q)
+        )
+
+    clients = list(users_qs)
+    balances = {u.id: compute_balance(u, force_personal=True) for u in clients}
+
+    def balance_val(user):
+        return balances.get(user.id) or Decimal("0")
+
+    sort_key = sort.lstrip("-")
+    reverse = sort.startswith("-")
+
+    if sort_key == "balance":
+        clients.sort(key=lambda u: balance_val(u), reverse=reverse)
+    elif sort_key in ("name", "full_name"):
+        clients.sort(
+            key=lambda u: (getattr(getattr(u, "customerprofile", None), "full_name", "") or u.email or "").lower(),
+            reverse=reverse,
+        )
+    else:
+        clients.sort(key=lambda u: (u.email or "").lower(), reverse=reverse)
+
+    context = {
+        "clients": clients,
+        "balances": balances,
+        "q": q,
+        "sort": sort,
+    }
+    return render(request, "orders/balances_users.html", context)
 
 
 
@@ -1771,6 +1945,8 @@ def order_proposal_page(request, token: str):
     rate = _order_rate(order, get_current_eur_rate())
     base_total_eur = _order_base_total(order)
     markup = Decimal(order.markup_percent or 0)
+    markup_multiplier = Decimal("1") + (markup / Decimal("100"))
+    rate_with_markup = Decimal(rate or 0) * markup_multiplier
     total_with_markup_eur = base_total_eur * (Decimal("1") + markup / Decimal("100"))
     extra_uah = Decimal(getattr(order, "extra_service_amount_uah", 0) or 0)
     total_base_uah = _round_uah_total(base_total_eur * rate + extra_uah)
@@ -1780,6 +1956,16 @@ def order_proposal_page(request, token: str):
     for idx, it in enumerate(order.items.all(), start=1):
         options = _collect_item_options(it, rate)
         subtotal_eur = Decimal(it.subtotal_eur or 0)
+        sys_lower = (it.system_sheet or "").lower()
+        is_flat_system = "плоска" in sys_lower
+        width_label_suffix = ""
+        height_label_suffix = ""
+        if is_flat_system and it.gabarit_width_flag:
+            width_label_suffix = " (по тканині)"
+        elif (not is_flat_system) and it.gabarit_width_flag:
+            width_label_suffix = " (габаритна)"
+        if is_flat_system and it.fabric_height_flag:
+            height_label_suffix = " (по тканині)"
         items_payload.append(
             {
                 "index": idx,
@@ -1788,16 +1974,19 @@ def order_proposal_page(request, token: str):
                 "fabric_name": it.fabric_name,
                 "fabric_color_code": it.fabric_color_code,
                 "width_fabric_mm": it.width_fabric_mm,
+                "width_label_suffix": width_label_suffix,
                 "height_gabarit_mm": it.height_gabarit_mm,
+                "height_label_suffix": height_label_suffix,
                 "gabarit_width_flag": it.gabarit_width_flag,
                 "fabric_height_flag": it.fabric_height_flag,
                 "roll_height_info": it.roll_height_info,
                 "control_side": it.control_side,
+                "control_side_label": _control_side_label(it.control_side),
                 "quantity": it.quantity,
                 "subtotal_eur": subtotal_eur,
-                "subtotal_uah": _round_uah_total(subtotal_eur * rate),
+                "subtotal_uah": _round_uah_total(subtotal_eur * rate_with_markup),
                 "note": it.note,
-                "options": options,
+                "options": _collect_item_options(it, rate, markup_multiplier),
             }
         )
 
@@ -1814,7 +2003,7 @@ def order_proposal_page(request, token: str):
                 "price_eur": price_eur,
                 "quantity": qty,
                 "total_eur": total_eur,
-                "total_uah": _round_uah_total(total_eur * rate),
+                "total_uah": _round_uah_total(total_eur * rate_with_markup),
             }
         )
 
@@ -1833,6 +2022,7 @@ def order_proposal_page(request, token: str):
         "total_base_uah": total_base_uah,
         "total_with_markup_uah": total_with_markup_uah,
         "markup_percent": markup,
+        "rate_with_markup": rate_with_markup,
         "items": items_payload,
         "components": components_payload,
         "proposal_excel_url": proposal_excel_url,
@@ -1926,16 +2116,12 @@ def update_eur_rate_view(request):
 def currency_rate_history(request):
     if is_manager(request.user):
         history = CurrencyRateHistory.objects.select_related("user").all()
-        deleted_orders = OrderDeletionHistory.objects.select_related("deleted_by").all()
         show_rate_history = True
     else:
         history = CurrencyRateHistory.objects.none()
-        deleted_orders = OrderDeletionHistory.objects.select_related("deleted_by").filter(
-            Q(deleted_by=request.user) | Q(customer_email=request.user.email)
-        )
         show_rate_history = False
     return render(
         request,
         "orders/currency_history.html",
-        {"history": history, "deleted_orders": deleted_orders, "show_rate_history": show_rate_history},
+        {"history": history, "show_rate_history": show_rate_history},
     )

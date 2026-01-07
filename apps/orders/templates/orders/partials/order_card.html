@@ -1,5 +1,5 @@
 {% load form_tags %}
-{% with card_cls=card_class|default:"card border-0 shadow-sm" %}
+{% with card_cls=card_class|default:"card border-0 shadow-lg" %}
 <div class="{{ card_cls }}">
   <div class="card-body p-3">
     <div class="row g-2 align-items-start">
@@ -8,7 +8,7 @@
           <input class="form-check-input mt-1" type="checkbox" name="{{ select_name|default:'order_ids' }}" value="{{ order.id }}" form="{{ select_form|default:'bulkForm' }}" aria-label="Обрати замовлення">
         {% endif %}
         <div>
-          <div class="fw-semibold">Замовлення № {{ order.id }}</div>
+          <div class="fw-semibold">Замовлення №{{ order.id }}</div>
           <div class="small text-muted">{{ order.created_at|date:'d.m.Y H:i' }}</div>
           {% if order.customer %}
             {% with profile=order.customer.customerprofile %}
@@ -27,8 +27,8 @@
             </div>
           {% endif %}
           {% if order.note and show_note|default_if_none:True %}
-            <div class="small text-muted" title="{{ order.note }}">
-              {{ order.note|truncatechars:160 }}
+            <div class="small text-muted text-break" title="{{ order.note|striptags }}">
+              {{ order.note|safe }}
             </div>
           {% endif %}
         </div>

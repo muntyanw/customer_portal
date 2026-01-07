@@ -164,6 +164,20 @@ def pick_width_band(width_bands: List[str], width_mm: int) -> Optional[int]:
     return None
 
 
+def _width_out_of_range_error(gabarit_limit_mm: Optional[int], roll_height_mm: Optional[int]) -> ValueError:
+    """
+    UA: Формує повідомлення про вихід ширини за межі прайсу з контекстом висот із прайсу.
+    EN: Build width-out-of-range error with extra context (from price table).
+    """
+    parts = []
+    if gabarit_limit_mm:
+        parts.append(f"Габаритна висота (прайс): {gabarit_limit_mm} мм")
+    if roll_height_mm:
+        parts.append(f"Висота рулону: {roll_height_mm} мм")
+    extra = f" ({'; '.join(parts)})" if parts else ""
+    return ValueError(f"Ширина поза діапазонами прайсу{extra}")
+
+
 def _compute_price_detail(
     *,
     fabric: Dict,
@@ -194,7 +208,10 @@ def _compute_price_detail(
 
     # Якщо висота виробу перевищує габаритну — ширина обмежується висотою рулону
     if gabarit_height_mm > limit and roll_mm and width_mm > roll_mm:
-        raise ValueError("При перевищенні габаритної висоти ширина не може бути більшою за висоту рулону")
+        raise ValueError(
+            f"При перевищенні габаритної висоти ширина не може бути більшою за висоту рулону "
+            f"(Габаритна висота (прайс): {limit} мм; Висота рулону: {roll_mm} мм)"
+        )
 
     return {
         "gabarit_limit_mm": limit or None,
@@ -637,16 +654,16 @@ def parse_sheet_price_section(
             real_width_mm = width_mm - cg.gbDiffWidthMm
             gb_width_mm = width_mm - cg.gbDiffWidthMm
 
-    idx = pick_width_band(width_bands, real_width_mm)
-    if idx is None:
-        raise ValueError("Ширина поза діапазонами прайсу")
-
     fabric = next(
         (f for f in fabrics if f["name"].lower() == fabric_name.lower()),
         None,
     )
     if not fabric:
         raise ValueError("Тканину не знайдено у вибраній секції")
+
+    idx = pick_width_band(width_bands, real_width_mm)
+    if idx is None:
+        raise _width_out_of_range_error(fabric.get("gabarit_limit_mm"), fabric.get("roll_height_mm"))
 
     base_cell = fabric["prices_by_band"][idx]
     detail = _compute_price_detail(
@@ -696,11 +713,6 @@ def price_preview_section(
 
     width_for_price = width_mm  # hook for future width_input_dim logic
 
-    bands = parsed["width_bands"]
-    idx = pick_width_band(bands, width_for_price)
-    if idx is None:
-        raise ValueError("Ширина поза діапазонами прайсу")
-
     fabrics = parsed.get("fabrics") or []
     fabric = next(
         (f for f in fabrics if f["name"].lower() == fabric_name.lower()),
@@ -708,6 +720,11 @@ def price_preview_section(
     )
     if not fabric:
         raise ValueError("Тканину не знайдено у вибраній секції")
+
+    bands = parsed["width_bands"]
+    idx = pick_width_band(bands, width_for_price)
+    if idx is None:
+        raise _width_out_of_range_error(fabric.get("gabarit_limit_mm"), fabric.get("roll_height_mm"))
 
     base_cell = fabric["prices_by_band"][idx]
     magnets_price = parsed.get("magnets_price_eur") or Q("0.00")
