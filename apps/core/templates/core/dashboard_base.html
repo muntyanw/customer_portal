@@ -30,7 +30,7 @@
 <div class="row g-4">
   <!-- Sidebar -->
   <aside class="col-12 col-lg-2">
-    <div class="sidebar bg-primary text-white rounded-3 p-3 shadow-sm">
+    <div class="collapse d-lg-block sidebar bg-primary text-white rounded-3 p-3 shadow-sm" id="sidebarCollapse">
       <div class="d-flex align-items-center mb-3">
         {% if request.user.customerprofile.avatar %}
           <img src="{{ request.user.customerprofile.avatar.url }}" width="40" height="40" class="rounded-circle me-2" alt="avatar">
@@ -130,7 +130,7 @@
   </aside>
 
   <!-- Main content -->
-  <section class="col-12 col-lg-10">
+  <section class="col-12 col-lg-10 main-content">
     <div class="d-flex align-items-center justify-content-between mb-3">
       <h1 class="h4 m-0" style="width: 100%;">{% block dashboard_heading %}Кабінет{% endblock %}</h1>
       

@@ -10,78 +10,99 @@
       <button type="submit" class="btn btn-primary btn-sm">Фільтрувати</button>
       <a href="{% url 'accounts:clients_list' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
     </form>
-    <div class="ms-auto">
+    <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
+      <div class="btn-group btn-group-sm" role="group" aria-label="Сортування">
+        <a class="btn btn-outline-primary {% if sort == 'email' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}sort=email">Email</a>
+        <a class="btn btn-outline-primary {% if sort == '-email' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}sort=-email">Email ↓</a>
+        <a class="btn btn-outline-primary {% if sort == 'full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}sort=full_name">ПІБ</a>
+        <a class="btn btn-outline-primary {% if sort == '-full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}sort=-full_name">ПІБ ↓</a>
+      </div>
       <a href="{% url 'accounts:client_create' %}" class="btn btn-success"><i class="bi bi-plus-lg me-1"></i> Створити акаунт</a>
     </div>
   </div>
 
-  <div class="table-responsive shadow-sm rounded-3">
-    <table class="table table-hover align-middle mb-0">
-      <thead class="table-light">
-        <tr>
-          <th></th>
-          <th><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'email' %}-email{% else %}email{% endif %}">Email</a></th>
-          <th><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'full_name' %}-full_name{% else %}full_name{% endif %}">ПІБ</a></th>
-          <th><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'phone' %}-phone{% else %}phone{% endif %}">Телефон</a></th>
-          <th>Організація</th>
-          <th>Баланс</th>
-          <th>Кредит</th>
-          <th>Менеджер</th>
-          <th>Дії</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for u in clients %}
-          <tr>
-            <td>
+  <div class="card shadow-sm">
+    <div class="card-body p-0">
+      <div class="d-none d-md-block border-bottom bg-light">
+        <div class="row g-2 align-items-center px-3 py-2 text-uppercase small fw-semibold text-muted">
+          <div class="col-1"></div>
+          <div class="col"><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'email' %}-email{% else %}email{% endif %}">Email</a></div>
+          <div class="col"><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'full_name' %}-full_name{% else %}full_name{% endif %}">ПІБ</a></div>
+          <div class="col">Телефон</div>
+          <div class="col">Організація</div>
+          <div class="col">Баланс</div>
+          <div class="col-auto">Кредит</div>
+          <div class="col-auto">Менеджер</div>
+          <div class="col-12 col-md-3">Дії</div>
+        </div>
+      </div>
+
+      {% for u in clients %}
+        <div class="border-bottom">
+          <div class="row g-3 align-items-center px-3 py-3">
+            <div class="col-12 col-md-1 d-flex justify-content-start justify-content-md-center">
               {% if u.customerprofile.avatar %}
                 <img src="{{ u.customerprofile.avatar.url }}" alt="avatar" class="rounded-circle" width="40" height="40">
               {% else %}
-                <span class="badge bg-secondary">—</span>
+                <div class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center" style="width:40px; height:40px;">
+                  <span class="fw-bold">{{ u.email|default:"?"|slice:":1"|upper }}</span>
+                </div>
               {% endif %}
-            </td>
-            <td>{{ u.email }}</td>
-            <td>{{ u.customerprofile.full_name|default:"—" }}</td>
-            <td>{{ u.customerprofile.phone|default:"—" }}</td>
-            <td>{{ u.customerprofile.organization.name|default:"—" }}</td>
-            <td>
+            </div>
+            <div class="col-12 col-md">
+              <div class="fw-semibold">{{ u.email }}</div>
+              <div class="text-muted small d-md-none">{{ u.customerprofile.full_name|default:"—" }}</div>
+            </div>
+            <div class="col-12 col-md">
+              <div>{{ u.customerprofile.full_name|default:"—" }}</div>
+              <div class="d-md-none text-muted small mt-1">
+                {{ u.customerprofile.organization.name|default:"—" }}
+              </div>
+            </div>
+            <div class="col-6 col-md">
+              {{ u.customerprofile.phone|default:"—" }}
+            </div>
+            <div class="col-6 col-md">
+              {{ u.customerprofile.organization.name|default:"—" }}
+            </div>
+            <div class="col-6 col-md">
               {% with bal=balances|get_item:u.id %}
                 <a class="{% if bal < 0 %}text-danger{% else %}text-success{% endif %}"
                    href="{% url 'orders:balances' %}?customer={{ u.id }}">
                   {{ bal|default:"0.00" }}
                 </a>
               {% endwith %}
-            </td>
-            <td>
+            </div>
+            <div class="col-6 col-md-auto">
               <form method="post" class="d-inline-flex align-items-center gap-1">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="toggle_credit">
                 <input type="hidden" name="user_id" value="{{ u.id }}">
                 <input class="form-check-input" type="checkbox" name="credit_allowed" value="1" {% if u.customerprofile.credit_allowed %}checked{% endif %} onchange="this.form.submit()">
               </form>
-            </td>
-            <td>
+            </div>
+            <div class="col-6 col-md-auto">
               <form method="post" class="d-inline-flex align-items-center gap-1">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="toggle_manager">
                 <input type="hidden" name="user_id" value="{{ u.id }}">
                 <input class="form-check-input" type="checkbox" name="is_manager" value="1" {% if u.is_manager %}checked{% endif %} onchange="this.form.submit()">
               </form>
-            </td>
-            <td>
+            </div>
+            <div class="col-12 col-md-3">
               <div class="d-flex flex-wrap gap-2">
                 <a href="{% url 'accounts:profile_other' u.id %}" class="btn btn-sm btn-secondary">Переглянути</a>
                 <a href="{% url 'accounts:profile_other' u.id %}" class="btn btn-sm btn-primary">Редагувати</a>
                 <a href="{% url 'orders:transaction_create' %}?customer={{ u.id }}" class="btn btn-sm btn-success">Створити транзакцію</a>
               </div>
-            </td>
-          </tr>
-        {% empty %}
-          <tr>
-            <td colspan="5" class="text-center text-muted py-4">Немає клієнтів</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+            </div>
+          </div>
+        </div>
+      {% empty %}
+        <div class="text-center text-muted py-4">
+          Немає клієнтів
+        </div>
+      {% endfor %}
+    </div>
   </div>
 {% endblock %}

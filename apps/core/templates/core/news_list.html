@@ -12,40 +12,45 @@
   </div>
 
   {% if news_items %}
-    <div class="table-responsive">
-      <table class="table align-middle">
-        <thead>
-          <tr>
-            <th>Заголовок</th>
-            <th>Статус</th>
-            <th>Оновлено</th>
-            <th>Автор</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for item in news_items %}
-            <tr>
-              <td>
+    <div class="card shadow-sm">
+      <div class="card-body p-0">
+        <div class="d-none d-md-block border-bottom bg-light">
+          <div class="row g-2 align-items-center px-3 py-2 text-uppercase small fw-semibold text-muted">
+            <div class="col">Заголовок</div>
+            <div class="col-auto">Статус</div>
+            <div class="col-auto">Оновлено</div>
+            <div class="col-auto">Автор</div>
+            <div class="col-12 col-md-2 text-end">Дії</div>
+          </div>
+        </div>
+
+        {% for item in news_items %}
+          <div class="border-bottom">
+            <div class="row g-3 align-items-center px-3 py-3">
+              <div class="col-12 col-md">
                 <div class="fw-semibold">{{ item.title }}</div>
                 <div class="small text-muted">{{ item.created_at|date:"d.m.Y H:i" }}</div>
-              </td>
-              <td>
+              </div>
+              <div class="col-6 col-md-auto">
                 {% if item.is_active %}
                   <span class="badge bg-success">Активна</span>
                 {% else %}
                   <span class="badge bg-secondary">Неактивна</span>
                 {% endif %}
-              </td>
-              <td>{{ item.updated_at|date:"d.m.Y H:i" }}</td>
-              <td>{{ item.created_by|default:"—" }}</td>
-              <td class="text-end">
+              </div>
+              <div class="col-6 col-md-auto">
+                {{ item.updated_at|date:"d.m.Y H:i" }}
+              </div>
+              <div class="col-6 col-md-auto">
+                {{ item.created_by|default:"—" }}
+              </div>
+              <div class="col-12 col-md-2 text-md-end">
                 <a class="btn btn-sm btn-outline-primary" href="{% url 'core:news_edit' item.id %}">Редагувати</a>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
     </div>
   {% else %}
     <div class="text-muted">Новин поки немає.</div>

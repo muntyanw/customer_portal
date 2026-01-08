@@ -25,6 +25,33 @@ body {
     height: 60px !important;
     width: auto !important;
   }
+  .navbar .container-fluid {
+    gap: 0.25rem;
+  }
+  .navbar .navbar-brand img {
+    margin-right: 0 !important;
+    margin-left: 0 !important;
+  }
+  .navbar .navbar-brand {
+    margin-left: 0 !important;
+  }
+  .ms-2 {
+    margin-left: 0 !important;
+  }
+  .navbar .navbar-toggler {
+    margin-left: 0.25rem !important;
+  }
+  #mainContent {
+    padding-top: calc(var(--app-navbar-height, 56px) + 4px) !important;
+  }
+  .main-content {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+  }
+  #mainContent .container-fluid.py-4 {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+  }
 }
 
 .portal-balance-badge,

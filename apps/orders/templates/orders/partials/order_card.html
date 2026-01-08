@@ -104,6 +104,11 @@
             <i class="bi bi-eye me-1"></i> {{ view_label|default:"Переглянути" }}
           </a>
         {% endif %}
+        {% if request.user.is_manager and order.workbook_file %}
+          <a class="btn btn-sm btn-outline-primary" href="{{ order.workbook_file.url }}" download>
+            <i class="bi bi-file-earmark-excel me-1"></i> Файл замовлення
+          </a>
+        {% endif %}
         {% if delete_url %}
           {% if request.user.is_manager or order.status == order.STATUS_QUOTE %}
             <a class="btn btn-sm btn-danger" href="{{ delete_url }}">

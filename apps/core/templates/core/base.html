@@ -71,7 +71,13 @@
           </div>
         {% endif %}
 
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#topNavbar" aria-controls="topNavbar" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button>
+        <div class="d-flex align-items-center">
+          <button class="navbar-toggler me-2" type="button" data-bs-toggle="collapse" data-bs-target="#topNavbar" aria-controls="topNavbar" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button>
+          <button class="btn btn-outline-light btn-sm d-lg-none" type="button" data-bs-toggle="collapse" data-bs-target="#sidebarCollapse" aria-expanded="false" aria-controls="sidebarCollapse" aria-label="Toggle sidebar">
+            <i class="bi bi-list"></i>
+            <span class="ms-1">Меню</span>
+          </button>
+        </div>
 
         <div id="topNavbar" class="collapse navbar-collapse">
           {% comment %} <ul class="navbar-nav me-auto mb-2 mb-lg-0">
