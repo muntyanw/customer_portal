@@ -64,6 +64,15 @@
           <i class="bi bi-bag-check me-2"></i>Тканинні ролети
         </a>
 
+        {# Новини #}
+        <a class="nav-link text-white {% if request.resolver_match.url_name == 'news_list' or request.resolver_match.url_name == 'news_create' or request.resolver_match.url_name == 'news_edit' %}active{% endif %}"
+          href="{% url 'core:news_list' %}">
+          <i class="bi bi-megaphone me-2"></i>Новини
+          {% if news_unread_count %}
+            <span class="badge bg-danger ms-2">{{ news_unread_count }}</span>
+          {% endif %}
+        </a>
+
         {# Комплектующие #}
         <a class="nav-link text-white {% if request.resolver_match.url_name == 'components_list' %}active{% endif %}"
           href="{% url 'orders:components_list' %}">
@@ -117,6 +126,9 @@
             <i class="bi bi-shield-lock me-2"></i>Адмінка
           </a>
         {% endif %}
+        <a class="nav-link text-white" href="{% url 'accounts:logout' %}">
+          <i class="bi bi-box-arrow-right me-2"></i>Вийти
+        </a>
       </nav>
 
       <hr class="border-white-50">

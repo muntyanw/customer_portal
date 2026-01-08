@@ -4,49 +4,51 @@
 
 {% block dashboard_content %}
   <div class="card shadow-sm mb-3">
-    <div class="card-body">
-      <h5 class="card-title">Видалені транзакції</h5>
-      {% if transactions %}
-        <div class="table-responsive">
-          <table class="table table-sm align-middle mb-0">
-            <thead>
-              <tr class="text-muted">
-                <th>№</th>
-                <th>Клієнт</th>
-                <th>Сума</th>
-                <th>Створено</th>
-                <th>Видалено</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for tx in transactions %}
-                <tr>
-                  <td>№{{ tx.id }}</td>
-                  <td>
-                    {% with profile=tx.customer.customerprofile %}
-                      {{ profile.full_name|default:tx.customer.email }}
-                    {% endwith %}
-                  </td>
-                  <td>{{ tx.amount|floatformat:2 }} € ({{ tx.amount_uah|floatformat:0 }} грн)</td>
-                  <td>{{ tx.created_at|date:"d.m.Y H:i" }}</td>
-                  <td>
-                    {{ tx.deleted_at|date:"d.m.Y H:i" }}<br>
-                    <span class="text-muted small">{{ tx.deleted_by|default:"—" }}</span>
-                  </td>
-                  <td class="text-end">
-                    <form method="post" action="{% url 'orders:transaction_restore' tx.id %}">
-                      {% csrf_token %}
-                      <button class="btn btn-sm btn-primary">Відновити</button>
-                    </form>
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+    <div class="card-body p-0">
+      <div class="d-none d-md-block border-bottom bg-light">
+        <div class="row g-2 align-items-center px-3 py-2 text-uppercase small fw-semibold text-muted">
+          <div class="col-auto">№</div>
+          <div class="col">Клієнт</div>
+          <div class="col">Сума</div>
+          <div class="col-auto">Створено</div>
+          <div class="col-auto">Видалено</div>
+          <div class="col-auto text-end">Дії</div>
         </div>
+      </div>
+
+      {% if transactions %}
+        {% for tx in transactions %}
+          <div class="border-bottom">
+            <div class="row g-3 align-items-center px-3 py-3">
+              <div class="col-12 col-md-auto">
+                <div class="fw-semibold">№{{ tx.id }}</div>
+              </div>
+              <div class="col-12 col-md">
+                {% with profile=tx.customer.customerprofile %}
+                  {{ profile.full_name|default:tx.customer.email }}
+                {% endwith %}
+              </div>
+              <div class="col-6 col-md">
+                {{ tx.amount|floatformat:2 }} € ({{ tx.amount_uah|floatformat:0 }} грн)
+              </div>
+              <div class="col-6 col-md-auto">
+                {{ tx.created_at|date:"d.m.Y H:i" }}
+              </div>
+              <div class="col-6 col-md-auto">
+                {{ tx.deleted_at|date:"d.m.Y H:i" }}<br>
+                <span class="text-muted small">{{ tx.deleted_by|default:"—" }}</span>
+              </div>
+              <div class="col-12 col-md-auto text-md-end">
+                <form method="post" action="{% url 'orders:transaction_restore' tx.id %}" class="d-inline">
+                  {% csrf_token %}
+                  <button class="btn btn-sm btn-primary">Відновити</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
       {% else %}
-        <div class="text-muted">Кошик порожній.</div>
+        <div class="text-muted px-3 py-4">Кошик порожній.</div>
       {% endif %}
     </div>
   </div>

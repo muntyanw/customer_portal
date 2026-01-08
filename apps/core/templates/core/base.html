@@ -42,7 +42,7 @@
         </a>
 
         {% if request.user.is_authenticated %}
-          <div class="d-lg-none ms-2">
+          <div class="d-lg-none ms-2 balance-block-mobile">
             {% if user_balance is not None %}
               <div class="mb-1">
                 <a class="badge rounded-pill {% if user_balance < 0 %}bg-danger{% else %}bg-success{% endif %} px-3 py-2 text-white text-decoration-none portal-balance-badge"
@@ -69,127 +69,57 @@
               </span>
             </div>
           </div>
+
+          <div class="d-none d-lg-flex align-items-center ms-3 gap-3">
+            {% if user_balance is not None %}
+              <a class="badge rounded-pill {% if user_balance < 0 %}bg-danger{% else %}bg-success{% endif %} me-2 px-3 py-2 text-white text-decoration-none"
+                 href="{% url 'orders:balances' %}">
+                <i class="bi bi-cash-coin me-1"></i>
+                Баланс:
+                <span class="fw-bold ms-1">{{ user_balance|default_if_none:0|floatformat:0 }} грн</span>
+              </a>
+            {% endif %}
+            <div class="position-relative d-inline-block">
+              <span class="badge rounded-pill bg-warning text-dark px-3 py-2">
+                <i class="bi bi-currency-exchange me-1"></i>
+                Курс EUR:
+                <span class="fw-bold ms-1">{{ eur_rate|default:"0.00" }}</span>
+              </span>
+              <span class="small text-white-50 position-absolute start-0 top-100 mt-1 text-nowrap">
+                Оновлено:
+                {% if eur_rate_updated_at %}
+                  {{ eur_rate_updated_at|date:"d.m.Y H:i" }}
+                {% else %}
+                  —
+                {% endif %}
+              </span>
+            </div>
+          </div>
         {% endif %}
 
-        <div class="d-flex align-items-center">
-          <button class="navbar-toggler me-2" type="button" data-bs-toggle="collapse" data-bs-target="#topNavbar" aria-controls="topNavbar" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button>
-          <button class="btn btn-outline-light btn-sm d-lg-none" type="button" data-bs-toggle="collapse" data-bs-target="#sidebarCollapse" aria-expanded="false" aria-controls="sidebarCollapse" aria-label="Toggle sidebar">
-            <i class="bi bi-list"></i>
-            <span class="ms-1">Меню</span>
-          </button>
+        <div class="d-flex align-items-center flex-column flex-lg-row gap-2 toggles-wrap">
+          {% if not request.user.is_authenticated %}
+            <button class="navbar-toggler me-lg-2" type="button" data-bs-toggle="collapse" data-bs-target="#topNavbar" aria-controls="topNavbar" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button>
+          {% endif %}
+          {% if request.user.is_authenticated %}
+            <button class="btn btn-outline-light btn-sm d-lg-none" type="button" data-bs-toggle="collapse" data-bs-target="#sidebarCollapse" aria-expanded="false" aria-controls="sidebarCollapse" aria-label="Toggle sidebar">
+              <i class="bi bi-list"></i>
+              <span class="ms-1">Меню</span>
+            </button>
+          {% endif %}
         </div>
 
         <div id="topNavbar" class="collapse navbar-collapse">
-          {% comment %} <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-            <li class="nav-item">
-              <a class="nav-link" href="/orders/">Усі замовлення</a>
-            </li>
-            <li class="nav-item">
-              <a class="nav-link" href="/accounts/profile/">Профіль</a>
-            </li>
-          </ul> {% endcomment %}
-
-          <ul class="navbar-nav ms-auto">
-            {% if request.user.is_authenticated %}
-
-              {% if news_unread %}
-                <li class="nav-item d-flex align-items-center ms-lg-3">
-                  <a class="nav-link text-white position-relative" href="{% url 'core:dashboard' %}">
-                    Новини
-                    {% if news_unread_count %}
-                      <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
-                        {{ news_unread_count }}
-                      </span>
-                    {% endif %}
-                  </a>
-                </li>
-              {% endif %}
-
-              {% if user_balance is not None %}
-                <li class="nav-item d-none d-lg-flex align-items-center ms-lg-3">
-                  <a class="badge rounded-pill {% if user_balance < 0 %}bg-danger{% else %}bg-success{% endif %} me-2 px-3 py-2 text-white text-decoration-none"
-                     href="{% url 'orders:balances' %}">
-                    <i class="bi bi-cash-coin me-1"></i>
-                    Баланс:
-                    <span class="fw-bold ms-1">{{ user_balance|default_if_none:0|floatformat:0 }} грн</span>
-                  </a>
-                </li>
-              {% endif %}
-
-              {# Блок курсу EUR #}
-              <li class="nav-item d-none d-lg-flex align-items-center ms-lg-3 flex-wrap gap-2">
-                <div class="position-relative d-inline-block me-4">
-                  <span class="badge rounded-pill bg-warning text-dark px-3 py-2">
-                    <i class="bi bi-currency-exchange me-1"></i>
-                    Курс EUR:
-                    <span class="fw-bold ms-1">{{ eur_rate|default:"0.00" }}</span>
-                  </span>
-                  <span class="small text-white-50 position-absolute start-0 top-100 mt-1 text-nowrap">
-                    Оновлено:
-                    {% if eur_rate_updated_at %}
-                      {{ eur_rate_updated_at|date:"d.m.Y H:i" }}
-                    {% else %}
-                      —
-                    {% endif %}
-                  </span>
-                </div>
-
-                {% if request.user.is_staff %}
-                  <form action="{% url 'orders:update_eur_rate' %}" method="post" class="d-inline mb-0" onsubmit="return confirm('Оновити курс EUR онлайн?');">
-                    {% csrf_token %}
-                    <input type="hidden" name="mode" value="online">
-                    <button type="submit"
-                            class="btn btn-sm btn-outline-light d-flex align-items-center px-3 py-1">
-                      <i class="bi bi-arrow-clockwise me-1"></i>
-                      Оновити онлайн
-                    </button>
-                  </form>
-
-                  <form action="{% url 'orders:update_eur_rate' %}" method="post" class="d-inline mb-0" onsubmit="return confirm('Зберегти курс вручну?');">
-                    {% csrf_token %}
-                    <input type="hidden" name="mode" value="manual">
-                    <div class="input-group input-group-sm">
-                      <input type="number" step="0.0001" min="0" name="rate" class="form-control form-control-sm" placeholder="Ввести курс">
-                      <button class="btn btn-outline-light" type="submit">Зберегти</button>
-                    </div>
-                  </form>
-                {% endif %}
-              </li>
-
-              <li class="nav-item">
-                <a class="nav-link" href="{% url 'core:dashboard' %}">Кабінет</a>
-              </li>
-              
-              <li class="nav-item dropdown">
-                <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                  <span class="me-2">{{ request.user.email }}</span>
-                  {% if request.user.customerprofile.avatar %}
-                    <img src="{{ request.user.customerprofile.avatar.url }}" alt="avatar" class="rounded-circle" width="24" height="24" />
-                  {% else %}
-                    <img src="/static/media/avatar.png" alt="avatar" class="rounded-circle" width="24" height="24" />
-                  {% endif %}
-                </a>
-                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                  <li>
-                    <a class="dropdown-item" href="{% url 'accounts:profile' %}">Профіль</a>
-                  </li>
-                  <li>
-                    <hr class="dropdown-divider" />
-                  </li>
-                  <li>
-                    <a class="dropdown-item text-danger" href="{% url 'accounts:logout' %}">Вийти</a>
-                  </li>
-                </ul>
-              </li>
-            {% else %}
+          {% if not request.user.is_authenticated %}
+            <ul class="navbar-nav ms-auto mt-2 gap-2">
               <li class="nav-item">
                 <a class="nav-link" href="{% url 'accounts:login' %}">Увійти</a>
               </li>
               <li class="nav-item">
                 <a class="btn btn-light btn-sm ms-lg-2" href="{% url 'accounts:register' %}">Реєстрація</a>
               </li>
-            {% endif %}
-          </ul>
+            </ul>
+          {% endif %}
         </div>
       </div>
     </nav>

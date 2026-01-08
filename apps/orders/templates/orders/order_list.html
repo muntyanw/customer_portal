@@ -9,13 +9,27 @@
 {% endblock %}
 
 {% block dashboard_content %}
+  <div class="d-flex justify-content-end mb-2">
+    {% if list_mode == 'components' %}
+      <a href="{% url 'orders:components_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
+        <i class="bi bi-tools me-1"></i> Нове замовлення (Комплектуючі)
+      </a>
+    {% else %}
+      <a href="{% url 'orders:builder' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
+        <i class="bi bi-plus-lg me-1"></i> Нове замовлення (Ролети)
+      </a>
+    {% endif %}
+  </div>
+
   <div class="card shadow-sm mb-3">
     <div class="card-body">
-      <div class="d-flex justify-content-between align-items-center d-md-none mb-2">
-        <div class="fw-semibold">Фільтри</div>
-        <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse" aria-expanded="false" aria-controls="filtersCollapse">
-          Показати / Сховати
-        </button>
+      <div class="d-flex flex-wrap justify-content-between align-items-center mb-2">
+        <div class="d-md-none d-flex align-items-center gap-2">
+          <div class="fw-semibold">Фільтри</div>
+          <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse" aria-expanded="false" aria-controls="filtersCollapse">
+            Показати / Сховати
+          </button>
+        </div>
       </div>
       <div class="collapse d-md-block" id="filtersCollapse">
         <form method="get" class="d-flex flex-wrap align-items-end gap-2">
@@ -59,17 +73,6 @@
               <a href="{% url 'orders:components_list' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
             {% else %}
               <a href="{% url 'orders:list' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
-            {% endif %}
-          </div>
-          <div class="ms-auto d-flex justify-content-end align-items-end gap-2">
-            {% if list_mode == 'components' %}
-              <a href="{% url 'orders:components_builder_create' %}" class="btn btn-success">
-                <i class="bi bi-tools me-1"></i> Нове замовлення (Комплектуючі)
-              </a>
-            {% else %}
-              <a href="{% url 'orders:builder' %}" class="btn btn-success">
-                <i class="bi bi-plus-lg me-1"></i> Нове замовлення (Ролети)
-              </a>
             {% endif %}
           </div>
         </form>
