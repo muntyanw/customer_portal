@@ -32,6 +32,7 @@ from django.core.mail import EmailMessage, send_mail
 from django.core.files.base import ContentFile
 from io import BytesIO
 from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Side, Font, PatternFill
 from django.utils import timezone
 import datetime
 from .utils_components import parse_components_from_post
@@ -122,7 +123,11 @@ def _collect_item_options(item: OrderItem, rate: Decimal, markup_multiplier: Dec
     """
     options = []
     rate_with_markup = Decimal(rate or 0) * Decimal(markup_multiplier or 1)
-    for field in [f.name for f in OrderItem._meta.fields if f.name.endswith("_price_eur")]:
+    for field in [
+        f.name
+        for f in OrderItem._meta.fields
+        if f.name.endswith("_price_eur") or f.name.endswith("_price_eur_mp")
+    ]:
         price = getattr(item, field, None)
         if price in (None, ""):
             continue
@@ -370,11 +375,16 @@ def _build_order_workbook(order, save_to_file: bool = True):
     ws.title = "Замовлення"
     profile = getattr(order.customer, "customerprofile", None)
     rate = Decimal(order.eur_rate or get_current_eur_rate() or 0)
+    thin = Side(style="thin", color="000000")
+    border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
+    border_horiz = Border(top=thin, bottom=thin)
+    center_align = Alignment(horizontal="center", vertical="center")
+    center_wrap_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
     def price_uah(eur, qty=1):
         if not rate:
             return float(Decimal(eur or 0) * Decimal(qty or 0))
-        return float((Decimal(eur or 0) * Decimal(qty or 0) * rate).quantize(Decimal("0.01")))
+        return float((Decimal(eur or 0) * Decimal(qty or 0) * rate).quantize(Decimal("1"), rounding=ROUND_UP))
 
     row = 1
     client_info = [
@@ -386,11 +396,35 @@ def _build_order_workbook(order, save_to_file: bool = True):
     ]
     for label, val in client_info:
         ws.append(["", label, val])
-    row = ws.max_row + 2
+    # widen column B and center
+    ws.column_dimensions["B"].width = 24
+    ws.column_dimensions["D"].width = 20
+    for r in range(1, ws.max_row + 1):
+        ws.cell(row=r, column=2).alignment = center_align
+
+    # merge C-L in rows 1-5 and add borders B-L, center text
+    for r in range(1, 6):
+        ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=12)
+        for c in range(2, 13):
+            cell = ws.cell(row=r, column=c)
+            cell.border = border_all
+        ws.cell(row=r, column=3).alignment = center_wrap_align
+
+    # пустая строка после блоку приміток
+    ws.append([])
 
     total_order_uah = Decimal("0")
-    ws.append(["", "Загальна вартість замовлення, грн"] + [""] * 9 + [0])
-    total_cell = ws.cell(row=ws.max_row, column=12)
+    item_total_rows = []
+    gap_rows = []
+    ws.append([""] * 12)
+    total_row = ws.max_row
+    ws.merge_cells(start_row=total_row, start_column=7, end_row=total_row, end_column=11)
+    ws.cell(row=total_row, column=7).value = "Загальна вартість замовлення, грн"
+    ws.cell(row=total_row, column=7).alignment = center_wrap_align
+    ws.cell(row=total_row, column=7).font = Font(bold=True)
+    for c in range(7, 12 + 1):
+        ws.cell(row=total_row, column=c).border = border_all
+    total_cell = ws.cell(row=total_row, column=12)
     row = ws.max_row + 1
 
     created_str = order.created_at.astimezone(timezone.get_current_timezone()).strftime("%d.%m.%y") if order.created_at else ""
@@ -402,10 +436,31 @@ def _build_order_workbook(order, save_to_file: bool = True):
             return "Праве"
         return val or ""
 
+    system_colors = [
+        "біла",
+        "коричнева",
+        "графіт",
+        "золотий дуб",
+        "сіра",
+    ]
+
+    def system_color(val):
+        if not val:
+            return val
+        lower = str(val).lower()
+        for col in system_colors:
+            if col in lower:
+                return col
+        return val
+
     def add_option_rows(item):
         rows = []
         total_opts = Decimal("0")
-        for field in [f.name for f in OrderItem._meta.fields if f.name.endswith("_price_eur")]:
+        for field in [
+            f.name
+            for f in OrderItem._meta.fields
+            if f.name.endswith("_price_eur") or f.name.endswith("_price_eur_mp")
+        ]:
             price = getattr(item, field, None)
             qty_field = field.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
             qty = getattr(item, qty_field, None)
@@ -419,7 +474,7 @@ def _build_order_workbook(order, save_to_file: bool = True):
             if qty_val <= 0 or price_val <= 0:
                 continue
             label = OPTION_LABELS.get(field, field)
-            # price fields already store total for the selected qty
+            # builder stores total price per option (already * qty), keep as is
             sum_uah = price_uah(price_val)
             rows.append(["", label, "", "", "", "", "", "", "", "", float(qty_val), sum_uah])
             total_opts += Decimal(sum_uah)
@@ -428,16 +483,29 @@ def _build_order_workbook(order, save_to_file: bool = True):
     headers = ["", "Система", "Колір с-ми", "Тканина", "Колір тканини", "Ширина, мм", "Знач. Шир.", "Висота, мм", "Знач. Вис.", "Сторона управ.", "К-сть", "Вартість, грн"]
 
     for idx, it in enumerate(order.items.all(), start=1):
+        start_item_row = ws.max_row + 1
         ws.append([f"Поз. {idx}", f"Замовлення № {order.pk} від {created_str}"])
-        ws.append(headers)
+        title_row = ws.max_row
+        ws.cell(row=title_row, column=1).font = Font(bold=True)
+        ws.merge_cells(start_row=title_row, start_column=2, end_row=title_row, end_column=12)
+        ws.cell(row=title_row, column=2).alignment = center_wrap_align
+        ws.cell(row=title_row, column=2).font = Font(bold=True, size=14)
 
-        base_uah = price_uah(it.subtotal_eur)
+        ws.append(headers)
+        header_row = ws.max_row
+        for c in range(2, 13):
+            cell = ws.cell(row=header_row, column=c)
+            cell.font = Font(bold=True)
+            cell.alignment = center_wrap_align
+
+        # subtotal_eur already includes quantity (див. _order_base_total)
+        total_item_uah = Decimal(str(price_uah(it.subtotal_eur)))
         opt_rows, total_opts = add_option_rows(it)
 
         ws.append([
             "",
             it.system_sheet,
-            it.table_section,
+            system_color(it.table_section),
             it.fabric_name,
             it.fabric_color_code,
             it.width_fabric_mm,
@@ -446,22 +514,59 @@ def _build_order_workbook(order, save_to_file: bool = True):
             "По тканині" if it.fabric_height_flag else (it.roll_height_info or "Габарит"),
             control_label(it.control_side),
             it.quantity,
-            base_uah,
+            float(max(total_item_uah - Decimal(total_opts), Decimal("0"))),
         ])
+        # center align parameters row
+        param_row = ws.max_row
+        for c in range(2, 13):
+            ws.cell(row=param_row, column=c).alignment = center_align
 
         if opt_rows:
-            ws.append(["", "Додатково:"])
+            start_opt_row = ws.max_row + 1
             for r in opt_rows:
-                ws.append(r)
-            ws.append(["", "", "", "", "", "", "", "", "", "Всього:", "", float(total_opts + Decimal(base_uah))])
+                label = r[1]
+                qty_val = r[10] if len(r) > 10 else ""
+                price_val = r[11] if len(r) > 11 else ""
+                ws.append([""] * 12)
+                cur_row = ws.max_row
+                # опция: название в C-K, цена в L
+                ws.merge_cells(start_row=cur_row, start_column=3, end_row=cur_row, end_column=11)
+                label_cell = ws.cell(row=cur_row, column=3)
+                label_cell.value = f"{label} ({qty_val})" if qty_val not in ("", None) else label
+                label_cell.alignment = Alignment(vertical="center")
+                for c in range(2, 13):
+                    ws.cell(row=cur_row, column=c).border = border_all
+                ws.cell(row=cur_row, column=12).value = price_val
+            end_opt_row = ws.max_row
+            # Додатково по вертикалі в C
+            ws.merge_cells(start_row=start_opt_row, start_column=2, end_row=end_opt_row, end_column=2)
+            extra_cell = ws.cell(row=start_opt_row, column=2)
+            extra_cell.value = "Додатково:"
+            extra_cell.alignment = center_align
+            for r in range(start_opt_row, end_opt_row + 1):
+                ws.cell(row=r, column=2).border = border_all
+
+            ws.append(["", "", "", "", "", "", "", "", "", "Всього:", it.quantity, float(total_item_uah)])
+            item_total_rows.append(ws.max_row)
         else:
-            ws.append(["", "", "", "", "", "", "", "", "", "Всього:", "", float(base_uah)])
+            ws.append(["", "", "", "", "", "", "", "", "", "Всього:", it.quantity, float(total_item_uah)])
+            item_total_rows.append(ws.max_row)
 
         if it.note:
-            ws.append(["", "Примітки до виробу", it.note])
+            ws.append(["", "Примітки до виробу", it.note] + [""] * 9)
+            note_row = ws.max_row
+            ws.merge_cells(start_row=note_row, start_column=3, end_row=note_row, end_column=12)
+            ws.cell(row=note_row, column=3).alignment = center_align
+        # пустая строка после блока позиции без боковых границ
+        ws.append([""] * 12)
+        gap_rows.append(ws.max_row)
 
-        ws.append([])
-        total_order_uah += Decimal(base_uah) + total_opts
+        end_item_row = ws.max_row
+        ws.merge_cells(start_row=start_item_row, start_column=1, end_row=end_item_row, end_column=1)
+        ws.cell(row=start_item_row, column=1).alignment = center_align
+        ws.cell(row=start_item_row, column=1).border = Border(left=thin, right=thin)
+
+        total_order_uah += total_item_uah
 
     if order.component_items.exists():
         ws.append(["", "Комплектуючі"])
@@ -474,6 +579,41 @@ def _build_order_workbook(order, save_to_file: bool = True):
 
     total_cell.value = float(_round_uah_total(total_order_uah)) if total_order_uah else 0
 
+    # center all column B cells
+    for r in range(1, ws.max_row + 1):
+        ws.cell(row=r, column=2).alignment = center_wrap_align
+
+    # add borders to all populated grid cells (A-L)
+    for r in range(1, ws.max_row + 1):
+        for c in range(1, 13):
+            if r in gap_rows:
+                if c == 1:
+                    ws.cell(row=r, column=c).border = Border(left=thin, right=thin, top=thin, bottom=thin)
+                else:
+                    ws.cell(row=r, column=c).border = border_horiz
+            elif c == 1:
+                ws.cell(row=r, column=c).border = Border(left=thin, right=thin)
+            elif c == 12:
+                ws.cell(row=r, column=c).border = Border(right=thin, left=thin, top=thin, bottom=thin)
+            else:
+                ws.cell(row=r, column=c).border = border_all
+
+    # override borders: row 6 horizontal only, before total labels remove verticals
+    # blank row after header (row 6)
+    for c in range(1, 7):
+        ws.cell(row=6, column=c).border = Border()
+    for c in range(7, 13):
+        ws.cell(row=6, column=c).border = border_horiz
+    ws.cell(row=6, column=1).border = Border(left=thin)
+    # overall total row: remove verticals before text (cols 1-6)
+    for c in range(1, 7):
+        ws.cell(row=total_row, column=c).border = border_horiz
+    # item totals: remove verticals before "Всього:"
+    for r in item_total_rows:
+        for c in range(1, 10):
+            ws.cell(row=r, column=c).border = border_horiz
+        ws.cell(row=r, column=1).border = Border(left=thin, right=thin)
+
     buffer = BytesIO()
     wb.save(buffer)
     buffer.seek(0)
@@ -483,10 +623,30 @@ def _build_order_workbook(order, save_to_file: bool = True):
     return filename, buffer.getvalue()
 
 
+@login_required
+def order_workbook_download(request, pk):
+    """Managers: always regenerate and download the Excel workbook for an order."""
+    if not is_manager(request.user):
+        raise Http404
+    order = get_object_or_404(Order, pk=pk)
+    filename, data = _build_order_workbook(order, save_to_file=False)
+    response = HttpResponse(
+        data,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
 def _build_proposal_workbook(order):
     wb = Workbook()
     ws = wb.active
     ws.title = "Пропозиція"
+    thin = Side(style="thin", color="000000")
+    border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center_align = Alignment(horizontal="center", vertical="center")
+    header_fill = PatternFill(start_color="FFF9C4", end_color="FFF9C4", fill_type="solid")  # light yellow
+    position_fill = PatternFill(start_color="E8F5E9", end_color="E8F5E9", fill_type="solid")  # light green
 
     rate = _order_rate(order, get_current_eur_rate())
     base_total_eur = _order_base_total(order)
@@ -507,7 +667,14 @@ def _build_proposal_workbook(order):
     customer_full_name = getattr(profile, "full_name", "") or str(order.customer)
     customer_address = getattr(profile, "trade_address", "") or ""
 
-    ws.append([f"Комерційна пропозиція №{order.pk}"])
+    ws.column_dimensions["A"].width = 36
+    ws.column_dimensions["B"].width = 60
+
+    ws.append([f"Комерційна пропозиція №{order.pk}", ""])
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=2)
+    ws.cell(row=1, column=1).alignment = center_align
+    ws.cell(row=1, column=1).font = Font(bold=True)
+    ws.cell(row=1, column=1).fill = header_fill
     if created_str:
         ws.append(["Створено", created_str])
     ws.append(["Клієнт", customer_name])
@@ -517,10 +684,21 @@ def _build_proposal_workbook(order):
     if extra_uah:
         ws.append(["Додаткова послуга", f"{order.extra_service_label or 'Послуга'} — {float(extra_uah)} грн"])
     ws.append(["Вартість замовлення, грн", float(total_with_markup_uah)])
+    ws.cell(row=ws.max_row, column=2).font = Font(bold=True)
     ws.append([])
+
+    # форматування перших рядків
+    for r in range(2, 8):
+        if ws.cell(row=r, column=1).value is not None:
+            ws.cell(row=r, column=1).font = Font(bold=True)
+        if ws.cell(row=r, column=2).value is not None:
+            ws.cell(row=r, column=2).alignment = center_align
 
     def add_row(label, value):
         ws.append([label, value])
+        lbl = (label or "").lower()
+        if lbl.startswith("вартість") or lbl.startswith("сума") or lbl.startswith("ціна"):
+            ws.cell(row=ws.max_row, column=2).font = Font(bold=True)
 
     def control_label(val):
         if val == "left":
@@ -530,8 +708,10 @@ def _build_proposal_workbook(order):
         return val or ""
 
     for idx, it in enumerate(order.items.all(), start=1):
-        ws.append([f"Позиція {idx}"])
-        ws.append(["Характеристика", "Значення"])
+        ws.append([f"Позиція {idx}", ""])
+        ws.merge_cells(start_row=ws.max_row, start_column=1, end_row=ws.max_row, end_column=2)
+        ws.cell(row=ws.max_row, column=1).alignment = center_align
+        ws.cell(row=ws.max_row, column=1).fill = position_fill
         fabric = it.fabric_name or ""
         if it.fabric_color_code:
             fabric = f"{fabric} ({it.fabric_color_code})" if fabric else it.fabric_color_code
@@ -541,6 +721,16 @@ def _build_proposal_workbook(order):
         add_row("Тканина", fabric)
         add_row("Ширина, мм", it.width_fabric_mm)
         add_row("Висота, мм", it.height_gabarit_mm)
+        add_row("Кількість", int(it.quantity or 0))
+        unit_price = Decimal(it.subtotal_eur or 0)
+        try:
+            qty_dec = Decimal(it.quantity or 1)
+            if qty_dec > 0:
+                unit_price = unit_price / qty_dec
+        except Exception:
+            pass
+        unit_uah = _round_uah_total(unit_price * Decimal(rate or 0) * markup_multiplier)
+        add_row("Ціна за 1 шт, грн", float(unit_uah))
         add_row("Сторона керування", control_label(it.control_side))
         subtotal_uah = _round_uah_total(Decimal(it.subtotal_eur or 0) * Decimal(rate or 0) * markup_multiplier)
         add_row("Вартість, грн", float(subtotal_uah))
@@ -550,8 +740,12 @@ def _build_proposal_workbook(order):
         options = _collect_item_options(it, rate, markup_multiplier)
         if options:
             ws.append(["Додаткові опції", ""])
+            ws.merge_cells(start_row=ws.max_row, start_column=1, end_row=ws.max_row, end_column=2)
+            ws.cell(row=ws.max_row, column=1).alignment = center_align
+            ws.cell(row=ws.max_row, column=1).font = Font(bold=True)
             for opt in options:
-                qty = opt.get("qty") or ""
+                qty_raw = opt.get("qty") or ""
+                qty = int(qty_raw) if isinstance(qty_raw, (int, float, Decimal)) else qty_raw
                 price_uah = opt.get("price_uah") or Decimal("0")
                 detail = f"{qty} · {price_uah} грн" if qty not in ("", None) else f"{price_uah} грн"
                 add_row(opt.get("label", ""), detail)
@@ -572,6 +766,16 @@ def _build_proposal_workbook(order):
             add_row("Кількість", float(comp.quantity or 0))
             add_row("Сума, грн", float(total_uah))
             ws.append([])
+
+    # Borders for filled cells + стили колонок (жирный/центр)
+    max_r = ws.max_row
+    for r in range(1, max_r + 1):
+        for c in range(1, 3):
+            ws.cell(row=r, column=c).border = border_all
+            if c == 1 and ws.cell(row=r, column=c).value is not None:
+                ws.cell(row=r, column=c).font = Font(bold=True)
+            if c == 2 and ws.cell(row=r, column=c).value is not None:
+                ws.cell(row=r, column=c).alignment = center_align
 
     buffer = BytesIO()
     wb.save(buffer)

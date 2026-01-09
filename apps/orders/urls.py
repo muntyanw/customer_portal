@@ -44,6 +44,7 @@ urlpatterns = [
     path("transactions/<int:pk>/delete/", views.transaction_delete, name="transaction_delete"),
     path("settings/notifications/", views.order_notifications_settings, name="notifications_settings"),
     path("currency/history/", views.currency_rate_history, name="currency_history"),
+    path("<int:pk>/workbook/", views.order_workbook_download, name="workbook_download"),
 
     # стандартні CRUD для Order
     

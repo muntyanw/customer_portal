@@ -207,6 +207,9 @@
                     Наступний статус{% if next_status_label %}: {{ next_status_label }}{% endif %}
                   </button>
                 {% endif %}
+                <a class="btn btn-outline-primary" href="{% url 'orders:workbook_download' order.id %}">
+                  <i class="bi bi-file-earmark-excel me-1"></i> Файл замовлення
+                </a>
               </div>
             {% endif %}
           {% else %}
@@ -561,6 +564,7 @@
     function setEventsFromGabarits($card) {
       const $w_mm = $card.find('.w-mm')
       const $h_mm = $card.find('.h-mm')
+      const $qtyInput = $card.find('.qty')
 
       $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag, .fabric-height-flag').prop('disabled', false)
       $card.find('.gabarit-width-flag .form-check-input, .fabric-height-flag .form-check-input').prop('disabled', false)
@@ -598,6 +602,13 @@
           if (Number($w_mm.val()) > 0 && Number($h_mm.val()) > 0) {
             previewCard($card)
           }
+        })
+
+      $qtyInput
+        .off('input.qtychange')
+        .on('input.qtychange', function () {
+          previewCard($card)
+          syncOptionsQty($card)
         })
     }
 
@@ -1185,7 +1196,12 @@
             
             setEventsFromGabarits($card)
 
-            await previewCard($card, prevVals.qtyPriceOptions)
+            $card.find('.qty').val(1)
+            const preOpts = { ...(prevVals.qtyPriceOptions || {}) }
+            Object.keys(preOpts).forEach((k) => {
+              if (k.endsWith('_qty')) preOpts[k] = 1
+            })
+            await previewCard($card, preOpts)
 
           }
         } catch (e) {
@@ -1469,8 +1485,23 @@
       recalcPrice()
     }
 
+    function syncOptionsQty($card) {
+      const qty = Number($card.find('.qty').val() || 1)
+      $card.find('.op-card.price-option-card').each(function () {
+        const $block = $(this)
+        if (!$block.find('.form-check-input').prop('checked')) return
+        const optionName = ($block.attr('class').match(/op-card\s+(\S+)/) || [])[1] || ''
+        const unitEur = Number($block.attr('data-unit-eur') || 0)
+        setOneOption($card, optionName, qty, unitEur, 0)
+      })
+    }
+
     function setOneOption($card, optionName, optionQty, optionPrice, pricePerItemEur) {
       const $block = $card.find('.op-card.' + optionName)
+      const unitEurData = Number($block.attr('data-unit-eur') || 0)
+      if (!optionPrice && unitEurData) {
+        optionPrice = unitEurData
+      }
       const $hidden = $block.find('.price-hidden')
       const $hiddenQty = $block.find('.qty-hidden')
       const $blockValQty = $block.find('.option-qty-value')
@@ -1559,7 +1590,7 @@
 
       if ($card.find('.' + optionName).length === 0) {
         let htmlPriceOption =
-          `<div class="op-card ${optionName} price-option-card border rounded-3 mb-2 bg-light-subtle">`
+          `<div class="op-card ${optionName} price-option-card border rounded-3 mb-2 bg-light-subtle" data-unit-eur="${optionPrice}">`
           + `<div class="d-flex align-items-center justify-content-between gap-2">`
           +   `<div class="d-flex align-items-center gap-2">`
           +     `<input class="form-check-input price-option mt-0" type="checkbox"`
@@ -1600,6 +1631,8 @@
           + `</div>`
 
         $card.find('.op-card-list').append(htmlPriceOption)
+      } else {
+        $card.find('.' + optionName).attr('data-unit-eur', optionPrice)
       }
 
       // если у нас уже есть qty > 0 (редактирование заказа) — сразу создаём строку в таблице
@@ -1705,7 +1738,10 @@
       const $surchargeRow = $card.find('.surcharge-row')
       $surchargeRow.addClass('d-none')
 
-      $card.find('.base-uah').text(eurToUah(displayTotal))
+      const unitEur = baseOne + surchargeOne
+      $card.find('.base-uah').text(eurToUah(unitEur))
+      $card.find('.base-qty').text(qty)
+      $card.find('.base-total-uah').text(eurToUah(displayTotal))
       $card.find('.surcharge-uah').text('0.00')
 
       $card.find('.gb_width_mm').val((Number(preSelectsPriceOptions.gb_width_mm || data?.gb_width_mm || 0)))
@@ -1727,7 +1763,7 @@
       const section = $(this).val()
 
       $card.find('.base,.surcharge,.magnets-price,.subtotal').text('0.00')
-      $card.find('.base-uah,.surcharge-uah,.subtotal-uah').text('0.00')
+      $card.find('.base-uah,.base-qty,.base-total-uah,.surcharge-uah,.subtotal-uah').text('0.00')
       if (!system || !section) {
         return
       }

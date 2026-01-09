@@ -68,6 +68,10 @@ body {
     gap: 0.1rem;
     flex: 0 1 auto;
     padding-top: 0.1rem;
+    /* hide updated label under course on mobile */
+    .small {
+      display: none !important;
+    }
   }
   .portal-balance-badge,
   .portal-rate-badge {
