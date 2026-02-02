@@ -108,6 +108,20 @@
           <a class="btn btn-sm btn-outline-primary" href="{% url 'orders:workbook_download' order.id %}">
             <i class="bi bi-file-earmark-excel me-1"></i> Файл замовлення
           </a>
+          {% with proposal_page=proposal_page_urls|get_item:order.id %}
+            {% if proposal_page %}
+              <a class="btn btn-sm btn-warning text-dark" href="{{ proposal_page }}" target="_blank">
+                <i class="bi bi-eye me-1"></i> Комерційна (сторінка)
+              </a>
+            {% endif %}
+          {% endwith %}
+          {% with proposal_excel=proposal_excel_urls|get_item:order.id %}
+            {% if proposal_excel %}
+              <a class="btn btn-sm btn-success" href="{{ proposal_excel }}">
+                <i class="bi bi-file-earmark-excel me-1"></i> Комерційна (Excel)
+              </a>
+            {% endif %}
+          {% endwith %}
         {% endif %}
         {% if delete_url %}
           {% if request.user.is_manager or order.status == order.STATUS_QUOTE %}

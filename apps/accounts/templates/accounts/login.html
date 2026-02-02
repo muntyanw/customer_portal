@@ -52,8 +52,9 @@
       const loginInput = document.getElementById('id_login');
       if (loginInput) {
         loginInput.addEventListener('input', function () {
-          if (this.value.includes('@')) return; // skip emails
-          this.value = formatPhone(this.value);
+          const raw = this.value || '';
+          if (raw.includes('@') || /[a-zA-Z]/.test(raw)) return; // skip emails/letters
+          this.value = formatPhone(raw);
         });
       }
     })();

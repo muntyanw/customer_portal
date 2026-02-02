@@ -11,6 +11,8 @@ urlpatterns = [
     # список замовлень з комплектуючими
     path("components/", views.order_components_list, name="components_list"),
     path("balances/", views.balances_history, name="balances"),
+    path("balances/export/", views.balances_excel, name="balances_excel"),
+    path("balances/page/<str:token>/", views.balance_public_page, name="balance_public"),
     path("balances/users/", views.balances_users, name="balances_users"),
 
     # білдер ролетів

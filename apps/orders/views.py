@@ -68,6 +68,30 @@ def _to_int(value, default=0):
         return int(default)
 
 
+def _normalize_discount_percent(pct):
+    try:
+        pct = Decimal(pct or 0)
+    except Exception:
+        pct = Decimal("0")
+    if pct < Decimal("-100"):
+        pct = Decimal("-100")
+    if pct > Decimal("100"):
+        pct = Decimal("100")
+    return pct.quantize(Decimal("0.01"))
+
+
+def _customer_discount_multiplier(user=None, pct=None):
+    """Return discount multiplier (1 - percent/100). If pct is provided, it takes precedence."""
+    if pct is None:
+        if not user:
+            pct = Decimal("0")
+        else:
+            profile = getattr(user, "customerprofile", None)
+            pct = getattr(profile, "discount_percent", Decimal("0")) if profile else Decimal("0")
+    pct = _normalize_discount_percent(pct)
+    return (Decimal("100") - pct) / Decimal("100"), pct
+
+
 def _control_side_label(val):
     """EN: Human label for control side. UA: Людська назва сторони керування."""
     if val == "left":
@@ -79,6 +103,7 @@ def _control_side_label(val):
 
 _TIME_RE = re.compile(r"^(\d{1,2}):(\d{2})$")
 _PROPOSAL_SALT = "orders-proposal-link-v1"
+_BALANCE_SALT = "orders-balance-link-v1"
 OPTION_LABELS = {
     "magnets_price_eur": "Фіксація магнітами",
     "cord_pvc_tension_price_eur": "Фіксація Леска ПВХ з дотяжкою",
@@ -115,6 +140,22 @@ def _order_from_token(token: str) -> Order:
     if not order_id:
         raise Http404("Замовлення не знайдено.")
     return get_object_or_404(Order, pk=order_id, deleted=False)
+
+
+def _balance_token(customer_id: int) -> str:
+    """Generate signed token for public balance page."""
+    return signing.dumps({"customer": customer_id}, salt=_BALANCE_SALT)
+
+
+def _customer_from_balance_token(token: str):
+    try:
+        data = signing.loads(token, salt=_BALANCE_SALT)
+    except signing.BadSignature:
+        raise Http404("Невірне посилання.")
+    customer_id = (data or {}).get("customer")
+    if not customer_id:
+        raise Http404("Клієнта не знайдено.")
+    return get_object_or_404(get_user_model(), pk=customer_id, is_customer=True)
 
 
 def _collect_item_options(item: OrderItem, rate: Decimal, markup_multiplier: Decimal = Decimal("1")):
@@ -285,7 +326,8 @@ def _set_order_totals_uah(orders, current_rate: Decimal):
         total_eur = _order_base_total(o)
         o.display_rate = rate
         extra_uah = Decimal(getattr(o, "extra_service_amount_uah", 0) or 0)
-        o.total_uah_display = _round_uah_total(total_eur * rate * (Decimal("1") + Decimal(o.markup_percent or 0) / Decimal("100")) + extra_uah)
+        # Display без націнки, але з додатковою послугою
+        o.total_uah_display = _round_uah_total(total_eur * rate + extra_uah)
     return orders
 
 
@@ -298,6 +340,14 @@ def _order_total_uah(order, current_rate: Decimal) -> Decimal:
 def _orders_total_uah(orders_qs, current_rate: Decimal) -> Decimal:
     return sum(
         _round_uah_total(_order_base_total(o) * _order_rate(o, current_rate) * (Decimal("1") + Decimal(o.markup_percent or 0) / Decimal("100")) + Decimal(getattr(o, "extra_service_amount_uah", 0) or 0))
+        for o in orders_qs
+    )
+
+
+def _orders_total_uah_base(orders_qs, current_rate: Decimal) -> Decimal:
+    """Base total for balances: без націнок і без додаткових послуг."""
+    return sum(
+        _round_uah_total(_order_base_total(o) * _order_rate(o, current_rate))
         for o in orders_qs
     )
 
@@ -324,6 +374,15 @@ def _transactions_total_uah(tx_qs) -> Decimal:
         )
     )["total"] or Decimal("0")
     return Decimal(tx_total).quantize(Decimal("0.01"))
+
+def _tx_amount_uah(tx: Transaction) -> Decimal:
+    """Return transaction amount in UAH with sign (debit +, credit -)."""
+    amount = Decimal(tx.amount or 0)
+    rate = Decimal(tx.eur_rate or 0)
+    total = amount * rate
+    if tx.type == Transaction.CREDIT:
+        total = -total
+    return Decimal(total).quantize(Decimal("0.01"))
 
 
 def _get_payment_message_text():
@@ -509,7 +568,7 @@ def _build_order_workbook(order, save_to_file: bool = True):
             it.fabric_name,
             it.fabric_color_code,
             it.width_fabric_mm,
-            "По тканині" if it.gabarit_width_flag else "Габарит",
+            "По тканині" if it.gabarit_width_flag else "",
             it.height_gabarit_mm,
             "По тканині" if it.fabric_height_flag else (it.roll_height_info or "Габарит"),
             control_label(it.control_side),
@@ -557,6 +616,12 @@ def _build_order_workbook(order, save_to_file: bool = True):
             note_row = ws.max_row
             ws.merge_cells(start_row=note_row, start_column=3, end_row=note_row, end_column=12)
             ws.cell(row=note_row, column=3).alignment = center_align
+        if it.gabarit_width_flag:
+            gabarit_note = it.roll_height_info or "Габаритна ширина"
+            ws.append(["", "Примітка габаритної ширини", gabarit_note] + [""] * 9)
+            gabarit_row = ws.max_row
+            ws.merge_cells(start_row=gabarit_row, start_column=3, end_row=gabarit_row, end_column=12)
+            ws.cell(row=gabarit_row, column=3).alignment = center_align
         # пустая строка после блока позиции без боковых границ
         ws.append([""] * 12)
         gap_rows.append(ws.max_row)
@@ -639,6 +704,8 @@ def order_workbook_download(request, pk):
 
 
 def _build_proposal_workbook(order):
+    # Використовуємо той самий формат, що й робочий файл замовлення
+    return _render_order_workbook(order, filename_prefix="proposal")
     wb = Workbook()
     ws = wb.active
     ws.title = "Пропозиція"
@@ -919,7 +986,7 @@ def compute_balance(user, force_personal: bool = False):
             Order.STATUS_SHIPPED,
         ]
     )
-    orders_sum_uah = _orders_total_uah(orders_qs, current_rate)
+    orders_sum_uah = _orders_total_uah_base(orders_qs, current_rate)
     tx_total_uah = _transactions_total_uah(tx_qs)
     return tx_total_uah - orders_sum_uah
 
@@ -1048,7 +1115,7 @@ def order_list(request):
         .annotate(last_status_at=Coalesce(Max("status_logs__created_at"), "created_at"))
         .prefetch_related("status_logs")
         .exclude(component_items__isnull=False)  # exclude component orders from rollers list
-        .order_by("-last_status_at", "-created_at")
+        .order_by("-id")
         .distinct()
     )
 
@@ -1133,7 +1200,7 @@ def order_components_list(request):
         .prefetch_related("status_logs")
         .filter(component_items__isnull=False)
         .distinct()
-        .order_by("-last_status_at", "-created_at")
+        .order_by("-id")
     )
 
     if status_filter:
@@ -1324,24 +1391,51 @@ def order_builder(request, pk=None):
             messages.warning(request, "Це замовлення можна лише переглядати.")
             return redirect("orders:builder_edit", pk=order.pk)
         action = request.POST.get("status_action") or "save"
+        chosen_customer = None
+        can_pick_customer = is_manager(request.user) or request.user.is_staff or request.user.is_superuser
+        if can_pick_customer:
+            cust_id = request.POST.get("customer_id")
+            if cust_id:
+                try:
+                    chosen_customer = get_user_model().objects.get(pk=cust_id)
+                except get_user_model().DoesNotExist:
+                    chosen_customer = None
+            if chosen_customer is None:
+                messages.error(request, "Оберіть клієнта для замовлення.")
+                return redirect("orders:builder")
+        target_customer = chosen_customer or (order.customer if order else request.user)
+        if order and not chosen_customer:
+            discount_pct_val = _normalize_discount_percent(order.discount_percent)
+        else:
+            _, discount_pct_val = _customer_discount_multiplier(target_customer)
+        discount_multiplier, _ = _customer_discount_multiplier(pct=discount_pct_val)
         # Если ордера нет — создаём
         if order is None:
             markup_percent = _to_decimal(request.POST.get("markup_percent"), default="0")
             current_rate = get_current_eur_rate()
             order = Order.objects.create(
-                customer=request.user,
+                customer=target_customer,
                 eur_rate_at_creation=current_rate,
                 eur_rate=current_rate,
                 markup_percent=markup_percent,
+                discount_percent=discount_pct_val,
                 status=Order.STATUS_QUOTE,
             )
-        order.note = (request.POST.get("note") or "").strip()
+        elif chosen_customer and can_pick_customer:
+            order.customer = chosen_customer
+        base_note = (request.POST.get("note") or "").strip()
+        if chosen_customer and can_pick_customer:
+            base_note = re.sub(r"\s*\(створено менеджером [^)]+\)\s*$", "", base_note).strip()
+            suffix = f" (створено менеджером {request.user.email})"
+            base_note = (base_note + suffix).strip()
+        order.note = base_note
         order.extra_service_label = (request.POST.get("extra_service_label") or "").strip()
         extra_service_amount_uah = _to_decimal(request.POST.get("extra_service_amount_uah"), default="0")
 
         # Для менеджера можно добавить присвоение customer
         profile = getattr(request.user, "customerprofile", None)
         org = getattr(profile, "organization", None)
+        update_fields = ["markup_percent", "eur_rate", "total_eur", "eur_rate_at_creation", "note", "extra_service_label", "extra_service_amount_uah", "discount_percent"]
 
         # Чтение всех списков (как раньше)
         systems = request.POST.getlist("system_sheet")
@@ -1352,6 +1446,9 @@ def order_builder(request, pk=None):
         h_list = request.POST.getlist("height_gabarit_mm")
         w_list = request.POST.getlist("width_fabric_mm")
 
+        gw_states = request.POST.getlist("gabarit_width_flag_state")
+        if gw_states and len(gw_states) < len(systems):
+            gw_states += [""] * (len(systems) - len(gw_states))
         gw_flags = request.POST.getlist("gabarit_width_flag")
         gh_flags = request.POST.getlist("fabric_height_flag")
         GbDiffWidthMm = request.POST.getlist("GbDiffWidthMm")
@@ -1409,7 +1506,6 @@ def order_builder(request, pk=None):
         # Создание всех OrderItem (ГОРАЗДО ЧИЩЕ)
         # -----------------------------------------
         for idx, system_sheet in enumerate(systems):
-
             OrderItem.objects.create(
                 order=order,
                 organization=org,
@@ -1419,7 +1515,11 @@ def order_builder(request, pk=None):
                 fabric_color_code=_get(fabric_colors, idx, ""),
                 height_gabarit_mm=_to_int(_get(h_list, idx, "0"), 0),
                 width_fabric_mm=_to_int(_get(w_list, idx, "0"), 0),
-                gabarit_width_flag=_get(gw_flags, idx) in ("on", "true", "1"),
+                gabarit_width_flag=(
+                    _get(gw_states, idx) in ("1", "true", "on")
+                    if gw_states
+                    else _get(gw_flags, idx) in ("on", "true", "1")
+                ),
                 fabric_height_flag=_get(gh_flags, idx) in ("on", "true", "1"),
                 base_price_eur=_to_decimal(_get(base_prices, idx)),
                 gb_width_mm=_to_decimal(_get(gb_width_mm, idx)),
@@ -1455,7 +1555,7 @@ def order_builder(request, pk=None):
                 metal_kronsht_price_eur=_to_decimal(_get(metal_kronsht_price_eur, idx)),
                 metal_kronsht_qty=_to_decimal(_get(metal_kronsht_qty, idx)),
         
-                subtotal_eur=_to_decimal(_get(subtotals, idx)),
+                subtotal_eur=_to_decimal(_get(subtotals, idx)).quantize(Decimal("0.01")),
                 roll_height_info=_get(roll_infos, idx, ""),
                 quantity=_to_int(_get(qty_list, idx, "1"), 1),
                 control_side=_get(control_sides, idx, "").strip(),
@@ -1482,7 +1582,11 @@ def order_builder(request, pk=None):
         if not order.eur_rate_at_creation:
             order.eur_rate_at_creation = eur_rate_value
         order.total_eur = items_total.quantize(Decimal("0.01"))
-        order.save(update_fields=["markup_percent", "eur_rate", "total_eur", "eur_rate_at_creation", "note", "extra_service_label", "extra_service_amount_uah"])
+        order.discount_percent = discount_pct_val
+        if chosen_customer and can_pick_customer:
+            order.customer = chosen_customer
+            update_fields.append("customer")
+        order.save(update_fields=update_fields)
 
         new_status = order.status
         if action == "to_work":
@@ -1508,6 +1612,13 @@ def order_builder(request, pk=None):
     # -----------------------------------------
     # GET: рендер билдер (создание/редактирование)
     # -----------------------------------------
+
+    customers_filter_list = []
+    if is_manager(request.user) or request.user.is_staff or request.user.is_superuser:
+        customers_filter_list = list(
+            CustomerProfile.objects.select_related("user")
+            .order_by("full_name", "user__email")
+        )
 
     # Если новый заказ
     if order is None:
@@ -1579,6 +1690,16 @@ def order_builder(request, pk=None):
     if order and order.status != Order.STATUS_QUOTE and order.eur_rate:
         builder_rate = order.eur_rate
 
+    if order:
+        discount_percent = _normalize_discount_percent(getattr(order, "discount_percent", Decimal("0")))
+    else:
+        discount_user = request.user if not (is_manager(request.user) or request.user.is_staff or request.user.is_superuser) else None
+        discount_percent = _normalize_discount_percent(
+            getattr(getattr(discount_user, "customerprofile", None), "discount_percent", Decimal("0")) if discount_user else Decimal("0")
+        )
+
+    customer_discount_percent_js = format(discount_percent, "f")
+
     shortage_ctx = _payment_shortage_context(order)
     payment_prompt = request.session.pop("payment_prompt", None)
     proposal_token = _proposal_token(order) if order else None
@@ -1598,6 +1719,9 @@ def order_builder(request, pk=None):
         "status_badges": STATUS_BADGES,
         "proposal_page_url": proposal_page_url,
         "proposal_excel_url": proposal_excel_url,
+        "customers_filter_list": customers_filter_list,
+        "customer_discount_percent": discount_percent,
+        "customer_discount_percent_js": customer_discount_percent_js,
     })
     
     
@@ -1821,7 +1945,7 @@ def balances_history(request):
 
     current_rate = get_current_eur_rate()
     orders_qs = _set_order_totals_uah(orders_qs, current_rate)
-    filtered_balance = _transactions_total_uah(tx_qs) - _orders_total_uah(orders_qs, current_rate)
+    filtered_balance = _transactions_total_uah(tx_qs) - _orders_total_uah_base(orders_qs, current_rate)
     proposal_tokens = {o.id: _proposal_token(o) for o in orders_qs}
     proposal_page_urls = {oid: reverse("orders:proposal_page", args=[tok]) for oid, tok in proposal_tokens.items()}
     proposal_excel_urls = {oid: reverse("orders:proposal_excel", args=[tok]) for oid, tok in proposal_tokens.items()}
@@ -1832,6 +1956,14 @@ def balances_history(request):
     for tx in tx_qs:
         events.append({"type": "transaction", "created_at": tx.created_at, "object": tx})
     events.sort(key=lambda x: x["created_at"], reverse=True)
+
+    balance_page_url = None
+    if is_manager(request.user) and customer_filter:
+        try:
+            tok = _balance_token(balance_user.id)
+            balance_page_url = request.build_absolute_uri(reverse("orders:balance_public", args=[tok]))
+        except Exception:
+            balance_page_url = None
 
     context = {
         "events": events,
@@ -1850,8 +1982,192 @@ def balances_history(request):
         "status_labels": STATUS_LABELS,
         "proposal_page_urls": proposal_page_urls,
         "proposal_excel_urls": proposal_excel_urls,
+        "balance_page_url": balance_page_url,
     }
     return render(request, "orders/balances_history.html", context)
+
+
+@login_required
+def balances_excel(request):
+    """
+    Export balances view (orders + transactions) to XLSX with current filters.
+    """
+    User = get_user_model()
+    status_filter = request.GET.get("status") or ""
+    customer_filter = request.GET.get("customer") or ""
+    type_filter = request.GET.get("type") or ""
+    negative_only = request.GET.get("negative") in ("1", "true", "on")
+    balance_user = request.user
+
+    orders_qs = (
+        _orders_scope(request.user)
+        .select_related("customer", "customer__customerprofile")
+        .prefetch_related("status_logs", "component_items")
+        .exclude(status=Order.STATUS_QUOTE)
+        .order_by("-created_at")
+    )
+    tx_qs = _transactions_scope(request.user).order_by("-created_at")
+
+    if status_filter:
+        orders_qs = orders_qs.filter(status=status_filter)
+    if type_filter == "orders":
+        tx_qs = tx_qs.none()
+    elif type_filter == "transactions":
+        orders_qs = orders_qs.none()
+
+    if customer_filter and is_manager(request.user):
+        balance_user = get_object_or_404(User, pk=customer_filter)
+        orders_qs = orders_qs.filter(customer=balance_user)
+        tx_qs = tx_qs.filter(customer=balance_user)
+
+    customers_filter_list = (
+        User.objects.filter(orders__isnull=False).select_related("customerprofile").distinct()
+        if is_manager(request.user) else []
+    )
+
+    if negative_only and is_manager(request.user):
+        negative_customer_ids = []
+        for u in customers_filter_list:
+            if compute_balance(u) < 0:
+                negative_customer_ids.append(u.id)
+        if negative_customer_ids:
+            orders_qs = orders_qs.filter(customer_id__in=negative_customer_ids)
+            tx_qs = tx_qs.filter(customer_id__in=negative_customer_ids)
+        else:
+            orders_qs = orders_qs.none()
+            tx_qs = tx_qs.none()
+
+    current_rate = get_current_eur_rate()
+    orders_qs = _set_order_totals_uah(orders_qs, current_rate)
+    filtered_balance = _transactions_total_uah(tx_qs) - _orders_total_uah_base(orders_qs, current_rate)
+
+    events = []
+    for o in orders_qs:
+        events.append({"type": "order", "created_at": o.created_at, "object": o})
+    for tx in tx_qs:
+        events.append({"type": "transaction", "created_at": tx.created_at, "object": tx})
+    events.sort(key=lambda x: x["created_at"], reverse=True)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Баланс"
+
+    headers = ["Дата", "Тип", "Опис", "Сума, грн"]
+    ws.append(headers)
+    bold = Font(bold=True)
+    for col in range(1, len(headers) + 1):
+        ws.cell(row=1, column=col).font = bold
+
+    for e in events:
+        if e["type"] == "order":
+            o = e["object"]
+            amount = -_round_uah_total(_order_base_total(o) * _order_rate(o, current_rate))
+            desc = f"Замовлення №{o.id} ({o.get_status_display()})"
+            type_label = "Замовлення"
+        else:
+            tx = e["object"]
+            amount = _tx_amount_uah(tx)
+            desc = f"Транзакція №{tx.id} ({tx.get_type_display()})"
+            type_label = "Транзакція"
+        created_at = e["created_at"]
+        if hasattr(created_at, "tzinfo") and created_at.tzinfo:
+            created_at = timezone.localtime(created_at).replace(tzinfo=None)
+        ws.append([created_at, type_label, desc, float(amount)])
+
+    total_row = ws.max_row + 1
+    ws.cell(row=total_row, column=1, value="Разом").font = bold
+    ws.cell(row=total_row, column=4, value=float(filtered_balance)).font = bold
+
+    for col_letter in ["A", "B", "C", "D"]:
+        ws.column_dimensions[col_letter].width = 25
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    # Build filename with date and filters
+    stamp = timezone.localtime(timezone.now()).strftime("%Y-%m-%d")
+    name_parts = ["balance", stamp]
+    if customer_filter:
+        name_parts.append(f"customer-{customer_filter}")
+    if status_filter:
+        name_parts.append(f"status-{status_filter}")
+    if type_filter:
+        name_parts.append(f"type-{type_filter}")
+    if negative_only:
+        name_parts.append("negative")
+    filename = "_".join(name_parts) + ".xlsx"
+
+    response = HttpResponse(
+        output.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+def _balance_events_for_customer(customer, include_orders=True, include_transactions=True):
+    orders_qs = (
+        _orders_scope(customer)
+        .filter(customer=customer)
+        .select_related("customer", "customer__customerprofile")
+        .prefetch_related("status_logs", "component_items")
+        .exclude(status=Order.STATUS_QUOTE)
+        .order_by("-created_at")
+    )
+    tx_qs = _transactions_scope(customer).filter(customer=customer).order_by("-created_at")
+    if not include_orders:
+        orders_qs = orders_qs.none()
+    if not include_transactions:
+        tx_qs = tx_qs.none()
+
+    current_rate = get_current_eur_rate()
+    orders_qs = _set_order_totals_uah(orders_qs, current_rate)
+    events = []
+    for o in orders_qs:
+        created = o.created_at
+        if hasattr(created, "tzinfo") and created.tzinfo:
+            created = timezone.localtime(created).replace(tzinfo=None)
+        amount = -_round_uah_total(_order_base_total(o) * _order_rate(o, current_rate))
+        events.append({
+            "type": "order",
+            "created_at": created,
+            "object": o,
+            "description": f"Замовлення №{o.id} ({o.get_status_display()})",
+            "amount_uah": amount,
+            "amount_abs": abs(amount),
+        })
+    for tx in tx_qs:
+        created = tx.created_at
+        if hasattr(created, "tzinfo") and created.tzinfo:
+            created = timezone.localtime(created).replace(tzinfo=None)
+        amount = _tx_amount_uah(tx)
+        events.append({
+            "type": "transaction",
+            "created_at": created,
+            "object": tx,
+            "description": f"Транзакція №{tx.id} ({tx.get_type_display()})",
+            "amount_uah": amount,
+            "amount_abs": abs(amount),
+        })
+    events.sort(key=lambda x: x["created_at"] or timezone.now(), reverse=True)
+
+    balance_total = _transactions_total_uah(tx_qs) - _orders_total_uah_base(orders_qs, current_rate)
+    return events, balance_total, current_rate
+
+
+def balance_public_page(request, token: str):
+    customer = _customer_from_balance_token(token)
+    events, balance_total, current_rate = _balance_events_for_customer(customer)
+
+    context = {
+        "customer": customer,
+        "profile": getattr(customer, "customerprofile", None),
+        "events": events,
+        "balance_total": balance_total,
+        "current_rate": current_rate,
+    }
+    return render(request, "orders/balance_public.html", context)
 
 
 @login_required
@@ -1901,6 +2217,7 @@ def balances_users(request):
         "balances": balances,
         "q": q,
         "sort": sort,
+        "balance_tokens": {u.id: _balance_token(u.id) for u in clients},
     }
     return render(request, "orders/balances_users.html", context)
 
@@ -1921,11 +2238,36 @@ def order_components_builder(request, pk):
             return redirect("orders:order_components_builder", pk=order.pk)
 
         action = request.POST.get("status_action") or "save"
+        chosen_customer = None
+        can_pick_customer = is_manager(request.user) or request.user.is_staff or request.user.is_superuser
+        if can_pick_customer:
+            cust_id = request.POST.get("customer_id")
+            if cust_id:
+                try:
+                    chosen_customer = get_user_model().objects.get(pk=cust_id)
+                except get_user_model().DoesNotExist:
+                    chosen_customer = None
+            if chosen_customer is None:
+                messages.error(request, "Оберіть клієнта для замовлення.")
+                return redirect("orders:order_components_builder", pk=order.pk)
         components = parse_components_from_post(request.POST)
-        order.note = (request.POST.get("note") or "").strip()
+        base_note = (request.POST.get("note") or "").strip()
+        if chosen_customer and can_pick_customer:
+            base_note = re.sub(r"\s*\(створено менеджером [^)]+\)\s*$", "", base_note).strip()
+            suffix = f" (створено менеджером {request.user.email})"
+            base_note = (base_note + suffix).strip()
+        order.note = base_note
         order.extra_service_label = (request.POST.get("extra_service_label") or "").strip()
         order.extra_service_amount_uah = _to_decimal(request.POST.get("extra_service_amount_uah"), default="0").quantize(Decimal("0.01"))
         markup_percent = _to_decimal(request.POST.get("markup_percent"), default=str(order.markup_percent or "0"))
+        if chosen_customer and can_pick_customer:
+            order.customer = chosen_customer
+        target_customer = chosen_customer or order.customer
+        if not chosen_customer:
+            discount_pct_val = _normalize_discount_percent(getattr(order, "discount_percent", Decimal("0")))
+        else:
+            _, discount_pct_val = _customer_discount_multiplier(target_customer)
+        discount_multiplier, _ = _customer_discount_multiplier(pct=discount_pct_val)
 
         # EN: Replace all existing components with new list
         # UA: Повністю замінюємо поточний список комплектуючих новим
@@ -1934,15 +2276,18 @@ def order_components_builder(request, pk):
         total_eur = Decimal("0")
         bulk = []
         for row in components:
-            total_eur += Decimal(row["price_eur"] or 0) * Decimal(row["quantity"] or 0)
+            price_raw = Decimal(row["price_eur"] or 0)
+            qty = Decimal(row["quantity"] or 0)
+            price_eur = (price_raw * discount_multiplier).quantize(Decimal("0.01"))
+            total_eur += price_eur * qty
             bulk.append(
                 OrderComponentItem(
                     order=order,
                     name=row["name"],
                     color=row["color"],
                     unit=row["unit"],
-                    price_eur=row["price_eur"],
-                    quantity=row["quantity"],
+                    price_eur=price_eur,
+                    quantity=qty,
                 )
             )
 
@@ -1963,7 +2308,11 @@ def order_components_builder(request, pk):
             new_status = order.prev_status()
         # Default save keeps current status
 
-        order.save(update_fields=["total_eur", "eur_rate", "markup_percent", "note", "extra_service_label", "extra_service_amount_uah"])
+        update_fields = ["total_eur", "eur_rate", "markup_percent", "note", "extra_service_label", "extra_service_amount_uah", "discount_percent"]
+        if chosen_customer and can_pick_customer:
+            update_fields.append("customer")
+        order.discount_percent = discount_pct_val
+        order.save(update_fields=update_fields)
 
         if new_status and not _apply_status_change(order, new_status, request):
             return redirect(reverse("orders:order_components_builder", kwargs={"pk": order.pk}))
@@ -2019,6 +2368,9 @@ def order_components_builder(request, pk):
         "payment_shortage": payment_prompt or shortage_ctx,
         "proposal_page_url": proposal_page_url,
         "proposal_excel_url": proposal_excel_url,
+        "customers_filter_list": list(
+            CustomerProfile.objects.select_related("user").order_by("full_name", "user__email")
+        ) if is_manager(request.user) else [],
     }
 
     return render(request, "orders/components_builder.html", context)
@@ -2252,8 +2604,20 @@ def order_components_builder_new(request):
     EN: Create new order and go to components builder.
     UA: Створює нове замовлення і переходить у білдер комплектуючих.
     """
+    chosen_customer = request.user
+    can_pick_customer = is_manager(request.user) or request.user.is_staff or request.user.is_superuser
+    if can_pick_customer:
+        cust_id = request.GET.get("customer") or request.POST.get("customer_id")
+        if cust_id:
+            try:
+                chosen_customer = get_user_model().objects.get(pk=cust_id)
+            except get_user_model().DoesNotExist:
+                chosen_customer = request.user
+
+    _, discount_pct_val = _customer_discount_multiplier(chosen_customer)
+
     order = Order.objects.create(
-        customer=request.user,        # ✔ обязателен, иначе IntegrityError по customer_id
+        customer=chosen_customer,        # ✔ обязателен, иначе IntegrityError по customer_id
         title="Замовлення (комплектуючі)",  # любой не пустой заголовок
         description="",
         status=Order.STATUS_QUOTE,
@@ -2261,6 +2625,7 @@ def order_components_builder_new(request):
         eur_rate=get_current_eur_rate(),
         markup_percent=Decimal("0"),
         total_eur=Decimal("0"),
+        discount_percent=discount_pct_val,
     )
     return redirect("orders:order_components_builder", pk=order.pk)
 

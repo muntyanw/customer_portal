@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.db import models
+from decimal import Decimal, InvalidOperation
 from .forms import RegisterForm, LoginForm, ProfileForm, ContactFormSet
 from .models import User
 from apps.customers.models import CustomerProfile, CustomerContact
@@ -59,6 +60,8 @@ def profile_view(request, pk=None):
 
     can_edit_credit = is_manager(request.user)
     can_edit_role = is_manager(request.user)
+    can_edit_discount = is_manager(request.user)
+    can_edit_discount = is_manager(request.user)
 
     contacts_initial = [
         {"contact_id": c.id, "phone": c.phone, "contact_name": c.contact_name, "email": c.email}
@@ -73,6 +76,7 @@ def profile_view(request, pk=None):
             profile_instance=profile,
             can_edit_credit=can_edit_credit,
             can_edit_role=can_edit_role,
+            can_edit_discount=can_edit_discount,
         )
         contact_formset = ContactFormSet(request.POST, prefix="contacts")
         if form.is_valid() and contact_formset.is_valid():
@@ -117,9 +121,11 @@ def profile_view(request, pk=None):
             profile_instance=profile,
             can_edit_credit=can_edit_credit,
             can_edit_role=can_edit_role,
+            can_edit_discount=can_edit_discount,
         )
         contact_formset = ContactFormSet(initial=contacts_initial, prefix="contacts")
 
+        # fall through to rendering at bottom
     return render(
         request,
         "accounts/profile.html",
@@ -129,6 +135,7 @@ def profile_view(request, pk=None):
             "profile_instance": profile,
             "can_edit_credit": can_edit_credit,
             "can_edit_role": can_edit_role,
+            "can_edit_discount": can_edit_discount,
             "contact_formset": contact_formset,
             "is_creation": False,
         },
@@ -160,8 +167,25 @@ def clients_list_view(request):
         target_user.save(update_fields=["is_manager"])
         messages.success(request, "Роль менеджера оновлено.")
         return redirect("accounts:clients_list")
+    if request.method == "POST" and request.POST.get("action") == "set_discount":
+        user_id = request.POST.get("user_id")
+        target_user = get_object_or_404(User, pk=user_id)
+        profile, _ = CustomerProfile.objects.get_or_create(user=target_user)
+        raw = (request.POST.get("discount_percent") or "0").replace(",", ".")
+        try:
+            value = Decimal(raw)
+            if value < Decimal("-100"):
+                value = Decimal("-100")
+            if value > Decimal("100"):
+                value = Decimal("100")
+            profile.discount_percent = value.quantize(Decimal("0.01"))
+            profile.save(update_fields=["discount_percent"])
+            messages.success(request, "Знижку оновлено.")
+        except (InvalidOperation, ValueError):
+            messages.error(request, "Вкажіть коректне значення знижки (0-100).")
+        return redirect("accounts:clients_list")
 
-    sort = request.GET.get("sort", "email")
+    sort = request.GET.get("sort", "full_name")
     direction = ""
     if sort.startswith("-"):
         direction = "-"
@@ -221,6 +245,7 @@ def client_create_view(request):
             profile_instance=profile,
             can_edit_credit=can_edit_credit,
             can_edit_role=can_edit_role,
+            can_edit_discount=True,
             creating=True,
         )
         contact_formset = ContactFormSet(request.POST, prefix="contacts")

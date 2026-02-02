@@ -50,14 +50,15 @@
               <label class="form-label"><strong>Ширина, мм</strong></label>
               <input type="number" min="0" name="width_fabric_mm" class="form-control w-mm mb-2" placeholder="введіть мм" disabled />
               <div class="form-check mt-1 gabarit-width-flag">
-                <input class="form-check-input bottom-fixation" type="checkbox" name="gabarit_width_flag" disabled>
+                <input class="form-check-input bottom-fixation" type="checkbox" name="gabarit_width_flag" disabled />
                 <label class="form-check-label ms-1 gabarit-width-label">Габаритна ширина</label>
+                <input type="hidden" name="gabarit_width_flag_state" class="gabarit-width-flag-hidden" value="0" />
               </div>
               <div class="mt-3 height-block">
                 <label class="form-label"><strong>Висота, мм</strong></label>
                 <input type="number" min="0" name="height_gabarit_mm" class="form-control h-mm" placeholder="введіть мм" disabled />
                 <div class="form-check mt-1 fabric-height-flag">
-                  <input class="form-check-input" type="checkbox" name="fabric_height_flag" disabled>
+                  <input class="form-check-input" type="checkbox" name="fabric_height_flag" disabled />
                   <label class="form-check-label ms-1">Висота по тканині</label>
                 </div>
               </div>
@@ -140,11 +141,19 @@
             </div>
 
             <hr class="my-2" />
+            {% if request.user.is_manager %}
+              <div class="d-flex flex-column">
+                <div class="order-summary-label mb-1">Знижка</div>
+                <div class="order-summary-value text-success">
+                  <span id="orderDiscountValue">{{ customer_discount_percent|default:'0' }}%</span>
+                </div>
+              </div>
+            {% endif %}
             <div class="d-flex justify-content-between">
               <span>Ціна позиції</span>
               <span class="text-end">
-              <span class="subtotal-input" style="display:none;">0.00</span>
-              <span class="subtotal-uah ms-2">0.00</span>
+                <span class="subtotal-input" style="display:none;">0.00</span>
+                <span class="subtotal-uah ms-2">0.00</span>
               </span>
             </div>
           </div>

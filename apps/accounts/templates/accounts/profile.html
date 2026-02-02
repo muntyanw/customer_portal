@@ -140,6 +140,13 @@
                 </div>
               </div>
             {% endif %}
+            {% if can_edit_discount and form.discount_percent %}
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Знижка, %</label>
+                {{ form.discount_percent|add_class:"form-control form-control-lg" }}
+                {% if form.discount_percent.errors %}<div class="invalid-feedback d-block">{{ form.discount_percent.errors|striptags }}</div>{% endif %}
+              </div>
+            {% endif %}
             {% if can_edit_role and form.is_manager %}
               <div class="col-12">
                 <div class="form-check mt-2">

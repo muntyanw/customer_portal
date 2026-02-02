@@ -70,6 +70,7 @@
       .order-summary-bar .d-flex.flex-wrap {
         gap: 0.35rem;
       }
+      updateGabaritHidden($card)
     }
     .readonly-mode .select2-container,
     .readonly-mode .select2-selection {
@@ -92,6 +93,7 @@
     <input type="hidden" name="total_eur" id="orderTotalInput" value="{{ order.total_eur|default:'0.00' }}" />
     <input type="hidden" name="status_action" id="statusActionInput" value="save" />
     <input type="hidden" name="next_url" id="nextUrlInput" value="" />
+    <input type="hidden" id="customerDiscountValue" value="{{ customer_discount_percent_js|default:'0' }}">
     <fieldset {% if readonly %}disabled{% endif %}>
 
     <div class="mb-3">
@@ -103,6 +105,19 @@
           <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="btn btn-primary btn-sm">Відкрити прайс</a>
           <a href="https://docs.google.com/document/d/1uz2k8hqnaLxlmxB-u1BUmaEmW3pw4QIF/edit" target="_blank" class="btn btn-secondary btn-sm text-white">Технічні характеристики</a>
         </div>
+        {% if request.user.is_manager or request.user.is_superuser %}
+          <div class="ms-auto d-flex flex-column gap-1" style="min-width:260px;">
+            <label class="form-label fw-semibold mb-0" for="orderCustomer">Клієнт</label>
+            <select id="orderCustomer" name="customer_id" class="form-select form-select-sm">
+              <option value="">— Оберіть клієнта —</option>
+              {% for c in customers_filter_list %}
+                <option value="{{ c.user.id }}" data-discount="{{ c.discount_percent|default:'0' }}" {% if order and order.customer_id == c.user.id %}selected{% endif %}>
+                  {% if c.full_name %}{{ c.full_name }}{% else %}{{ c.user.email }}{% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+        {% endif %}
         <div class="ms-auto d-flex align-items-center gap-2">
           <span class="text-muted small text-uppercase">Статус</span>
           <span class="badge bg-primary">
@@ -119,6 +134,7 @@
           <div class="order-summary-label mb-1">Всього, грн</div>
           <div class="order-summary-value"><span id="orderTotalBaseUah">0.00</span></div>
         </div>
+       
         <div class="d-flex flex-column">
           <label class="order-summary-label mb-1" for="orderMarkup">Націнка на роздріб, %</label>
           <input
@@ -175,9 +191,12 @@
           class="form-control"
           id="extraServiceAmount"
           name="extra_service_amount_uah"
-          value="{{ order.extra_service_amount_uah|default_if_none:'0' }}"
+          value="{{ order.extra_service_amount_uah|default_if_none:'0'|floatformat:2 }}"
           {% if readonly %}disabled{% endif %}
         />
+        {% if readonly %}
+          <div class="form-text text-muted">{{ order.extra_service_amount_uah|default_if_none:'0'|floatformat:2 }} грн</div>
+        {% endif %}
       </div>
     </div>
 
@@ -530,6 +549,18 @@
         $form.find('input, select, textarea, button').prop('disabled', true)
         $form.find('a').prop('disabled', false) // allow navigation
       }
+      if (isManager || {{ request.user.is_superuser|yesno:"true,false" }}) {
+        $('#orderCustomer').select2({
+          width: '100%',
+          placeholder: 'Оберіть клієнта',
+          allowClear: true,
+        })
+        $('#orderCustomer').on('change', function () {
+          const pct = Number($(this).find('option:selected').data('discount') || 0)
+          $('#customerDiscountValue').val(pct)
+          recalcPrice()
+        })
+      }
       enforceReadonly()
       finishInit()
     })
@@ -569,14 +600,14 @@
       $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag, .fabric-height-flag').prop('disabled', false)
       $card.find('.gabarit-width-flag .form-check-input, .fabric-height-flag .form-check-input').prop('disabled', false)
 
-      function setDebounce(fn) {
-        const prevTimer = $card.data('gabaritsDebounceTimer')
-        if (prevTimer) {
-          clearTimeout(prevTimer)
-        }
-        const t = setTimeout(fn, 600)
-        $card.data('gabaritsDebounceTimer', t)
+    function setDebounce(fn) {
+      const prevTimer = $card.data('gabaritsDebounceTimer')
+      if (prevTimer) {
+        clearTimeout(prevTimer)
       }
+      const t = setTimeout(fn, 600)
+      $card.data('gabaritsDebounceTimer', t)
+    }
 
       $card.find('.h-mm, .w-mm')
         .off('input.gabarits')
@@ -591,6 +622,7 @@
       $card.find('.gabarit-width-flag .form-check-input')
         .off('change.gabarits')
         .on('change.gabarits', function () {
+          updateGabaritHidden($card)
           if (Number($w_mm.val()) > 0 && Number($h_mm.val()) > 0) {
             previewCard($card)
           }
@@ -610,6 +642,13 @@
           previewCard($card)
           syncOptionsQty($card)
         })
+    }
+
+    function updateGabaritHidden($card) {
+      const $h = $card.find('.gabarit-width-flag-hidden')
+      if (!$h.length) return
+      const checked = $card.find('.gabarit-width-flag .form-check-input').is(':checked')
+      $h.val(checked ? '1' : '0')
     }
 
 
@@ -980,10 +1019,19 @@
       let qtyPriceOptions = {}
       priceOptionsConfig.forEach((option) => {
         let optionQtyName = option.key.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
-        let qty = $card.find('[name="' + optionQtyName + '"]').val()
-        qtyPriceOptions[option.key] = $card.find(`.${option.key} .price-uah`).text()
-        if(qty!=undefined){
-          qtyPriceOptions[optionQtyName] = $card.find('[name="' + optionQtyName + '"]').val()
+        const $row = $card.find('.price-options-manifest .' + option.key + '-row')
+        if (!$row.length) {
+          return
+        }
+        const qty = $row.find('.man-qty').text()
+        const price = $row.find('.price').text()
+        if (price !== undefined && price !== "0" && price !== "0.00") {
+          qtyPriceOptions[option.key] = price
+        } else {
+          qtyPriceOptions[option.key] = "0"
+        }
+        if (qty) {
+          qtyPriceOptions[optionQtyName] = qty
         }
       });
       return {
@@ -1107,6 +1155,7 @@
       if (item.height_gabarit_mm) $card.find('.h-mm').val(item.height_gabarit_mm)
       if (item.width_fabric_mm) $card.find('.w-mm').val(item.width_fabric_mm)
       $card.find('.gabarit-width-flag .form-check-input').prop('checked', !!item.gabarit_width_flag)
+      updateGabaritHidden($card)
       $card.find('.fabric-height-flag .form-check-input').prop('checked', !!item.fabric_height_flag)
       if(item.control_side){
         $card.find('.control_side').removeClass("d-none")
@@ -1211,8 +1260,12 @@
     })
 
     $container.on('click', '.remove-row', function () {
-      // allow удаление только в режиме прорахунку и когда не readonly
-      if ({{ readonly|yesno:"false,true" }} || '{{ order.status }}' !== '{{ order.STATUS_QUOTE }}') {
+      if (isReadonlyFront) {
+        return
+      }
+      const orderHasId = Boolean(builderOrderId)
+      const orderStatus = '{{ order.status }}'
+      if (orderHasId && orderStatus !== '{{ order.STATUS_QUOTE }}') {
         return
       }
       $(this).closest('.item-card').remove()
@@ -1362,8 +1415,15 @@
     }
 
 
+  function getDiscountMultiplier() {
+      const pct = Number($('#customerDiscountValue').val() || 0)
+      const safePct = Math.min(Math.max(pct, 0), 100)
+      return 1 - safePct / 100
+  }
+
   function recalcPrice() {
       let sumTotal = 0
+      const discountMultiplier = getDiscountMultiplier()
 
       $('.item-card').each(function (_, card) {
         const $card = $(card)
@@ -1397,11 +1457,14 @@
           sum += totalEur
         })
 
-        // subtotal по позиции
-        $card.find('.subtotal-input').text(money(sum)).val(money(sum))
-        $card.find('.subtotal-uah').text(eurToUah(sum))
+        const discountedSum = sum * discountMultiplier
+        console.log(discountMultiplier)
 
-        sumTotal += sum
+        // subtotal по позиции
+        $card.find('.subtotal-input').text(money(discountedSum)).val(money(discountedSum))
+        $card.find('.subtotal-uah').text(eurToUah(discountedSum))
+
+        sumTotal += discountedSum
       })
 
       const markupPercent = Number($('#orderMarkup').val() || 0)

@@ -60,6 +60,12 @@ class Order(models.Model):
         default=Decimal("0"),
         help_text="Процент націнки, що застосовано до замовлення",
     )
+    discount_percent = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Знижка клієнта на момент створення замовлення, %",
+    )
     extra_service_label = models.CharField(
         max_length=255,
         blank=True,

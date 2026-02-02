@@ -46,7 +46,7 @@
             {% if user_balance is not None %}
               <div class="mb-1">
                 <a class="badge rounded-pill {% if user_balance < 0 %}bg-danger{% else %}bg-success{% endif %} px-3 py-2 text-white text-decoration-none portal-balance-badge"
-                   href="{% url 'orders:balances' %}">
+                   href="{% if request.user.is_manager %}{% url 'orders:balances_users' %}{% else %}{% url 'orders:balances' %}{% endif %}">
                   <i class="bi bi-cash-coin me-1"></i>
                   Баланс:
                   <span class="fw-bold ms-1">{{ user_balance|default_if_none:0|floatformat:0 }} грн</span>
@@ -73,7 +73,7 @@
           <div class="d-none d-lg-flex align-items-center ms-3 gap-3">
             {% if user_balance is not None %}
               <a class="badge rounded-pill {% if user_balance < 0 %}bg-danger{% else %}bg-success{% endif %} me-2 px-3 py-2 text-white text-decoration-none"
-                 href="{% url 'orders:balances' %}">
+                 href="{% if request.user.is_manager %}{% url 'orders:balances_users' %}{% else %}{% url 'orders:balances' %}{% endif %}">
                 <i class="bi bi-cash-coin me-1"></i>
                 Баланс:
                 <span class="fw-bold ms-1">{{ user_balance|default_if_none:0|floatformat:0 }} грн</span>
@@ -94,6 +94,26 @@
                 {% endif %}
               </span>
             </div>
+            {% if request.user.is_staff %}
+              <form action="{% url 'orders:update_eur_rate' %}" method="post" class="d-inline mb-0" onsubmit="return confirm('Оновити курс EUR онлайн?');">
+                {% csrf_token %}
+                <input type="hidden" name="mode" value="online">
+                <button type="submit"
+                        class="btn btn-sm btn-outline-light d-flex align-items-center px-3 py-1">
+                  <i class="bi bi-arrow-clockwise me-1"></i>
+                  Оновити онлайн
+                </button>
+              </form>
+
+              <form action="{% url 'orders:update_eur_rate' %}" method="post" class="d-inline mb-0" onsubmit="return confirm('Зберегти курс вручну?');">
+                {% csrf_token %}
+                <input type="hidden" name="mode" value="manual">
+                <div class="input-group input-group-sm">
+                  <input type="number" step="0.0001" min="0" name="rate" class="form-control form-control-sm" placeholder="Ввести курс">
+                  <button class="btn btn-outline-light" type="submit">Зберегти</button>
+                </div>
+              </form>
+            {% endif %}
           </div>
         {% endif %}
 

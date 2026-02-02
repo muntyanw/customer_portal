@@ -12,10 +12,10 @@
     </form>
     <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
       <div class="btn-group btn-group-sm" role="group" aria-label="Сортування">
+        <a class="btn btn-outline-primary {% if sort == 'full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}sort=full_name">Ім'я</a>
+        <a class="btn btn-outline-primary {% if sort == '-full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}sort=-full_name">Ім'я ↓</a>
         <a class="btn btn-outline-primary {% if sort == 'email' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}sort=email">Email</a>
         <a class="btn btn-outline-primary {% if sort == '-email' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}sort=-email">Email ↓</a>
-        <a class="btn btn-outline-primary {% if sort == 'full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}sort=full_name">ПІБ</a>
-        <a class="btn btn-outline-primary {% if sort == '-full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}sort=-full_name">ПІБ ↓</a>
       </div>
       <a href="{% url 'accounts:client_create' %}" class="btn btn-success"><i class="bi bi-plus-lg me-1"></i> Створити акаунт</a>
     </div>
@@ -25,14 +25,15 @@
     <div class="card-body p-0">
       <div class="d-none d-md-block border-bottom bg-light">
         <div class="row g-2 align-items-center px-3 py-2 text-uppercase small fw-semibold text-muted">
-          <div class="col-1"></div>
-          <div class="col"><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'email' %}-email{% else %}email{% endif %}">Email</a></div>
-          <div class="col"><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'full_name' %}-full_name{% else %}full_name{% endif %}">ПІБ</a></div>
-          <div class="col">Телефон</div>
-          <div class="col">Організація</div>
-          <div class="col">Баланс</div>
-          <div class="col-auto">Кредит</div>
-          <div class="col-auto">Менеджер</div>
+          <div class="col-12 col-md-1"></div>
+          <div class="col-12 col-md"><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'full_name' %}-full_name{% else %}full_name{% endif %}">ПІБ</a></div>
+          <div class="col-12 col-md"><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'email' %}-email{% else %}email{% endif %}">Email</a></div>
+          <div class="col-6 col-md">Телефон</div>
+          <div class="col-6 col-md">Організація</div>
+          <div class="col-6 col-md">Баланс</div>
+          <div class="col-6 col-md-auto">Знижка, %</div>
+          <div class="col-6 col-md-auto">Кредит</div>
+          <div class="col-6 col-md-auto">Менеджер</div>
           <div class="col-12 col-md-3">Дії</div>
         </div>
       </div>
@@ -50,11 +51,11 @@
               {% endif %}
             </div>
             <div class="col-12 col-md">
-              <div class="fw-semibold">{{ u.email }}</div>
-              <div class="text-muted small d-md-none">{{ u.customerprofile.full_name|default:"—" }}</div>
+              <div class="fw-semibold">{{ u.customerprofile.full_name|default:"—" }}</div>
+              <div class="text-muted small d-md-none">{{ u.email }}</div>
             </div>
             <div class="col-12 col-md">
-              <div>{{ u.customerprofile.full_name|default:"—" }}</div>
+              <div>{{ u.email }}</div>
               <div class="d-md-none text-muted small mt-1">
                 {{ u.customerprofile.organization.name|default:"—" }}
               </div>
@@ -72,6 +73,29 @@
                   {{ bal|default:"0.00" }}
                 </a>
               {% endwith %}
+            </div>
+            <div class="col-6 col-md-auto">
+              <form method="post" class="discount-form d-inline-flex align-items-center gap-1">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="set_discount">
+                <input type="hidden" name="user_id" value="{{ u.id }}">
+                <div class="input-group input-group-sm">
+                  <input
+                    type="number"
+                    min="-100"
+                    max="100"
+                    step="0.01"
+                    name="discount_percent"
+                    value="{{ u.customerprofile.discount_percent|default_if_none:0|stringformat:'0.2f' }}"
+                    class="form-control discount-input"
+                    data-initial="{{ u.customerprofile.discount_percent|default_if_none:0|stringformat:'0.2f' }}"
+                    data-raw-value="{{ u.customerprofile.discount_percent|default:'0' }}"
+                    placeholder="0"
+                    aria-label="Знижка %"
+                  >
+                  <button type="submit" class="btn btn-primary save-discount-btn d-none">Зберегти</button>
+                </div>
+              </form>
             </div>
             <div class="col-6 col-md-auto">
               <form method="post" class="d-inline-flex align-items-center gap-1">
@@ -105,4 +129,33 @@
       {% endfor %}
     </div>
   </div>
+{% endblock %}
+
+{% block body_extra %}
+  {{ block.super }}
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      document.querySelectorAll('.discount-input').forEach(function (input) {
+        const form = input.closest('.discount-form')
+        const button = form ? form.querySelector('.save-discount-btn') : null
+        const initial = parseFloat((input.dataset.initial || '0').replace(',', '.'))
+        const rawValue = input.dataset.rawValue
+        if (rawValue !== undefined && rawValue !== '') {
+          input.value = rawValue
+          input.dataset.initial = rawValue
+        }
+        const toggleButton = function () {
+          if (!button) return
+          const value = parseFloat((input.value || '0').replace(',', '.'))
+          if (isNaN(value)) {
+            button.classList.remove('d-none')
+            return
+          }
+          button.classList.toggle('d-none', value === initial)
+        }
+        input.addEventListener('input', toggleButton)
+        toggleButton()
+      })
+    })
+  </script>
 {% endblock %}

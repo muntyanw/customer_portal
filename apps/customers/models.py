@@ -33,6 +33,7 @@ class CustomerProfile(models.Model):
     note = models.TextField(blank=True, verbose_name="Примітка")
     avatar = models.ImageField(upload_to="avatars/", blank=True, null=True)
     credit_allowed = models.BooleanField(default=False)
+    discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     def __str__(self):
         return f"{self.user.email}"
 

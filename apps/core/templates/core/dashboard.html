@@ -1,6 +1,8 @@
 {% extends "core/dashboard_base.html" %}
-{% block dashboard_title %}Кабінет{% endblock %}
-{% block dashboard_heading %}Кабінет{% endblock %}
+{% with org=request.user.customerprofile.organization.name|default:request.user.customerprofile.company_name|default:request.user.customerprofile.full_name %}
+  {% block dashboard_title %}{{ org|default:"Кабінет" }}{% endblock %}
+  {% block dashboard_heading %}{{ org|default:"Кабінет" }}{% endblock %}
+{% endwith %}
 
 {% block dashboard_content %}
  <h1>Вітаємо, {{ request.user.email }}</h1>

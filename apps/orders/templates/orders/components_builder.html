@@ -95,6 +95,19 @@
           <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="btn btn-primary btn-sm">Відкрити прайс (Комплектація)</a>
           <a href="https://docs.google.com/document/d/1uz2k8hqnaLxlmxB-u1BUmaEmW3pw4QIF/edit" target="_blank" class="btn btn-secondary btn-sm text-white">Технічні характеристики</a>
         </div>
+        {% if request.user.is_manager or request.user.is_superuser %}
+          <div class="ms-auto d-flex flex-column gap-1" style="min-width:260px;">
+            <label class="form-label fw-semibold mb-0" for="componentsOrderCustomer">Клієнт</label>
+            <select id="componentsOrderCustomer" name="customer_id" class="form-select form-select-sm">
+              <option value="">— Оберіть клієнта —</option>
+              {% for c in customers_filter_list %}
+                <option value="{{ c.user.id }}" {% if order and order.customer_id == c.user.id %}selected{% endif %}>
+                  {% if c.full_name %}{{ c.full_name }}{% else %}{{ c.user.email }}{% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+        {% endif %}
         <div class="ms-auto d-flex align-items-center gap-2">
           <span class="text-muted small text-uppercase">Статус</span>
           <span class="badge bg-primary">
@@ -1018,6 +1031,13 @@
 
         // записываем курс в hidden для бека
         $('.eur_rate_at_creation').val(eur_rate);
+        if ({{ request.user.is_manager|yesno:"true,false" }} || {{ request.user.is_superuser|yesno:"true,false" }}) {
+          $('#componentsOrderCustomer').select2({
+            width: '100%',
+            placeholder: 'Оберіть клієнта',
+            allowClear: true,
+          });
+        }
 
         if (Array.isArray(builderComponents) && builderComponents.length > 0) {
           // EN: Edit mode — restore existing components

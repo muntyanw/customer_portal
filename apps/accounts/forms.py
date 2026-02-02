@@ -1,4 +1,5 @@
 import re
+from decimal import Decimal, InvalidOperation
 from django import forms
 from django.contrib.auth import authenticate
 from .models import User
@@ -29,6 +30,7 @@ class ProfileForm(forms.Form):
     delivery_method = forms.ChoiceField(label="Спосіб доставки", required=True, choices=CustomerProfile.DELIVERY_CHOICES)
     delivery_branch = forms.CharField(label="Вантажне відділення (від 200кг)", required=False)
     note = forms.CharField(label="Примітка", required=False, widget=forms.Textarea(attrs={"rows": 3}))
+    discount_percent = forms.DecimalField(label="Знижка, %", max_digits=5, decimal_places=2, required=False, min_value=-100, max_value=100)
     credit_allowed = forms.BooleanField(label="Кредит дозволено", required=False)
     avatar = forms.ImageField(label="Аватар", required=False)
     is_manager = forms.BooleanField(label="Роль: менеджер", required=False)
@@ -38,6 +40,7 @@ class ProfileForm(forms.Form):
         self.profile_instance = kwargs.pop("profile_instance")
         can_edit_credit = kwargs.pop("can_edit_credit", False)
         can_edit_role = kwargs.pop("can_edit_role", False)
+        can_edit_discount = kwargs.pop("can_edit_discount", False)
         self.creating = kwargs.pop("creating", False)
         super().__init__(*args, **kwargs)
         if self.creating:
@@ -52,8 +55,11 @@ class ProfileForm(forms.Form):
         self.fields["delivery_method"].initial = self.profile_instance.delivery_method
         self.fields["delivery_branch"].initial = self.profile_instance.delivery_branch
         self.fields["note"].initial = self.profile_instance.note
+        self.fields["discount_percent"].initial = self.profile_instance.discount_percent
         self.fields["credit_allowed"].initial = self.profile_instance.credit_allowed
         self.fields["avatar"].initial = self.profile_instance.avatar
+        if not can_edit_discount:
+            self.fields.pop("discount_percent", None)
         if not can_edit_credit:
             self.fields.pop("credit_allowed", None)
         if can_edit_role:
@@ -97,6 +103,8 @@ class ProfileForm(forms.Form):
         self.profile_instance.note = self.cleaned_data.get("note", "")
         if "credit_allowed" in self.cleaned_data:
             self.profile_instance.credit_allowed = self.cleaned_data.get("credit_allowed", False)
+        if "discount_percent" in self.cleaned_data:
+            self.profile_instance.discount_percent = Decimal(self.cleaned_data.get("discount_percent") or 0)
         if self.cleaned_data.get("avatar"):
             self.profile_instance.avatar = self.cleaned_data["avatar"]
         if is_new and not getattr(self.profile_instance, "user_id", None):
