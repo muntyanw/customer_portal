@@ -704,8 +704,8 @@ def order_workbook_download(request, pk):
 
 
 def _build_proposal_workbook(order):
-    # Використовуємо той самий формат, що й робочий файл замовлення
-    return _render_order_workbook(order, filename_prefix="proposal")
+    # NOTE: This function used to delegate to _render_order_workbook(), but that helper
+    # is not guaranteed to exist. Keep proposal generation self-contained here.
     wb = Workbook()
     ws = wb.active
     ws.title = "Пропозиція"

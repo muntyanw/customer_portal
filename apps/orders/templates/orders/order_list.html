@@ -192,6 +192,13 @@
                         </a>
                       {% endif %}
                     {% endwith %}
+                    {% with proposal_excel=proposal_excel_urls|get_item:o.id %}
+                      {% if proposal_excel %}
+                        <a class="btn btn-sm btn-success" href="{{ proposal_excel }}">
+                          <i class="bi bi-file-earmark-excel me-1"></i> Пропозиція Excel
+                        </a>
+                      {% endif %}
+                    {% endwith %}
                   {% endif %}
                   {% if request.user.is_manager or o.status == o.STATUS_QUOTE %}
                     <a class="btn btn-sm btn-danger" href="{{ order_delete_url }}">

@@ -38,7 +38,9 @@
           <img src="/static/media/avatar.png" width="40" height="40" class="rounded-circle me-2" alt="avatar">
         {% endif %}
         <div>
-          <div class="fw-bold">{{ request.user.email }}</div>
+          <div class="fw-bold">
+            {% firstof request.user.customerprofile.company_name request.user.customerprofile.organization.name request.user.customerprofile.full_name request.user.email %}
+          </div>
           {% if request.user.is_superuser %}
             <span class="badge bg-danger">Admin</span>
           {% elif request.user.is_staff %}
