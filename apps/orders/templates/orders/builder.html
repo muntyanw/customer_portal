@@ -111,11 +111,16 @@
             <select id="orderCustomer" name="customer_id" class="form-select form-select-sm">
               <option value="">— Оберіть клієнта —</option>
               {% for c in customers_filter_list %}
-                <option value="{{ c.user.id }}" data-discount="{{ c.discount_percent|default:'0' }}" {% if order and order.customer_id == c.user.id %}selected{% endif %}>
+                <option
+                  value="{{ c.user.id }}"
+                  data-discount="{{ c.discount_percent|default_if_none:0|stringformat:'0.2f' }}"
+                  {% if order and order.customer_id == c.user.id %}selected{% elif not order and request.user.id == c.user.id %}selected{% endif %}
+                >
                   {% if c.full_name %}{{ c.full_name }}{% else %}{{ c.user.email }}{% endif %}
                 </option>
               {% endfor %}
             </select>
+            <div class="invalid-feedback">Оберіть клієнта.</div>
           </div>
         {% endif %}
         <div class="ms-auto d-flex align-items-center gap-2">
@@ -191,7 +196,7 @@
           class="form-control"
           id="extraServiceAmount"
           name="extra_service_amount_uah"
-          value="{{ order.extra_service_amount_uah|default_if_none:'0'|floatformat:2 }}"
+          value="{{ order.extra_service_amount_uah|default_if_none:0|stringformat:'0.2f' }}"
           {% if readonly %}disabled{% endif %}
         />
         {% if readonly %}
@@ -631,6 +636,7 @@
       $card.find('.fabric-height-flag .form-check-input')
         .off('change.gabarits')
         .on('change.gabarits', function () {
+          updateFabricHeightHidden($card)
           if (Number($w_mm.val()) > 0 && Number($h_mm.val()) > 0) {
             previewCard($card)
           }
@@ -648,6 +654,13 @@
       const $h = $card.find('.gabarit-width-flag-hidden')
       if (!$h.length) return
       const checked = $card.find('.gabarit-width-flag .form-check-input').is(':checked')
+      $h.val(checked ? '1' : '0')
+    }
+
+    function updateFabricHeightHidden($card) {
+      const $h = $card.find('.fabric-height-flag-hidden')
+      if (!$h.length) return
+      const checked = $card.find('.fabric-height-flag .form-check-input').is(':checked')
       $h.val(checked ? '1' : '0')
     }
 
@@ -678,6 +691,8 @@
       $card.find('.w-mm').val(0)
       $card.find('.qty').val(1)
       $card.find('.gb_width_mm').val(0)
+      $card.find('.gabarit-width-flag-hidden').val('0')
+      $card.find('.fabric-height-flag-hidden').val('0')
 
       // базовые цены в price-box (EUR + UAH)
       const $priceBox = $card.find('.price-box')
@@ -1157,6 +1172,7 @@
       $card.find('.gabarit-width-flag .form-check-input').prop('checked', !!item.gabarit_width_flag)
       updateGabaritHidden($card)
       $card.find('.fabric-height-flag .form-check-input').prop('checked', !!item.fabric_height_flag)
+      updateFabricHeightHidden($card)
       if(item.control_side){
         $card.find('.control_side').removeClass("d-none")
         if (item.control_side) $card.find('.control_side select').val(item.control_side)
@@ -1732,6 +1748,8 @@
 
         $gabaritInput.prop('checked', !!checked)
         $fabricHeightInput.prop('checked', !!heightChecked)
+        updateGabaritHidden($card)
+        updateFabricHeightHidden($card)
       } else {
         const showGabarit = Boolean(persistedGbDiff) || !!checked || hasSavedWidth
         if (showGabarit) {
@@ -1751,6 +1769,8 @@
         if (!showGabarit) {
           $heightBlock.removeClass('mt-3')
         }
+        updateGabaritHidden($card)
+        updateFabricHeightHidden($card)
       }
     }
 
@@ -1856,6 +1876,15 @@
 
     $('#orderForm').on('submit', function (e) {
       let ok = true
+      const $cust = $('#orderCustomer')
+      if ($cust.length) {
+        if (!$cust.val()) {
+          ok = false
+          $cust.addClass('is-invalid')
+        } else {
+          $cust.removeClass('is-invalid')
+        }
+      }
       $container.find('.item-card').each(function () {
         const $c = $(this)
         const sys = $c.find('.system-sheet').val()
@@ -1879,7 +1908,7 @@
       if (!ok) {
         e.preventDefault()
         window.scrollTo({ top: 0, behavior: 'smooth' })
-        window.showToast('Оберіть систему, колір системи, тканину та колір тканини для кожної позиції', 'warning')
+        window.showToast('Перевірте форму: клієнт та поля позицій мають бути заповнені', 'warning')
       }
     })
 

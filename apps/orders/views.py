@@ -428,12 +428,23 @@ def _payment_shortage_context(order):
     }
 
 
-def _build_order_workbook(order, save_to_file: bool = True):
+def _build_order_workbook(
+    order,
+    save_to_file: bool = True,
+    *,
+    filename_prefix: str = "order",
+    include_markup: bool = False,
+    client_info_mode: str = "order",
+):
     wb = Workbook()
     ws = wb.active
-    ws.title = "Замовлення"
+    ws.title = "Пропозиція" if client_info_mode == "proposal" else "Замовлення"
     profile = getattr(order.customer, "customerprofile", None)
     rate = Decimal(order.eur_rate or get_current_eur_rate() or 0)
+    markup_multiplier = Decimal("1")
+    if include_markup:
+        markup = Decimal(order.markup_percent or 0)
+        markup_multiplier = Decimal("1") + markup / Decimal("100")
     thin = Side(style="thin", color="000000")
     border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
     border_horiz = Border(top=thin, bottom=thin)
@@ -443,16 +454,33 @@ def _build_order_workbook(order, save_to_file: bool = True):
     def price_uah(eur, qty=1):
         if not rate:
             return float(Decimal(eur or 0) * Decimal(qty or 0))
-        return float((Decimal(eur or 0) * Decimal(qty or 0) * rate).quantize(Decimal("1"), rounding=ROUND_UP))
+        return float(
+            (Decimal(eur or 0) * Decimal(qty or 0) * rate * markup_multiplier).quantize(
+                Decimal("1"), rounding=ROUND_UP
+            )
+        )
 
     row = 1
-    client_info = [
-        ("Клієнт", getattr(profile, "full_name", "") or str(order.customer)),
-        ("Тел.", getattr(profile, "phone", "") or ""),
-        ("ПІБ.", getattr(profile, "full_name", "") or ""),
-        ("Адреса доставки", ""),
-        ("Примітки до замовлення", order.note or ""),
-    ]
+    full_name = getattr(profile, "full_name", "") or str(order.customer)
+    phone = getattr(profile, "phone", "") or ""
+    # Keep the top "client info" block always 5 rows for stable formatting (merge C-L for rows 1-5).
+    if client_info_mode == "proposal":
+        # In proposal we don't show "Клієнт" and "Примітки до замовлення".
+        client_info = [
+            ("", ""),
+            ("Тел.", phone),
+            ("ПІБ.", full_name),
+            ("Адреса доставки", ""),
+            ("", ""),
+        ]
+    else:
+        client_info = [
+            ("Клієнт", full_name),
+            ("Тел.", phone),
+            ("ПІБ.", full_name),
+            ("Адреса доставки", ""),
+            ("Примітки до замовлення", order.note or ""),
+        ]
     for label, val in client_info:
         ws.append(["", label, val])
     # widen column B and center
@@ -486,7 +514,19 @@ def _build_order_workbook(order, save_to_file: bool = True):
     total_cell = ws.cell(row=total_row, column=12)
     row = ws.max_row + 1
 
-    created_str = order.created_at.astimezone(timezone.get_current_timezone()).strftime("%d.%m.%y") if order.created_at else ""
+    created_str = (
+        order.created_at.astimezone(timezone.get_current_timezone()).strftime("%d.%m.%y")
+        if order.created_at
+        else ""
+    )
+    doc_label = "Пропозиція" if client_info_mode == "proposal" else "Замовлення"
+
+    # Show "Замовлення/Пропозиція № ... від ..." once in the header instead of repeating it per position.
+    ws.append(["", f"{doc_label} № {order.pk} від {created_str}"] + [""] * 10)
+    doc_title_row = ws.max_row
+    ws.merge_cells(start_row=doc_title_row, start_column=2, end_row=doc_title_row, end_column=12)
+    ws.cell(row=doc_title_row, column=2).alignment = center_wrap_align
+    ws.cell(row=doc_title_row, column=2).font = Font(bold=True, size=14)
 
     def control_label(val):
         if val == "left":
@@ -543,7 +583,7 @@ def _build_order_workbook(order, save_to_file: bool = True):
 
     for idx, it in enumerate(order.items.all(), start=1):
         start_item_row = ws.max_row + 1
-        ws.append([f"Поз. {idx}", f"Замовлення № {order.pk} від {created_str}"])
+        ws.append([f"Поз. {idx}", ""])
         title_row = ws.max_row
         ws.cell(row=title_row, column=1).font = Font(bold=True)
         ws.merge_cells(start_row=title_row, start_column=2, end_row=title_row, end_column=12)
@@ -568,9 +608,13 @@ def _build_order_workbook(order, save_to_file: bool = True):
             it.fabric_name,
             it.fabric_color_code,
             it.width_fabric_mm,
-            "По тканині" if it.gabarit_width_flag else "",
+            # "Знач. Шир.": gabarit flag means user entered gabarit width.
+            # If the system has a non-zero gabarit diff and flag is off, treat width as fabric width.
+            # Otherwise it's the default mode.
+            "Габарит" if it.gabarit_width_flag else ("По ткан." if int(getattr(it, "GbDiffWidthMm", 0) or 0) else "за замовч."),
             it.height_gabarit_mm,
-            "По тканині" if it.fabric_height_flag else (it.roll_height_info or "Габарит"),
+            # "Знач. Вис.": only depends on fabric_height_flag.
+            "По ткан." if it.fabric_height_flag else "за замовч.",
             control_label(it.control_side),
             it.quantity,
             float(max(total_item_uah - Decimal(total_opts), Decimal("0"))),
@@ -682,7 +726,7 @@ def _build_order_workbook(order, save_to_file: bool = True):
     buffer = BytesIO()
     wb.save(buffer)
     buffer.seek(0)
-    filename = f"order_{order.pk}.xlsx"
+    filename = f"{filename_prefix}_{order.pk}.xlsx"
     if save_to_file:
         order.workbook_file.save(filename, ContentFile(buffer.getvalue()), save=False)
     return filename, buffer.getvalue()
@@ -704,151 +748,15 @@ def order_workbook_download(request, pk):
 
 
 def _build_proposal_workbook(order):
-    # NOTE: This function used to delegate to _render_order_workbook(), but that helper
-    # is not guaranteed to exist. Keep proposal generation self-contained here.
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Пропозиція"
-    thin = Side(style="thin", color="000000")
-    border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
-    center_align = Alignment(horizontal="center", vertical="center")
-    header_fill = PatternFill(start_color="FFF9C4", end_color="FFF9C4", fill_type="solid")  # light yellow
-    position_fill = PatternFill(start_color="E8F5E9", end_color="E8F5E9", fill_type="solid")  # light green
-
-    rate = _order_rate(order, get_current_eur_rate())
-    base_total_eur = _order_base_total(order)
-    markup = Decimal(order.markup_percent or 0)
-    markup_multiplier = Decimal("1") + markup / Decimal("100")
-    extra_uah = Decimal(getattr(order, "extra_service_amount_uah", 0) or 0)
-    total_with_markup_uah = _round_uah_total(
-        base_total_eur * markup_multiplier * Decimal(rate or 0) + extra_uah
+    # Комерційна пропозиція має той самий формат, що й файл замовлення,
+    # але з цінами з націнкою (markup_percent).
+    return _build_order_workbook(
+        order,
+        save_to_file=False,
+        filename_prefix="proposal",
+        include_markup=True,
+        client_info_mode="proposal",
     )
-    created_str = (
-        order.created_at.astimezone(timezone.get_current_timezone()).strftime("%d.%m.%Y %H:%M")
-        if order.created_at
-        else ""
-    )
-    profile = getattr(order.customer, "customerprofile", None)
-    customer_name = getattr(profile, "company_name", "") or getattr(profile, "full_name", "") or str(order.customer)
-    customer_phone = getattr(profile, "phone", "") or ""
-    customer_full_name = getattr(profile, "full_name", "") or str(order.customer)
-    customer_address = getattr(profile, "trade_address", "") or ""
-
-    ws.column_dimensions["A"].width = 36
-    ws.column_dimensions["B"].width = 60
-
-    ws.append([f"Комерційна пропозиція №{order.pk}", ""])
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=2)
-    ws.cell(row=1, column=1).alignment = center_align
-    ws.cell(row=1, column=1).font = Font(bold=True)
-    ws.cell(row=1, column=1).fill = header_fill
-    if created_str:
-        ws.append(["Створено", created_str])
-    ws.append(["Клієнт", customer_name])
-    ws.append(["Телефон", customer_phone])
-    ws.append(["ПІБ", customer_full_name])
-    ws.append(["Адреса", customer_address])
-    if extra_uah:
-        ws.append(["Додаткова послуга", f"{order.extra_service_label or 'Послуга'} — {float(extra_uah)} грн"])
-    ws.append(["Вартість замовлення, грн", float(total_with_markup_uah)])
-    ws.cell(row=ws.max_row, column=2).font = Font(bold=True)
-    ws.append([])
-
-    # форматування перших рядків
-    for r in range(2, 8):
-        if ws.cell(row=r, column=1).value is not None:
-            ws.cell(row=r, column=1).font = Font(bold=True)
-        if ws.cell(row=r, column=2).value is not None:
-            ws.cell(row=r, column=2).alignment = center_align
-
-    def add_row(label, value):
-        ws.append([label, value])
-        lbl = (label or "").lower()
-        if lbl.startswith("вартість") or lbl.startswith("сума") or lbl.startswith("ціна"):
-            ws.cell(row=ws.max_row, column=2).font = Font(bold=True)
-
-    def control_label(val):
-        if val == "left":
-            return "Ліве"
-        if val == "right":
-            return "Праве"
-        return val or ""
-
-    for idx, it in enumerate(order.items.all(), start=1):
-        ws.append([f"Позиція {idx}", ""])
-        ws.merge_cells(start_row=ws.max_row, start_column=1, end_row=ws.max_row, end_column=2)
-        ws.cell(row=ws.max_row, column=1).alignment = center_align
-        ws.cell(row=ws.max_row, column=1).fill = position_fill
-        fabric = it.fabric_name or ""
-        if it.fabric_color_code:
-            fabric = f"{fabric} ({it.fabric_color_code})" if fabric else it.fabric_color_code
-
-        add_row("Система", it.system_sheet)
-        add_row("Колір системи", it.table_section)
-        add_row("Тканина", fabric)
-        add_row("Ширина, мм", it.width_fabric_mm)
-        add_row("Висота, мм", it.height_gabarit_mm)
-        add_row("Кількість", int(it.quantity or 0))
-        unit_price = Decimal(it.subtotal_eur or 0)
-        try:
-            qty_dec = Decimal(it.quantity or 1)
-            if qty_dec > 0:
-                unit_price = unit_price / qty_dec
-        except Exception:
-            pass
-        unit_uah = _round_uah_total(unit_price * Decimal(rate or 0) * markup_multiplier)
-        add_row("Ціна за 1 шт, грн", float(unit_uah))
-        add_row("Сторона керування", control_label(it.control_side))
-        subtotal_uah = _round_uah_total(Decimal(it.subtotal_eur or 0) * Decimal(rate or 0) * markup_multiplier)
-        add_row("Вартість, грн", float(subtotal_uah))
-        if it.note:
-            add_row("Примітка", it.note)
-
-        options = _collect_item_options(it, rate, markup_multiplier)
-        if options:
-            ws.append(["Додаткові опції", ""])
-            ws.merge_cells(start_row=ws.max_row, start_column=1, end_row=ws.max_row, end_column=2)
-            ws.cell(row=ws.max_row, column=1).alignment = center_align
-            ws.cell(row=ws.max_row, column=1).font = Font(bold=True)
-            for opt in options:
-                qty_raw = opt.get("qty") or ""
-                qty = int(qty_raw) if isinstance(qty_raw, (int, float, Decimal)) else qty_raw
-                price_uah = opt.get("price_uah") or Decimal("0")
-                detail = f"{qty} · {price_uah} грн" if qty not in ("", None) else f"{price_uah} грн"
-                add_row(opt.get("label", ""), detail)
-        ws.append([])
-
-    if order.component_items.exists():
-        ws.append(["Комплектуючі"])
-        ws.append(["Характеристика", "Значення"])
-        for comp in order.component_items.all():
-            total_uah = _round_uah_total(
-                Decimal(comp.price_eur or 0) * Decimal(comp.quantity or 0) * Decimal(rate or 0) * markup_multiplier
-            )
-            add_row("Найменування", comp.name)
-            if comp.color:
-                add_row("Колір", comp.color)
-            if comp.unit:
-                add_row("Од. вим.", comp.unit)
-            add_row("Кількість", float(comp.quantity or 0))
-            add_row("Сума, грн", float(total_uah))
-            ws.append([])
-
-    # Borders for filled cells + стили колонок (жирный/центр)
-    max_r = ws.max_row
-    for r in range(1, max_r + 1):
-        for c in range(1, 3):
-            ws.cell(row=r, column=c).border = border_all
-            if c == 1 and ws.cell(row=r, column=c).value is not None:
-                ws.cell(row=r, column=c).font = Font(bold=True)
-            if c == 2 and ws.cell(row=r, column=c).value is not None:
-                ws.cell(row=r, column=c).alignment = center_align
-
-    buffer = BytesIO()
-    wb.save(buffer)
-    buffer.seek(0)
-    filename = f"proposal_{order.pk}.xlsx"
-    return filename, buffer.getvalue()
 
 
 def _send_order_in_work_email(order, request, workbook_payload=None):
@@ -1451,6 +1359,7 @@ def order_builder(request, pk=None):
             gw_states += [""] * (len(systems) - len(gw_states))
         gw_flags = request.POST.getlist("gabarit_width_flag")
         gh_flags = request.POST.getlist("fabric_height_flag")
+        fh_states = request.POST.getlist("fabric_height_flag_state")
         GbDiffWidthMm = request.POST.getlist("GbDiffWidthMm")
         gb_width_mm = request.POST.getlist("gb_width_mm")
 
@@ -1520,7 +1429,11 @@ def order_builder(request, pk=None):
                     if gw_states
                     else _get(gw_flags, idx) in ("on", "true", "1")
                 ),
-                fabric_height_flag=_get(gh_flags, idx) in ("on", "true", "1"),
+                fabric_height_flag=(
+                    _get(fh_states, idx) in ("1", "true", "on")
+                    if fh_states
+                    else _get(gh_flags, idx) in ("on", "true", "1")
+                ),
                 base_price_eur=_to_decimal(_get(base_prices, idx)),
                 gb_width_mm=_to_decimal(_get(gb_width_mm, idx)),
                 GbDiffWidthMm=_to_decimal(_get(GbDiffWidthMm, idx)),
@@ -1693,9 +1606,10 @@ def order_builder(request, pk=None):
     if order:
         discount_percent = _normalize_discount_percent(getattr(order, "discount_percent", Decimal("0")))
     else:
-        discount_user = request.user if not (is_manager(request.user) or request.user.is_staff or request.user.is_superuser) else None
+        # In a new order, the UI preselects current user as customer, so initialize discount from current user.
+        discount_user = request.user
         discount_percent = _normalize_discount_percent(
-            getattr(getattr(discount_user, "customerprofile", None), "discount_percent", Decimal("0")) if discount_user else Decimal("0")
+            getattr(getattr(discount_user, "customerprofile", None), "discount_percent", Decimal("0"))
         )
 
     customer_discount_percent_js = format(discount_percent, "f")

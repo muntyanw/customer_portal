@@ -650,9 +650,16 @@ def parse_sheet_price_section(
     real_width_mm = width_mm
     gb_width_mm = width_mm
     if cg.gbDiffWidthMm:
+        # UA: У прайсі ширинні смуги йдуть по ширині тканини.
+        # Якщо галочка "Габаритна ширина" УВІМКНЕНА, користувач вводить габаритну ширину,
+        # тому для пошуку ціни віднімаємо різницю. А для опцій (за м.п.) зберігаємо саме габарит.
+        # Якщо галочка ВИМКНЕНА, користувач вводить ширину по тканині, а габарит = тканина + різниця.
+        diff = int(cg.gbDiffWidthMm)
         if gabarit_width_flag:
-            real_width_mm = width_mm - cg.gbDiffWidthMm
-            gb_width_mm = width_mm - cg.gbDiffWidthMm
+            real_width_mm = width_mm - diff
+            gb_width_mm = width_mm - diff
+        else:
+            gb_width_mm = width_mm
 
     fabric = next(
         (f for f in fabrics if f["name"].lower() == fabric_name.lower()),
