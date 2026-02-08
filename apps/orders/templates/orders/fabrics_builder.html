@@ -1,0 +1,673 @@
+{% extends 'core/dashboard_base.html' %}
+
+{% block dashboard_title %}
+  Тканина
+{% endblock %}
+
+{% block dashboard_heading %}
+  Тканина, замовлення №{{ order.id|default:'null' }}
+{% endblock %}
+
+{% block head_extra %}
+  {{ block.super }}
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+  <style>
+    .order-summary-bar {
+      position: static;
+      background: var(--bs-body-bg);
+      border-bottom: 1px solid var(--bs-border-color);
+      box-shadow: none;
+      padding: 0.75rem 1rem;
+    }
+    .order-total-bar {
+      background: var(--bs-body-bg);
+      border-top: 1px solid var(--bs-border-color);
+    }
+    .order-summary-label {
+      font-size: 0.8rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: var(--bs-body-color);
+    }
+    .order-summary-value {
+      font-weight: 700;
+      font-size: 1.35rem;
+      color: var(--bs-body-color);
+    }
+    .order-summary-note {
+      min-width: 260px;
+    }
+    @media (max-width: 576px) {
+      .order-summary-bar {
+        padding: 0.5rem 0.75rem;
+      }
+      .order-summary-label {
+        font-size: 0.65rem;
+      }
+      .order-summary-value {
+        font-size: 1.1rem;
+      }
+      .order-summary-bar .form-control-sm {
+        padding: 0.3rem 0.5rem;
+        font-size: 0.9rem;
+      }
+      .order-summary-bar .d-flex.flex-wrap {
+        gap: 0.35rem;
+      }
+    }
+    .readonly-mode .select2-container,
+    .readonly-mode .select2-selection {
+      pointer-events: none !important;
+    }
+  </style>
+{% endblock %}
+
+{% block dashboard_content %}
+  <form method="post" id="fabricsOrderForm" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="eur_rate_at_creation" class="eur_rate_at_creation" />
+    <input type="hidden" name="status_action" id="statusActionInput" value="save" />
+    <input type="hidden" name="next_url" id="nextUrlInput" value="" />
+    <input type="hidden" id="customerDiscountValue" value="{{ customer_discount_percent_js|default:'0' }}">
+    <fieldset {% if readonly %}disabled{% endif %}>
+
+    <div class="mb-3">
+      <div id="fabricInfoLines" class="small text-muted mb-2"></div>
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <div class="d-flex flex-wrap gap-2">
+          <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="btn btn-primary btn-sm">Відкрити прайс (Тканини)</a>
+          <a href="https://docs.google.com/document/d/1uz2k8hqnaLxlmxB-u1BUmaEmW3pw4QIF/edit" target="_blank" class="btn btn-secondary btn-sm text-white">Технічні характеристики</a>
+        </div>
+        {% if request.user.is_manager or request.user.is_superuser %}
+          <div class="ms-auto d-flex flex-column gap-1" style="min-width:260px;">
+            <label class="form-label fw-semibold mb-0" for="fabricsOrderCustomer">Клієнт</label>
+            <select id="fabricsOrderCustomer" name="customer_id" class="form-select form-select-sm">
+              <option value="">— Оберіть клієнта —</option>
+              {% for c in customers_filter_list %}
+                <option
+                  value="{{ c.user.id }}"
+                  data-discount="{{ c.discount_percent|default_if_none:0|stringformat:'0.2f' }}"
+                  {% if order and order.customer_id == c.user.id %}selected{% elif not order and request.user.id == c.user.id %}selected{% endif %}
+                >
+                  {% if c.full_name %}{{ c.full_name }}{% else %}{{ c.user.email }}{% endif %}
+                </option>
+              {% endfor %}
+            </select>
+            <div class="invalid-feedback">Оберіть клієнта.</div>
+          </div>
+        {% endif %}
+        <div class="ms-auto d-flex align-items-center gap-2">
+          <span class="text-muted small text-uppercase">Статус</span>
+          <span class="badge bg-primary">
+            {% if order %}{{ order.get_status_display }}{% else %}Прорахунок{% endif %}
+          </span>
+        </div>
+      </div>
+      <input type="url" class="form-control" id="fabricsPriceUrl" name="price_url" value="{{ PRICE_SHEET_URL }}" required style="display: none;" />
+    </div>
+
+    <div class="order-summary-bar p-3 rounded-3 shadow-sm mb-3">
+      <div class="d-flex flex-wrap align-items-end gap-3">
+        <div class="d-flex flex-column">
+          <div class="order-summary-label mb-1">Всього, грн</div>
+          <div class="order-summary-value"><span id="fabricsOrderTotalBaseUah">0.00</span></div>
+        </div>
+        {% if request.user.is_manager or request.user.is_superuser %}
+          <div class="d-flex flex-column">
+            <div class="order-summary-label mb-1">Знижка, %</div>
+            <div class="order-summary-value text-success">
+              <span id="fabricsDiscountValue">{{ customer_discount_percent_js|default:"0" }}</span>
+            </div>
+          </div>
+        {% endif %}
+        <div class="d-flex flex-column">
+          <label class="order-summary-label mb-1" for="orderMarkup">Націнка на роздріб, %</label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            class="form-control form-control-sm"
+            id="orderMarkup"
+            name="markup_percent"
+            value="{{ order.markup_percent|default:'0'|floatformat:2 }}"
+          />
+        </div>
+        <div class="d-flex flex-column">
+          <div class="order-summary-label mb-1">З націнкою</div>
+          <div class="order-summary-value"><span id="fabricsOrderTotalUah">0.00</span></div>
+        </div>
+        <div class="flex-grow-1 order-summary-note ms-lg-auto">
+          <label class="order-summary-label mb-1" for="fabricsOrderNote">Примітка до замовлення</label>
+          <input
+            type="text"
+            class="form-control form-control-sm"
+            id="fabricsOrderNote"
+            name="note"
+            placeholder="Коротка примітка..."
+            value="{{ order.note|default_if_none:'' }}"
+            {% if readonly %}disabled{% endif %}
+          />
+        </div>
+      </div>
+      <div class="d-flex justify-content-end mt-2">
+        <div class="small text-muted">
+          Вартість порізки тканини: <span class="fw-semibold" id="fabricsCutTotalUah">0</span> грн
+        </div>
+      </div>
+      <div class="d-none">
+        <span id="fabricsOrderTotal">0.00</span>
+      </div>
+    </div>
+
+    <div class="row g-2 align-items-end mb-3">
+      <div class="col-12 col-md-6">
+        <label class="form-label small fw-semibold" for="extraServiceLabel">Додаткова послуга</label>
+        <input
+          type="text"
+          class="form-control"
+          id="extraServiceLabel"
+          name="extra_service_label"
+          placeholder="Доставка, монтаж тощо"
+          value="{{ order.extra_service_label|default_if_none:'' }}"
+          {% if readonly %}disabled{% endif %}
+        />
+      </div>
+      <div class="col-12 col-md-3">
+        <label class="form-label small fw-semibold" for="extraServiceAmount">Сума, грн</label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            class="form-control"
+            id="extraServiceAmount"
+            name="extra_service_amount_uah"
+            value="{{ order.extra_service_amount_uah|default_if_none:0|stringformat:'0.2f' }}"
+            {% if readonly %}disabled{% endif %}
+          />
+      </div>
+    </div>
+
+    <div id="fabricsContainer" class="d-flex flex-column gap-3"></div>
+
+    <div class="d-grid mt-2">
+      <button type="button" class="btn btn-outline-primary" id="addFabricRow">
+        <i class="bi bi-plus-lg me-1"></i> Додати тканину
+      </button>
+    </div>
+
+    <div class="order-total-bar mt-3 p-3 rounded-3 shadow-sm">
+      {% if not readonly %}
+        <div class="d-flex flex-wrap gap-2">
+          <button type="submit" class="btn btn-primary" name="status_action" value="save" data-status-action="save">Зберегти</button>
+          {% if order %}
+            {% if order.status == order.STATUS_QUOTE %}
+              <button type="submit" class="btn btn-success" name="status_action" value="to_work" data-status-action="to_work">В роботу</button>
+            {% endif %}
+            {% if request.user.is_manager %}
+              <div class="ms-auto d-flex gap-2">
+                {% if order.prev_status %}
+                  <button type="submit" class="btn btn-outline-primary" name="status_action" value="prev" data-status-action="prev">Попередній статус</button>
+                {% endif %}
+                {% if next_status_label %}
+                  <button type="submit" class="btn btn-outline-primary" name="status_action" value="next" data-status-action="next">
+                    Наступний статус{% if next_status_label %}: {{ next_status_label }}{% endif %}
+                  </button>
+                {% endif %}
+              </div>
+            {% endif %}
+          {% else %}
+            <button type="submit" class="btn btn-success" name="status_action" value="to_work" data-status-action="to_work">В роботу</button>
+          {% endif %}
+        </div>
+      {% endif %}
+      {% if proposal_page_url or proposal_excel_url %}
+        <div class="d-flex flex-wrap gap-2 mt-2">
+          {% if proposal_page_url %}
+            <a class="btn btn-warning text-dark proposal-link" href="{{ proposal_page_url }}" data-proposal-url="{{ proposal_page_url }}" target="_blank">
+              <i class="bi bi-eye me-1"></i> Комерційна пропозиція (сторінка)
+            </a>
+          {% endif %}
+          {% if proposal_excel_url %}
+            <a class="btn btn-success proposal-link" href="{{ proposal_excel_url }}" data-proposal-url="{{ proposal_excel_url }}">
+              <i class="bi bi-file-earmark-excel me-1"></i> Комерційна пропозиція (Excel)
+            </a>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+    </fieldset>
+  </form>
+
+  {% if status_logs %}
+    <div class="card border-0 shadow-sm mt-3">
+      <div class="card-body">
+        <h6 class="mb-3">Історія статусів</h6>
+        <div class="list-group list-group-flush">
+          {% for log in status_logs %}
+            <div class="list-group-item d-flex justify-content-between align-items-center">
+              <div>
+                <div class="fw-semibold">{{ log.get_status_display }}</div>
+                <div class="small text-muted">{{ log.created_at|date:'d.m.Y H:i' }}</div>
+              </div>
+                {% if log.user %}<div class="small text-muted">{{ log.user }}</div>{% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  <template id="fabric-item-template">
+    <div class="fabric-card card shadow-sm" data-index>
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="fw-semibold">
+            Позиція <span class="pos-index">1</span>
+          </div>
+          {% if order.status == order.STATUS_QUOTE %}
+            <button type="button" class="btn btn-sm btn-outline-danger remove-row">
+              <i class="bi bi-trash"></i>
+            </button>
+          {% endif %}
+        </div>
+
+        <div class="row g-2 align-items-end mb-2">
+          <div class="col-12 col-lg-3">
+            <label class="form-label small mb-1">Тканина</label>
+            <select class="form-select form-select-sm fabric-name" name="fabric_name" required>
+              <option value="" selected disabled>— Оберіть тканину —</option>
+            </select>
+          </div>
+          <div class="col-12 col-lg-1">
+            <label class="form-label small mb-1">Ширина рулону, мм</label>
+            <input type="text" class="form-control form-control-sm text-end roll-width" readonly disabled />
+          </div>
+          <div class="col-12 col-lg-1">
+            <label class="form-label small mb-1">Висота відрізу, що входить в вартість, мм</label>
+            <input type="text" class="form-control form-control-sm text-end included-height" readonly disabled />
+          </div>
+          <div class="col-12 col-lg-1">
+            <label class="form-label small mb-1">Ціна, грн/м.п.</label>
+            <input type="text" class="form-control form-control-sm text-end price-uah-mp" readonly disabled />
+          </div>
+          <div class="col-12 col-lg-1">
+            <label class="form-label small mb-1">Порізка, грн/відріз</label>
+            <input type="text" class="form-control form-control-sm text-end cut-price-uah" readonly disabled />
+          </div>
+          <div class="col-12 col-lg-1">
+            <label class="form-label small mb-1">Ширина, мм</label>
+            <input type="number" min="1" class="form-control form-control-sm text-end fabric-width" name="width_mm" />
+          </div>
+          <div class="col-12 col-lg-1">
+            <label class="form-label small mb-1">Висота, мм</label>
+            <input type="number" min="1" class="form-control form-control-sm text-end fabric-height" name="height_mm" />
+          </div>
+          <div class="col-12 col-lg-1">
+            <label class="form-label small mb-1">К-сть</label>
+            <input type="number" min="1" step="1" class="form-control form-control-sm text-end fabric-qty" name="quantity" value="1" />
+          </div>
+          <div class="col-12 col-lg-1">
+            <label class="form-label small mb-1">Ціна позиції, грн</label>
+            <input type="text" class="form-control form-control-sm text-end item-total-uah-input" readonly disabled />
+          </div>
+        </div>
+
+        <div class="d-flex flex-wrap gap-3 justify-content-end">
+          <div class="fw-semibold">Разом: <span class="item-total-uah">0</span> грн</div>
+        </div>
+
+        <input type="hidden" name="roll_width_mm" class="roll-width-input" />
+        <input type="hidden" name="included_height_mm" class="included-height-input" />
+        <input type="hidden" name="price_eur_mp" class="price-eur-mp-input" />
+        <input type="hidden" name="cut_price_eur" class="cut-price-input" />
+        <input type="hidden" class="item-total-input" value="0" />
+      </div>
+    </div>
+  </template>
+{% endblock %}
+
+{% block body_extra %}
+  {{ block.super }}
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
+  <script>
+    window.showToast = function (message, type = "primary") {
+      const id = "toast-" + Math.random().toString(36).slice(2)
+      const html = `
+        <div id="${id}" class="toast align-items-center text-bg-${type} border-0 position-fixed top-50 start-50 translate-middle shadow"
+             role="alert" aria-live="assertive" aria-atomic="true" style="z-index: 2000;">
+          <div class="d-flex">
+            <div class="toast-body">${message}</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+          </div>
+        </div>
+      `
+      document.body.insertAdjacentHTML("beforeend", html)
+      const el = document.getElementById(id)
+      const toast = new bootstrap.Toast(el, { delay: 9000 })
+      toast.show()
+      el.addEventListener("hidden.bs.toast", () => el.remove())
+    }
+
+    const builderFabrics = {{ fabrics_json|safe|default:"[]" }};
+    const eur_rate = parseFloat('{{ builder_rate|default:"0.00" }}'.replace(',', '.')) || 0;
+    let fabricsData = null;
+    let extraCutLabel = "";
+    let extraCutPrice = 0;
+
+    function money(x) {
+      return (Math.round(parseFloat(x || 0) * 100) / 100).toFixed(2);
+    }
+
+    function eurToUahRaw(x) {
+      return Number(x || 0) * Number(eur_rate || 0);
+    }
+    function eurToUah(x) {
+      return money(eurToUahRaw(x));
+    }
+    function uahTotal(x) {
+      return String(Math.ceil(eurToUahRaw(x)));
+    }
+
+    function normalizeNumber(val, fallback = 0) {
+      const num = parseFloat((val ?? '').toString().replace(',', '.'));
+      return Number.isFinite(num) ? num : fallback;
+    }
+
+    async function loadFabricsList() {
+      if (fabricsData) return fabricsData;
+      const url = document.getElementById('fabricsPriceUrl').value;
+      const resp = await fetch(`/api/v1/pricing/fabrics-list?url=${encodeURIComponent(url)}`);
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: 'Error' }));
+        throw new Error(err.detail || 'Не вдалося завантажити тканини');
+      }
+      const data = await resp.json();
+      fabricsData = data;
+      extraCutLabel = data.extra_cut_label || '';
+      extraCutPrice = parseFloat((data.extra_cut_price_eur || '0').toString().replace(',', '.')) || 0;
+      if (Array.isArray(data.info_lines)) {
+        const info = data.info_lines.filter(Boolean).map(line => `<div>${line}</div>`).join('');
+        document.getElementById('fabricInfoLines').innerHTML = info;
+      }
+      return data;
+    }
+
+    function fabricItemTemplate(index) {
+      const tpl = document.getElementById('fabric-item-template');
+      const node = tpl.content.cloneNode(true);
+      const $node = $(node);
+      $node.find('.pos-index').text(index + 1);
+      $node.find('[data-index]').attr('data-index', index);
+      return node;
+    }
+
+    function fillFabricsForCard($card, preselectName) {
+      const $sel = $card.find('.fabric-name');
+      $sel.empty();
+      $sel.append('<option value="" selected disabled>— Оберіть тканину —</option>');
+      (fabricsData.items || []).forEach((item) => {
+        $sel.append(new Option(item.name, item.name));
+      });
+      if (preselectName) {
+        $sel.val(preselectName);
+      } else {
+        $sel.val(null);
+      }
+      $sel.trigger('change');
+    }
+
+    function applyFabricMeta($card, fabric) {
+      const rollWidth = fabric.roll_width_mm || '';
+      const includedHeight = fabric.included_height_mm || '';
+      const priceMp = normalizeNumber(fabric.price_eur_mp || '0', 0);
+      $card.find('.roll-width').val(rollWidth);
+      $card.find('.included-height').val(includedHeight);
+      if (includedHeight && !$card.find('.fabric-height').val()) {
+        $card.find('.fabric-height').val(includedHeight);
+      }
+      $card.find('.roll-width-input').val(rollWidth);
+      $card.find('.included-height-input').val(includedHeight);
+      $card.find('.price-eur-mp-input').val(money(priceMp));
+      $card.find('.price-uah-mp').val(money(eurToUahRaw(priceMp)));
+      const qty = Math.max(1, Math.floor(normalizeNumber($card.find('.fabric-qty').val(), 1)));
+      $card.find('.cut-price-uah').val(money(eurToUahRaw(extraCutPrice * qty)));
+      $card.find('.cut-price-input').val(money(extraCutPrice));
+      // Do not auto-fill width; user must input after choosing fabric.
+    }
+
+    function recalcFabricCard($card) {
+      const name = $card.find('.fabric-name').val();
+      if (!name) {
+      $card.find('.unit-price-uah').text('0');
+      $card.find('.item-total-uah').text('0');
+      $card.find('.item-total-uah-input').val('0');
+      $card.find('.item-total-input').val('0.00');
+      return { total: 0, cutTotal: 0 };
+      }
+      const priceMp = normalizeNumber($card.find('.price-eur-mp-input').val(), 0);
+      const width = normalizeNumber($card.find('.fabric-width').val(), 0);
+      const height = normalizeNumber($card.find('.fabric-height').val(), 0);
+      if (width <= 0) {
+        $card.find('.unit-price-uah').text('0');
+        $card.find('.item-total-uah').text('0');
+        $card.find('.item-total-input').val('0.00');
+        return { total: 0, cutTotal: 0 };
+      }
+      const included = normalizeNumber($card.find('.included-height-input').val(), 0);
+      const qty = Math.max(1, Math.floor(normalizeNumber($card.find('.fabric-qty').val(), 1)));
+      $card.find('.fabric-qty').val(qty);
+
+      const discount = normalizeNumber($('#customerDiscountValue').val(), 0);
+      const discountMultiplier = 1 - (discount / 100);
+
+      let base = priceMp * (width / 1000);
+      let steps = 0;
+      if (included && height > included) {
+        steps = Math.ceil((height - included) / 100);
+      }
+      const unit = base * (1 + (steps * 0.10));
+      const cutPrice = normalizeNumber($card.find('.cut-price-input').val(), 0);
+      $card.find('.cut-price-uah').val(money(eurToUahRaw(cutPrice * qty)));
+      const unitTotal = (unit + cutPrice) * discountMultiplier;
+      const total = unitTotal * qty;
+
+      const unitUah = Math.ceil(eurToUahRaw(unitTotal));
+      const totalUah = Math.ceil(eurToUahRaw(total));
+      $card.find('.unit-price-uah').text(String(unitUah));
+      $card.find('.item-total-uah').text(String(totalUah));
+      $card.find('.item-total-uah-input').val(String(totalUah));
+      $card.find('.item-total-input').val(money(total));
+      return { total, cutTotal: cutPrice * qty };
+    }
+
+    function recalcFabricsPrice() {
+      let sumTotal = 0;
+      let cutTotal = 0;
+      $('#fabricsContainer').find('.fabric-card').each(function () {
+        const res = recalcFabricCard($(this));
+        sumTotal += normalizeNumber(res?.total, 0);
+        cutTotal += normalizeNumber(res?.cutTotal, 0);
+      });
+
+      const markupPercent = Number($('#orderMarkup').val() || 0);
+      const sumWithMarkup = sumTotal * (1 + markupPercent / 100);
+      const extraServiceUah = Number($('#extraServiceAmount').val() || 0);
+      const baseUah = eurToUahRaw(sumTotal);
+      const withMarkupUah = eurToUahRaw(sumWithMarkup);
+
+      $('#fabricsOrderTotal').text(money(sumTotal));
+      $('#fabricsCutTotalUah').text(String(Math.ceil(eurToUahRaw(cutTotal))));
+      $('#fabricsOrderTotalBaseUah').text(String(Math.ceil(baseUah + extraServiceUah)));
+      $('#fabricsOrderTotalUah').text(String(Math.ceil(withMarkupUah + extraServiceUah)));
+    }
+
+    async function addFabricRowWithData(initial) {
+      const idx = $('#fabricsContainer').children().length;
+      $('#fabricsContainer').append(fabricItemTemplate(idx));
+      const $card = $('#fabricsContainer').find('.fabric-card').last();
+
+      $card.find('.fabric-name').select2({ width: '100%', dropdownParent: $card });
+
+      await loadFabricsList();
+      fillFabricsForCard($card, initial?.fabric_name || null);
+
+      if (initial?.roll_width_mm) {
+        $card.find('.roll-width').val(initial.roll_width_mm);
+        $card.find('.roll-width-input').val(initial.roll_width_mm);
+      }
+      if (initial?.included_height_mm) {
+        $card.find('.included-height').val(initial.included_height_mm);
+        $card.find('.included-height-input').val(initial.included_height_mm);
+      }
+      if (!initial?.height_mm && initial?.included_height_mm) {
+        $card.find('.fabric-height').val(initial.included_height_mm);
+      }
+      if (initial?.price_eur_mp) {
+        const priceMp = normalizeNumber(initial.price_eur_mp, 0);
+        $card.find('.price-uah-mp').val(money(eurToUahRaw(priceMp)));
+        $card.find('.price-eur-mp-input').val(money(priceMp));
+      }
+      if (initial?.cut_price_eur) {
+        const qty = Math.max(1, Math.floor(normalizeNumber(initial.quantity, 1)));
+        $card.find('.cut-price-uah').val(money(eurToUahRaw(normalizeNumber(initial.cut_price_eur, 0) * qty)));
+      } else {
+        const qty = Math.max(1, Math.floor(normalizeNumber(initial?.quantity, 1)));
+        $card.find('.cut-price-uah').val(money(eurToUahRaw(extraCutPrice * qty)));
+      }
+      if (initial?.width_mm) {
+        $card.find('.fabric-width').val(initial.width_mm);
+      }
+      if (initial?.height_mm) {
+        $card.find('.fabric-height').val(initial.height_mm);
+      }
+      if (initial?.quantity) {
+        $card.find('.fabric-qty').val(initial.quantity);
+      }
+      if (initial?.cut_price_eur) {
+        $card.find('.cut-price-input').val(initial.cut_price_eur);
+      } else {
+        $card.find('.cut-price-input').val(money(extraCutPrice));
+      }
+      if (initial?.cut_enabled) {
+        $card.find('.cut-price-input').val(money(initial.cut_price_eur || extraCutPrice));
+      }
+
+      if (initial?.fabric_name && fabricsData?.items) {
+        const found = fabricsData.items.find((f) => (f.name || '').toLowerCase() === (initial.fabric_name || '').toLowerCase());
+        if (found) applyFabricMeta($card, found);
+      }
+
+      recalcFabricsPrice();
+    }
+
+    $('#orderMarkup').on('input change', function () {
+      recalcFabricsPrice();
+    });
+    $('#extraServiceAmount').on('input change', function () {
+      recalcFabricsPrice();
+    });
+
+    $('#addFabricRow').on('click', async function () {
+      await addFabricRowWithData(null);
+    });
+
+    $('#fabricsContainer').on('click', '.remove-row', function () {
+      $(this).closest('.fabric-card').remove();
+      $('#fabricsContainer').find('.fabric-card').each(function (i) {
+        const $card = $(this);
+        $card.attr('data-index', i);
+        $card.find('.pos-index').text(i + 1);
+      });
+      recalcFabricsPrice();
+    });
+
+    $('#fabricsContainer').on('change', '.fabric-name', function () {
+      const $card = $(this).closest('.fabric-card');
+      const name = $(this).val();
+      const found = (fabricsData.items || []).find((f) => (f.name || '').toLowerCase() === (name || '').toLowerCase());
+      if (found) {
+        applyFabricMeta($card, found);
+      }
+      recalcFabricsPrice();
+    });
+
+    $('#fabricsContainer').on('input change', '.fabric-width, .fabric-height, .fabric-qty', function () {
+      recalcFabricsPrice();
+    });
+
+    $('#fabricsOrderForm').on('submit', function (e) {
+      let ok = true;
+      const $cust = $('#fabricsOrderCustomer');
+      if ($cust.length) {
+        if (!$cust.val()) {
+          ok = false;
+          $cust.addClass('is-invalid');
+        } else {
+          $cust.removeClass('is-invalid');
+        }
+      }
+      const $cards = $('#fabricsContainer').find('.fabric-card');
+      if ($cards.length === 0) {
+        ok = false;
+      }
+      $cards.each(function () {
+        const $c = $(this);
+        const name = $c.find('.fabric-name').val();
+        const width = normalizeNumber($c.find('.fabric-width').val(), 0);
+        const height = normalizeNumber($c.find('.fabric-height').val(), 0);
+        if (!name || width <= 0 || height <= 0) {
+          ok = false;
+          if (!name) $c.find('.fabric-name').addClass('is-invalid');
+          if (width <= 0) $c.find('.fabric-width').addClass('is-invalid');
+          if (height <= 0) $c.find('.fabric-height').addClass('is-invalid');
+        } else {
+          $c.find('.fabric-name, .fabric-width, .fabric-height').removeClass('is-invalid');
+        }
+      });
+      if (!ok) {
+        e.preventDefault();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        window.showToast('Перевірте форму: клієнт та параметри тканини мають бути заповнені', 'warning');
+      }
+    });
+
+    $('#fabricsOrderForm').on('click', 'button[data-status-action]', function (e) {
+      const action = $(this).data('status-action') || 'save';
+      if (action === 'save') return;
+      $('#statusActionInput').val(action);
+    });
+
+    (async function () {
+      try {
+        await loadFabricsList();
+        $('.eur_rate_at_creation').val(eur_rate);
+        if ({{ request.user.is_manager|yesno:"true,false" }} || {{ request.user.is_superuser|yesno:"true,false" }}) {
+          $('#fabricsOrderCustomer').select2({
+            width: '100%',
+            placeholder: 'Оберіть клієнта',
+            allowClear: true,
+          });
+          $('#fabricsOrderCustomer').on('change', function () {
+            const pct = Number($(this).find('option:selected').data('discount') || 0)
+            $('#customerDiscountValue').val(pct)
+            $('#fabricsDiscountValue').text(pct)
+            recalcFabricsPrice();
+          })
+        }
+
+        if (Array.isArray(builderFabrics) && builderFabrics.length > 0) {
+          for (const item of builderFabrics) {
+            await addFabricRowWithData(item);
+          }
+        } else {
+          $('#addFabricRow').trigger('click');
+        }
+      } catch (e) {
+        window.showToast(e?.message || 'Не вдалося завантажити тканини з прайсу', 'danger');
+      }
+    })();
+  </script>
+{% endblock %}

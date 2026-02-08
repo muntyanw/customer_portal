@@ -160,6 +160,38 @@
         </div>
       {% endif %}
 
+      {% if fabrics %}
+        <h5 class="mt-4 mb-3">Тканина</h5>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr class="text-muted">
+                <th>Найменування</th>
+                <th class="text-end">Ширина рулону, мм</th>
+                <th class="text-end">Ширина, мм</th>
+                <th class="text-end">Висота, мм</th>
+                <th class="text-end">К-сть</th>
+                <th class="text-end">Ціна од., грн</th>
+                <th class="text-end">Сума, грн</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for fab in fabrics %}
+                <tr>
+                  <td>{{ fab.name }}</td>
+                  <td class="text-end">{{ fab.roll_width_mm|default:"—" }}</td>
+                  <td class="text-end">{{ fab.width_mm|default:"—" }}</td>
+                  <td class="text-end">{{ fab.height_mm|default:"—" }}</td>
+                  <td class="text-end">{{ fab.quantity }}</td>
+                  <td class="text-end">{{ fab.unit_uah|floatformat:0 }}</td>
+                  <td class="text-end">{{ fab.total_uah|floatformat:0 }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+
       {% if order.note %}
         <div class="card shadow-sm mt-3">
           <div class="card-body">

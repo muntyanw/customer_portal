@@ -15,6 +15,7 @@ from .models import (
     NotificationEmail,
     PaymentMessage,
     OrderComponentItem,
+    OrderFabricItem,
     CurrencyRate,
     CurrencyRateHistory,
     OrderDeletionHistory,
@@ -686,6 +687,25 @@ def _build_order_workbook(
             total_order_uah += Decimal(price_uah_val)
         ws.append([])
 
+    if order.fabric_items.exists():
+        ws.append(["", "Тканина"])
+        ws.append(["", "Найменування", "Ширина рулону, мм", "Ширина, мм", "Висота, мм", "К-сть", "Ціна, грн"])
+        for fab in order.fabric_items.all():
+            price_uah_val = price_uah(fab.total_eur, 1)
+            ws.append(
+                [
+                    "",
+                    fab.fabric_name,
+                    fab.roll_width_mm or "",
+                    fab.width_mm or "",
+                    fab.height_mm or "",
+                    float(fab.quantity or 0),
+                    price_uah_val,
+                ]
+            )
+            total_order_uah += Decimal(price_uah_val)
+        ws.append([])
+
     total_cell.value = float(_round_uah_total(total_order_uah)) if total_order_uah else 0
 
     # center all column B cells
@@ -1023,6 +1043,7 @@ def order_list(request):
         .annotate(last_status_at=Coalesce(Max("status_logs__created_at"), "created_at"))
         .prefetch_related("status_logs")
         .exclude(component_items__isnull=False)  # exclude component orders from rollers list
+        .exclude(fabric_items__isnull=False)
         .order_by("-id")
         .distinct()
     )
@@ -1150,6 +1171,85 @@ def order_components_list(request):
     context = {
         "orders": qs,
         "list_mode": "components",
+        "statuses": Order.STATUS_CHOICES,
+        "status_filter": status_filter,
+        "customer_filter": customer_filter,
+        "date_from": date_from_str,
+        "date_to": date_to_str,
+        "customer_options": customers_filter_list,
+        "status_badges": STATUS_BADGES,
+        "status_labels": STATUS_LABELS,
+        "quote_orders_count": quote_orders_count,
+        "show_bulk_select": show_bulk_select,
+        "q": q,
+        "payment_message_text": payment_message_text,
+        "payment_shortage_map": payment_shortage_map,
+        "payment_shortage_json": json.dumps(payment_shortage_map),
+        "user_balance": compute_balance(balance_user),
+        "proposal_page_urls": proposal_page_urls,
+        "proposal_excel_urls": proposal_excel_urls,
+    }
+    return render(request, "orders/order_list.html", context)
+
+
+@login_required
+def order_fabrics_list(request):
+    User = get_user_model()
+    status_filter = request.GET.get("status") or ""
+    customer_filter = request.GET.get("customer") or ""
+    q = (request.GET.get("q") or "").strip()
+    date_from, date_to, date_from_str, date_to_str = _parse_date_range(request.GET)
+    balance_user = request.user
+
+    qs = (
+        _orders_scope(request.user)
+        .select_related("customer", "customer__customerprofile")
+        .annotate(last_status_at=Coalesce(Max("status_logs__created_at"), "created_at"))
+        .prefetch_related("status_logs")
+        .filter(fabric_items__isnull=False)
+        .distinct()
+        .order_by("-id")
+    )
+
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+    if customer_filter and is_manager(request.user):
+        balance_user = get_object_or_404(User, pk=customer_filter)
+        qs = qs.filter(customer=balance_user)
+    if q:
+        qs = qs.filter(pk__icontains=q)
+
+    customers_filter_list = (
+        User.objects.filter(orders__isnull=False).select_related("customerprofile").distinct()
+        if is_manager(request.user) else []
+    )
+    current_rate = get_current_eur_rate()
+    qs = _set_order_totals_uah(qs, current_rate)
+    quote_orders_count = qs.filter(status=Order.STATUS_QUOTE).count()
+    show_bulk_select = quote_orders_count > 1
+    payment_message_text = _get_payment_message_text() or ""
+    payment_shortage_map = {}
+    proposal_tokens = {o.id: _proposal_token(o) for o in qs}
+    proposal_page_urls = {oid: reverse("orders:proposal_page", args=[tok]) for oid, tok in proposal_tokens.items()}
+    proposal_excel_urls = {oid: reverse("orders:proposal_excel", args=[tok]) for oid, tok in proposal_tokens.items()}
+    if quote_orders_count:
+        for o in qs:
+            if o.status != Order.STATUS_QUOTE or o.customer_id != request.user.id:
+                continue
+            shortage_ctx = _payment_shortage_context(o)
+            if shortage_ctx:
+                payment_shortage_map[o.id] = {
+                    "shortage": str(shortage_ctx.get("shortage") or ""),
+                    "orders": shortage_ctx.get("orders") or [],
+                }
+
+    context = {
+        "orders": qs,
+        "list_mode": "fabrics",
         "statuses": Order.STATUS_CHOICES,
         "status_filter": status_filter,
         "customer_filter": customer_filter,
@@ -2291,6 +2391,212 @@ def order_components_builder(request, pk):
 
 
 @login_required
+def order_fabric_builder(request, pk):
+    order = get_object_or_404(Order, pk=pk, deleted=False)
+    readonly = bool(order and (not is_manager(request.user) and order.status != Order.STATUS_QUOTE))
+
+    if request.method == "POST":
+        if readonly:
+            messages.warning(request, "Це замовлення можна лише переглядати.")
+            return redirect("orders:order_fabric_builder", pk=order.pk)
+
+        action = request.POST.get("status_action") or "save"
+        chosen_customer = None
+        can_pick_customer = is_manager(request.user) or request.user.is_staff or request.user.is_superuser
+        if can_pick_customer:
+            cust_id = request.POST.get("customer_id")
+            if cust_id:
+                try:
+                    chosen_customer = get_user_model().objects.get(pk=cust_id)
+                except get_user_model().DoesNotExist:
+                    chosen_customer = None
+            if chosen_customer is None:
+                messages.error(request, "Оберіть клієнта для замовлення.")
+                return redirect("orders:order_fabric_builder", pk=order.pk)
+
+        base_note = (request.POST.get("note") or "").strip()
+        if chosen_customer and can_pick_customer:
+            base_note = re.sub(r"\s*\(створено менеджером [^)]+\)\s*$", "", base_note).strip()
+            suffix = f" (створено менеджером {request.user.email})"
+            base_note = (base_note + suffix).strip()
+        order.note = base_note
+        order.extra_service_label = (request.POST.get("extra_service_label") or "").strip()
+        order.extra_service_amount_uah = _to_decimal(request.POST.get("extra_service_amount_uah"), default="0").quantize(Decimal("0.01"))
+
+        markup_percent = _to_decimal(request.POST.get("markup_percent"), default=str(order.markup_percent or "0"))
+        if chosen_customer and can_pick_customer:
+            order.customer = chosen_customer
+        target_customer = chosen_customer or order.customer
+        if not chosen_customer:
+            discount_pct_val = _normalize_discount_percent(getattr(order, "discount_percent", Decimal("0")))
+        else:
+            _, discount_pct_val = _customer_discount_multiplier(target_customer)
+        discount_multiplier, _ = _customer_discount_multiplier(pct=discount_pct_val)
+
+        names = request.POST.getlist("fabric_name")
+        roll_widths = request.POST.getlist("roll_width_mm")
+        widths = request.POST.getlist("width_mm")
+        included_heights = request.POST.getlist("included_height_mm")
+        heights = request.POST.getlist("height_mm")
+        prices = request.POST.getlist("price_eur_mp")
+        quantities = request.POST.getlist("quantity")
+        cut_prices = request.POST.getlist("cut_price_eur")
+
+        if not any((n or "").strip() for n in names):
+            messages.error(request, "Додайте хоча б одну позицію перед відправкою.")
+            return redirect("orders:order_fabric_builder", pk=order.pk)
+
+        OrderFabricItem.objects.filter(order=order).delete()
+
+        total_eur = Decimal("0")
+        bulk = []
+        for idx, name in enumerate(names):
+            name = (name or "").strip()
+            if not name:
+                continue
+            roll_width_mm = _to_int(_get(roll_widths, idx, "0"), 0)
+            width_mm = _to_int(_get(widths, idx, "0"), 0)
+            included_height_mm = _to_int(_get(included_heights, idx, "0"), 0)
+            height_mm = _to_int(_get(heights, idx, "0"), 0)
+            price_eur_mp = _to_decimal(_get(prices, idx, "0"))
+            quantity = max(_to_int(_get(quantities, idx, "1"), 1), 1)
+            cut_price_eur = _to_decimal(_get(cut_prices, idx, "0"))
+
+            base_price = (price_eur_mp * Decimal(width_mm)) / Decimal("1000")
+            steps = 0
+            if included_height_mm and height_mm > included_height_mm:
+                steps = (height_mm - included_height_mm + 99) // 100
+            multiplier = Decimal("1") + (Decimal("0.10") * Decimal(int(steps)))
+            unit_price = (base_price * multiplier).quantize(Decimal("0.01"))
+            cut_unit = cut_price_eur
+            unit_total = (unit_price + cut_unit) * discount_multiplier
+            item_total = (unit_total * Decimal(quantity)).quantize(Decimal("0.01"))
+            total_eur += item_total
+
+            bulk.append(
+                OrderFabricItem(
+                    order=order,
+                    fabric_name=name,
+                    roll_width_mm=roll_width_mm,
+                    width_mm=width_mm,
+                    included_height_mm=included_height_mm,
+                    height_mm=height_mm,
+                    price_eur_mp=price_eur_mp,
+                    quantity=quantity,
+                    cut_enabled=True,
+                    cut_price_eur=cut_price_eur,
+                    total_eur=item_total,
+                )
+            )
+
+        if bulk:
+            OrderFabricItem.objects.bulk_create(bulk)
+
+        order.total_eur = total_eur.quantize(Decimal("0.01"))
+        order.eur_rate = order.eur_rate or get_current_eur_rate()
+        order.markup_percent = markup_percent.quantize(Decimal("0.01"))
+
+        new_status = None
+        if action == "to_work":
+            new_status = Order.STATUS_IN_WORK
+        elif action == "next":
+            new_status = order.next_status()
+        elif action == "prev":
+            new_status = order.prev_status()
+
+        update_fields = ["total_eur", "eur_rate", "markup_percent", "note", "extra_service_label", "extra_service_amount_uah", "discount_percent"]
+        if chosen_customer and can_pick_customer:
+            update_fields.append("customer")
+        order.discount_percent = discount_pct_val
+        order.save(update_fields=update_fields)
+
+        if new_status and not _apply_status_change(order, new_status, request):
+            return redirect(reverse("orders:order_fabric_builder", kwargs={"pk": order.pk}))
+
+        messages.success(request, "Замовлення збережено.")
+        next_url = (request.POST.get("next_url") or "").strip()
+        if next_url and url_has_allowed_host_and_scheme(
+            next_url,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        ):
+            return redirect(next_url)
+        return redirect("orders:fabrics_list")
+
+    items = order.fabric_items.all().order_by("id")
+    fabrics_payload = []
+    for item in items:
+        fabrics_payload.append(
+            {
+                "fabric_name": item.fabric_name,
+                "roll_width_mm": item.roll_width_mm,
+                "width_mm": item.width_mm,
+                "included_height_mm": item.included_height_mm,
+                "height_mm": item.height_mm,
+                "price_eur_mp": str(item.price_eur_mp),
+                "quantity": item.quantity,
+                "cut_enabled": item.cut_enabled,
+                "cut_price_eur": str(item.cut_price_eur),
+            }
+        )
+
+    payment_prompt = request.session.pop("payment_prompt", None)
+    shortage_ctx = _payment_shortage_context(order)
+    proposal_token = _proposal_token(order)
+    proposal_page_url = reverse("orders:proposal_page", args=[proposal_token])
+    proposal_excel_url = reverse("orders:proposal_excel", args=[proposal_token])
+    discount_percent = _normalize_discount_percent(getattr(order, "discount_percent", Decimal("0")))
+    customer_discount_percent_js = format(discount_percent, "f")
+    context = {
+        "order": order,
+        "PRICE_SHEET_URL": PRICE_SHEET_URL,
+        "fabrics_json": json.dumps(fabrics_payload, ensure_ascii=False),
+        "status_logs": order.status_logs.all(),
+        "readonly": readonly,
+        "next_status_label": STATUS_LABELS.get(order.next_status()) if order else None,
+        "builder_rate": order.eur_rate or get_current_eur_rate(),
+        "payment_message_text": (payment_prompt or {}).get("text") or _get_payment_message_text(),
+        "payment_shortage": payment_prompt or shortage_ctx,
+        "proposal_page_url": proposal_page_url,
+        "proposal_excel_url": proposal_excel_url,
+        "customer_discount_percent_js": customer_discount_percent_js,
+        "customers_filter_list": list(
+            CustomerProfile.objects.select_related("user").order_by("full_name", "user__email")
+        ) if is_manager(request.user) else [],
+    }
+
+    return render(request, "orders/fabrics_builder.html", context)
+
+
+@login_required
+def order_fabric_builder_new(request):
+    chosen_customer = request.user
+    can_pick_customer = is_manager(request.user) or request.user.is_staff or request.user.is_superuser
+    if can_pick_customer:
+        cust_id = request.GET.get("customer") or request.POST.get("customer_id")
+        if cust_id:
+            try:
+                chosen_customer = get_user_model().objects.get(pk=cust_id)
+            except get_user_model().DoesNotExist:
+                chosen_customer = request.user
+
+    _, discount_pct_val = _customer_discount_multiplier(chosen_customer)
+
+    order = Order.objects.create(
+        customer=chosen_customer,
+        title="Замовлення (тканина)",
+        description="",
+        status=Order.STATUS_QUOTE,
+        eur_rate_at_creation=get_current_eur_rate(),
+        eur_rate=get_current_eur_rate(),
+        markup_percent=Decimal("0"),
+        total_eur=Decimal("0"),
+        discount_percent=discount_pct_val,
+    )
+    return redirect("orders:order_fabric_builder", pk=order.pk)
+
+
+@login_required
 def update_status_preview(request, pk):
     """
     Quick status update to 'in_work' from preview without opening builder.
@@ -2343,6 +2649,8 @@ def update_status_preview(request, pk):
                 }
                 if order.component_items.exists():
                     return redirect("orders:order_components_builder", pk=order.pk)
+                if order.fabric_items.exists():
+                    return redirect("orders:order_fabric_builder", pk=order.pk)
                 return redirect("orders:builder_edit", pk=order.pk)
         return redirect(redirect_back)
 
@@ -2362,7 +2670,12 @@ def update_status_bulk(request):
 
     order_ids = request.POST.getlist("order_ids")
     list_mode = request.POST.get("list_mode") or ""
-    fallback = "orders:components_list" if list_mode == "components" else "orders:list"
+    if list_mode == "components":
+        fallback = "orders:components_list"
+    elif list_mode == "fabrics":
+        fallback = "orders:fabrics_list"
+    else:
+        fallback = "orders:list"
     next_url = (request.POST.get("next_url") or "").strip()
     if not next_url or not url_has_allowed_host_and_scheme(
         next_url,
@@ -2477,6 +2790,23 @@ def order_proposal_page(request, token: str):
             }
         )
 
+    fabrics_payload = []
+    for fab in order.fabric_items.all():
+        qty = Decimal(fab.quantity or 0)
+        total_eur = Decimal(fab.total_eur or 0)
+        unit_eur = (total_eur / qty) if qty else Decimal("0")
+        fabrics_payload.append(
+            {
+                "name": fab.fabric_name,
+                "roll_width_mm": fab.roll_width_mm,
+                "width_mm": fab.width_mm,
+                "height_mm": fab.height_mm,
+                "quantity": qty,
+                "unit_uah": _round_uah_total(unit_eur * rate_with_markup),
+                "total_uah": _round_uah_total(total_eur * rate_with_markup),
+            }
+        )
+
     proposal_excel_url = reverse("orders:proposal_excel", args=[token])
     context = {
         "order": order,
@@ -2495,6 +2825,7 @@ def order_proposal_page(request, token: str):
         "rate_with_markup": rate_with_markup,
         "items": items_payload,
         "components": components_payload,
+        "fabrics": fabrics_payload,
         "proposal_excel_url": proposal_excel_url,
     }
     return render(request, "orders/proposal_public.html", context)

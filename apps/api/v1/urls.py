@@ -9,6 +9,8 @@ from .pricing_views import (
     fabric_colors,
     system_config,
     components_list,
+    fabrics_list,
+    fabric_preview,
 )
 
 router = DefaultRouter()
@@ -23,17 +25,13 @@ urlpatterns = [
     path("pricing/system-preview", system_preview, name="pricing-system-preview"),
     path("pricing/fabric-colors", fabric_colors, name="fabric_colors"),
     path("pricing/system-config", system_config, name="pricing-system-config"),
-     path(
-        "pricing/components-list",
-        components_list,
-        name="pricing-components-list",
-    ),
     path(
         "pricing/components-list",
         components_list,
         name="pricing-components-list",
     ),
+    path("pricing/fabrics-list", fabrics_list, name="pricing-fabrics-list"),
+    path("pricing/fabric-preview", fabric_preview, name="pricing-fabric-preview"),
 
 
 ]
-

@@ -901,3 +901,79 @@ def parse_components_sheet(
         "colors": sorted(colors_set),
     }
     return result
+
+
+def parse_fabrics_sheet(
+    google_sheet_url: str,
+    sheet_name: str = "Тканини до ролет",
+    *,
+    force_refresh: bool = False,
+) -> Dict[str, Any]:
+    wb = _download_workbook(google_sheet_url, force_refresh=force_refresh)
+    if sheet_name not in wb.sheetnames:
+        raise ValueError(f"Sheet '{sheet_name}' not found in workbook")
+
+    ws = wb[sheet_name]
+
+    header_row = None
+    for r in range(1, ws.max_row + 1):
+        vals = _row_values(ws, r)
+        joined = " ".join([str(v) for v in vals if v]).strip().lower()
+        if not joined:
+            continue
+        if "тканина" in joined and "ширина" in joined and "варт" in joined:
+            header_row = r
+            break
+
+    if header_row is None:
+        raise RuntimeError(
+            f"Header row not found on sheet '{sheet_name}' (expect 'Тканина' / 'Ширина' / 'Вартість')"
+        )
+
+    header_vals = _row_values(ws, header_row)
+
+    # Fixed columns: A-D (1-4) per spec to avoid ambiguous header matches.
+    col_name, col_width, col_height, col_price = 0, 1, 2, 3
+    if len(header_vals) < 4:
+        raise RuntimeError("Недостатньо колонок у заголовку тканин (очікується 4).")
+
+    extra_cut_label = ""
+    extra_cut_price = None
+    info_lines: List[str] = []
+    for r in range(2, header_row):
+        vals = _row_values(ws, r)
+        text = " ".join([str(v) for v in vals[:4] if v]).strip()
+        if text:
+            info_lines.append(text)
+        price_val = _to_decimal(vals[3]) if len(vals) > 3 else None
+        if price_val is not None:
+            extra_cut_price = price_val
+            extra_cut_label = text
+
+    items: List[Dict[str, Any]] = []
+    for r in range(header_row + 1, ws.max_row + 1):
+        vals = _row_values(ws, r)
+        if not any(vals):
+            break
+        name = (vals[col_name] or "").strip() if col_name < len(vals) else ""
+        if not name:
+            continue
+        width_mm = _to_decimal(vals[col_width]) if col_width < len(vals) else None
+        height_mm = _to_decimal(vals[col_height]) if col_height < len(vals) else None
+        price_eur = _to_decimal(vals[col_price]) if col_price < len(vals) else None
+        items.append(
+            {
+                "name": name,
+                "roll_width_mm": int(width_mm) if width_mm is not None else None,
+                "included_height_mm": int(height_mm) if height_mm is not None else None,
+                "price_eur_mp": str(price_eur) if price_eur is not None else "0",
+            }
+        )
+
+    return {
+        "sheet_name": sheet_name,
+        "items": items,
+        "extra_cut_label": extra_cut_label or "",
+        "extra_cut_price_eur": str(extra_cut_price or Q("0.00")),
+        "info_lines": info_lines,
+    }

@@ -527,6 +527,31 @@ class OrderComponentItem(models.Model):
         return f"{self.name} ({self.color}) – {self.price_eur} € x {self.quantity}"
 
 
+class OrderFabricItem(models.Model):
+    order = models.ForeignKey(
+        "orders.Order",
+        on_delete=models.CASCADE,
+        related_name="fabric_items",
+    )
+    fabric_name = models.CharField(max_length=255)
+    roll_width_mm = models.PositiveIntegerField(default=0)
+    width_mm = models.PositiveIntegerField(default=0)
+    included_height_mm = models.PositiveIntegerField(default=0)
+    height_mm = models.PositiveIntegerField(default=0)
+    price_eur_mp = models.DecimalField(max_digits=10, decimal_places=3, default=0)
+    quantity = models.PositiveIntegerField(default=1)
+    cut_enabled = models.BooleanField(default=False)
+    cut_price_eur = models.DecimalField(max_digits=10, decimal_places=3, default=0)
+    total_eur = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    class Meta:
+        verbose_name = "Тканина в замовленні"
+        verbose_name_plural = "Тканини в замовленні"
+
+    def __str__(self) -> str:
+        return f"{self.fabric_name} – {self.quantity} шт"
+
+
 class OrderStatusLog(models.Model):
     order = models.ForeignKey(
         "orders.Order",

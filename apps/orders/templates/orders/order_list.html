@@ -2,11 +2,17 @@
 {% load form_tags %}
 
 {% block dashboard_title %}
-  {% if list_mode == 'components' %}Комплектуючі{% else %}Замовлення (Тканинні ролети){% endif %}
+  {% if list_mode == 'components' %}Комплектуючі{% elif list_mode == 'fabrics' %}Тканина{% else %}Замовлення (Тканинні ролети){% endif %}
 {% endblock %}
 
 {% block dashboard_heading %}
-  {% if list_mode == 'components' %}Комплектуючі, список замовлень{% else %}Замовлення з тканинними ролетами{% endif %}
+  {% if list_mode == 'components' %}
+    Комплектуючі, список замовлень
+  {% elif list_mode == 'fabrics' %}
+    Тканина, список замовлень
+  {% else %}
+    Замовлення з тканинними ролетами
+  {% endif %}
 {% endblock %}
 
 {% block dashboard_content %}
@@ -14,6 +20,10 @@
     {% if list_mode == 'components' %}
       <a href="{% url 'orders:components_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
         <i class="bi bi-tools me-1"></i> Нове замовлення (Комплектуючі)
+      </a>
+    {% elif list_mode == 'fabrics' %}
+      <a href="{% url 'orders:fabrics_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
+        <i class="bi bi-scissors me-1"></i> Нове замовлення (Тканина)
       </a>
     {% else %}
       <a href="{% url 'orders:builder' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
@@ -72,6 +82,8 @@
             <button type="submit" class="btn btn-primary btn-sm">Фільтрувати</button>
             {% if list_mode == 'components' %}
               <a href="{% url 'orders:components_list' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
+            {% elif list_mode == 'fabrics' %}
+              <a href="{% url 'orders:fabrics_list' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
             {% else %}
               <a href="{% url 'orders:list' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
             {% endif %}
@@ -113,6 +125,8 @@
           {% for o in orders %}
             {% if list_mode == 'components' %}
               {% url 'orders:order_components_builder' o.id as order_view_url %}
+            {% elif list_mode == 'fabrics' %}
+              {% url 'orders:order_fabric_builder' o.id as order_view_url %}
             {% else %}
               {% url 'orders:builder_edit' o.id as order_view_url %}
             {% endif %}
@@ -217,6 +231,8 @@
       <i class="bi bi-inbox fs-1 d-block mb-2"></i>
       {% if list_mode == 'components' %}
         Поки немає жодного замовлення з комплектуючими.
+      {% elif list_mode == 'fabrics' %}
+        Поки немає жодного замовлення з тканиною.
       {% else %}
         Поки немає жодного замовлення з тканинними ролетами.
       {% endif %}

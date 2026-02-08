@@ -11,11 +11,15 @@ from apps.sheet_config import sheetName, sheetConfigs, sheetConfig
 from apps.integrations.google_sheets import (
     parse_sheet_price_section,
     parse_components_sheet,
+    parse_fabrics_sheet,
 )
 
 
 from apps.integrations.google_sheets_core import (
     list_sheet_titles,
+    Q,
+    round_money,
+    _to_decimal,
 )
 
 import logging
@@ -261,3 +265,93 @@ def components_list(request):
     except Exception as e:
         logger.error("components_list failed: %s", e, exc_info=True)
         return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def fabrics_list(request):
+    url = request.query_params.get("url")
+    if not url:
+        return Response({"detail": "Missing url"}, status=status.HTTP_400_BAD_REQUEST)
+    sheet = (request.query_params.get("sheet") or "Тканини до ролет").strip()
+    force = _flag(request.query_params.get("force_refresh"))
+    try:
+        parsed = parse_fabrics_sheet(
+            google_sheet_url=url,
+            sheet_name=sheet,
+            force_refresh=force,
+        )
+        return Response(parsed, status=status.HTTP_200_OK)
+    except Exception as e:
+        logger.error("fabrics_list failed: %s", e, exc_info=True)
+        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def fabric_preview(request):
+    data = request.data or {}
+    url = data.get("url")
+    sheet = (data.get("sheet") or "Тканини до ролет").strip()
+    fabric_name = (data.get("fabric_name") or "").strip()
+    width_mm = data.get("width_mm")
+    height_mm = data.get("height_mm")
+    quantity = data.get("quantity") or 1
+    cut_enabled = True
+
+    try:
+        width_mm = int(width_mm)
+        height_mm = int(height_mm)
+        quantity = int(quantity)
+    except Exception:
+        return Response({"detail": "width_mm, height_mm, quantity мають бути цілими числами."},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    if not url or not fabric_name:
+        return Response({"detail": "Потрібні параметри: url, fabric_name."},
+                        status=status.HTTP_400_BAD_REQUEST)
+    if width_mm <= 0 or height_mm <= 0 or quantity <= 0:
+        return Response({"detail": "Ширина/висота/кількість мають бути > 0."},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    parsed = parse_fabrics_sheet(google_sheet_url=url, sheet_name=sheet, force_refresh=False)
+    items = parsed.get("items") or []
+    fabric = next((f for f in items if (f.get("name") or "").lower() == fabric_name.lower()), None)
+    if not fabric:
+        return Response({"detail": "Тканину не знайдено у вибраній секції"},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    roll_width = int(fabric.get("roll_width_mm") or 0)
+    if roll_width and width_mm > roll_width:
+        return Response({"detail": "Ширина перевищує ширину рулону."},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    included_height = int(fabric.get("included_height_mm") or 0)
+    price_eur_mp = _to_decimal(fabric.get("price_eur_mp") or "0")
+    base_price = price_eur_mp * Q(str(width_mm)) / Q("1000")
+    extra_steps = 0
+    if included_height and height_mm > included_height:
+        extra_steps = (height_mm - included_height + 99) // 100
+    multiplier = Q("1") + Q("0.10") * Q(int(extra_steps))
+    unit_price = round_money(base_price * multiplier)
+
+    cut_price_eur = _to_decimal(parsed.get("extra_cut_price_eur") or "0")
+    cut_total = cut_price_eur * Q(str(quantity))
+
+    total = round_money(unit_price * Q(str(quantity)) + cut_total)
+
+    return Response(
+        {
+            "roll_width_mm": roll_width,
+            "included_height_mm": included_height,
+            "price_eur_mp": str(price_eur_mp),
+            "unit_price_eur": str(unit_price),
+            "extra_steps": int(extra_steps),
+            "cut_price_eur": str(cut_price_eur),
+            "cut_enabled": bool(cut_enabled),
+            "cut_total_eur": str(round_money(cut_total)),
+            "quantity": int(quantity),
+            "total_eur": str(total),
+        },
+        status=status.HTTP_200_OK,
+    )

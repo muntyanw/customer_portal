@@ -23,7 +23,14 @@
           {% endif %}
           {% if show_type %}
             <div class="small text-muted">
-              Тип: {% if order.component_items.all|length %}Комплектуючі{% else %}Ролети{% endif %}
+              Тип:
+              {% if order.component_items.all|length %}
+                Комплектуючі
+              {% elif order.fabric_items.all|length %}
+                Тканина
+              {% else %}
+                Ролети
+              {% endif %}
             </div>
           {% endif %}
           {% if order.note and show_note|default_if_none:True %}

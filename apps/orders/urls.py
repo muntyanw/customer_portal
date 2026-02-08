@@ -10,6 +10,7 @@ urlpatterns = [
 
     # список замовлень з комплектуючими
     path("components/", views.order_components_list, name="components_list"),
+    path("fabrics/", views.order_fabrics_list, name="fabrics_list"),
     path("balances/", views.balances_history, name="balances"),
     path("balances/export/", views.balances_excel, name="balances_excel"),
     path("balances/page/<str:token>/", views.balance_public_page, name="balance_public"),
@@ -27,12 +28,22 @@ urlpatterns = [
         views.order_components_builder_new,
         name="components_builder_create",
     ),
+    path(
+        "fabrics/builder/",
+        views.order_fabric_builder_new,
+        name="fabrics_builder_create",
+    ),
 
     # 🔹 редагувати комплектуючі для конкретного замовлення
     path(
         "components/builder/<int:pk>/",
         views.order_components_builder,
         name="order_components_builder",   # <-- ЭТО имя использует redirect(...)
+    ),
+    path(
+        "fabrics/builder/<int:pk>/",
+        views.order_fabric_builder,
+        name="order_fabric_builder",
     ),
 
     # швидкий перевід у роботу з прев'ю
