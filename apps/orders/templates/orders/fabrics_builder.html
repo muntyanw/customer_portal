@@ -151,11 +151,6 @@
           />
         </div>
       </div>
-      <div class="d-flex justify-content-end mt-2">
-        <div class="small text-muted">
-          Вартість порізки тканини: <span class="fw-semibold" id="fabricsCutTotalUah">0</span> грн
-        </div>
-      </div>
       <div class="d-none">
         <span id="fabricsOrderTotal">0.00</span>
       </div>
@@ -239,6 +234,60 @@
     </div>
     </fieldset>
   </form>
+
+  <div class="modal fade" id="unsavedModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Зберегти зміни?</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          Є незбережені зміни. Бажаєте зберегти замовлення?
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" id="unsavedExitBtn">Вийти без збереження</button>
+          <button type="button" class="btn btn-primary" id="unsavedSaveBtn">Зберегти</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="sendToWorkModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Відправити замовлення в роботу?</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          Відправити замовлення в роботу після збереження?
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" id="sendToWorkSkipBtn">Не відправляти</button>
+          <button type="button" class="btn btn-success" id="sendToWorkBtn">Відправити</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="paymentModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Оплата замовлення</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-0" id="paymentModalText" style="white-space: pre-wrap;"></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" id="paymentCancelBtn">Не відправляти</button>
+          <button type="button" class="btn btn-success" id="paymentConfirmBtn">Відправити</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   {% if status_logs %}
     <div class="card border-0 shadow-sm mt-3">
@@ -351,11 +400,20 @@
       el.addEventListener("hidden.bs.toast", () => el.remove())
     }
 
+    const builderOrderId = {{ order.id|default:"null" }};
     const builderFabrics = {{ fabrics_json|safe|default:"[]" }};
     const eur_rate = parseFloat('{{ builder_rate|default:"0.00" }}'.replace(',', '.')) || 0;
+    const paymentMessage = "{{ payment_message_text|default:''|escapejs }}"
+    const paymentShortageRaw = "{{ payment_shortage.shortage|default:''|escapejs }}"
+    const paymentShortage = paymentShortageRaw ? parseFloat(paymentShortageRaw.replace(',', '.')) : null
+    const paymentShortageOrders = {{ payment_shortage.orders|default:"[]"|safe }}
+    const isManager = {{ request.user.is_manager|yesno:"true,false" }}
+    const isOwner = {{ request.user.id }} === {{ order.customer_id|default:request.user.id }}
     let fabricsData = null;
     let extraCutLabel = "";
     let extraCutPrice = 0;
+    let sendToWorkModal = null;
+    let paymentModal = null;
 
     function money(x) {
       return (Math.round(parseFloat(x || 0) * 100) / 100).toFixed(2);
@@ -504,6 +562,32 @@
       $('#fabricsOrderTotalUah').text(String(Math.ceil(withMarkupUah + extraServiceUah)));
     }
 
+    function buildPaymentMessage() {
+      const rawOrders = Array.isArray(paymentShortageOrders) ? paymentShortageOrders : []
+      const orderIds = []
+      if (builderOrderId) orderIds.push(builderOrderId)
+      rawOrders.forEach((id) => {
+        if (id && !orderIds.includes(id)) orderIds.push(id)
+      })
+      let msg = "Обов'язково вкажіть у платежі в полі «Призначення платежу» наступний текст:\n\n" + (paymentMessage || "")
+      if (paymentShortage !== null && orderIds.length) {
+        msg += "\n\nЗамовлення №" + orderIds.join(", №") + " на суму " + paymentShortage + " грн"
+      }
+      return msg
+    }
+
+    function requestToWork() {
+      if (isOwner && paymentMessage) {
+        const msg = buildPaymentMessage()
+        const box = document.getElementById('paymentModalText')
+        if (box) box.textContent = msg
+        paymentModal.show()
+        return
+      }
+      $('#statusActionInput').val('to_work')
+      document.getElementById('fabricsOrderForm').requestSubmit()
+    }
+
     async function addFabricRowWithData(initial) {
       const idx = $('#fabricsContainer').children().length;
       $('#fabricsContainer').append(fabricItemTemplate(idx));
@@ -636,7 +720,16 @@
 
     $('#fabricsOrderForm').on('click', 'button[data-status-action]', function (e) {
       const action = $(this).data('status-action') || 'save';
-      if (action === 'save') return;
+      if (action === 'save') {
+        e.preventDefault();
+        sendToWorkModal.show();
+        return;
+      }
+      if (action === 'to_work') {
+        e.preventDefault();
+        requestToWork();
+        return;
+      }
       $('#statusActionInput').val(action);
     });
 
@@ -669,5 +762,31 @@
         window.showToast(e?.message || 'Не вдалося завантажити тканини з прайсу', 'danger');
       }
     })();
+
+    document.addEventListener('DOMContentLoaded', function () {
+      sendToWorkModal = new bootstrap.Modal(document.getElementById('sendToWorkModal'));
+      paymentModal = new bootstrap.Modal(document.getElementById('paymentModal'));
+
+      document.getElementById('sendToWorkSkipBtn')?.addEventListener('click', function () {
+        sendToWorkModal.hide();
+        document.getElementById('statusActionInput').value = 'save';
+        document.getElementById('fabricsOrderForm').requestSubmit();
+      });
+      document.getElementById('sendToWorkBtn')?.addEventListener('click', function () {
+        sendToWorkModal.hide();
+        requestToWork();
+      });
+
+      document.getElementById('paymentCancelBtn')?.addEventListener('click', function () {
+        paymentModal.hide();
+        document.getElementById('statusActionInput').value = 'save';
+        document.getElementById('fabricsOrderForm').requestSubmit();
+      });
+      document.getElementById('paymentConfirmBtn')?.addEventListener('click', function () {
+        paymentModal.hide();
+        document.getElementById('statusActionInput').value = 'to_work';
+        document.getElementById('fabricsOrderForm').requestSubmit();
+      });
+    });
   </script>
 {% endblock %}

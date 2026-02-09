@@ -6,7 +6,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from apps.integrations.google_colors import get_fabric_color_codes
-from apps.sheet_config import sheetName, sheetConfigs, sheetConfig
+from apps.sheet_config import sheetConfigs, sheetConfig, getConfigBySheetName
 
 from apps.integrations.google_sheets import (
     parse_sheet_price_section,
@@ -60,10 +60,15 @@ def systems_list(request):
     try:
         titles = list_sheet_titles(url, force_refresh=force)
         
-        filtered_titles = [
-            t for t in titles
-            if sheetConfigs.get(sheetName(t), sheetConfig()).display != 0
-        ]
+        filtered_titles = []
+        for t in titles:
+            try:
+                cfg = getConfigBySheetName(t)
+            except KeyError:
+                # Skip sheets that are not roller systems (e.g. fabric price sheet)
+                continue
+            if (cfg.display if cfg else 1) != 0:
+                filtered_titles.append(t)
 
         
         return Response({"systems": filtered_titles})
