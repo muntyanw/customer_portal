@@ -192,16 +192,24 @@ def clients_list_view(request):
         sort_field = sort[1:]
     else:
         sort_field = sort
-    allowed_sorts = {"email": "email", "full_name": "customerprofile__full_name", "phone": "customerprofile__phone"}
+    allowed_sorts = {
+        "email": "email",
+        "full_name": "customerprofile__full_name",
+        "phone": "customerprofile__phone",
+        "company": "customerprofile__company_name",
+    }
     order_field = allowed_sorts.get(sort_field, "email")
     ordering = f"{direction}{order_field}"
 
     q = request.GET.get("q", "").strip()
+    customer_id = (request.GET.get("customer") or "").strip()
 
     users_qs = (
         User.objects.filter(is_customer=True)
         .select_related("customerprofile")
     )
+    if customer_id:
+        users_qs = users_qs.filter(id=customer_id)
     if q:
         users_qs = users_qs.filter(
             models.Q(email__icontains=q)
@@ -213,12 +221,32 @@ def clients_list_view(request):
 
     clients = list(users_qs)
     balances = {u.id: compute_balance(u, force_personal=True) for u in clients}
+    sort_key = sort.lstrip("-")
+    reverse = sort.startswith("-")
+    if sort_key == "balance":
+        clients.sort(key=lambda u: balances.get(u.id) or Decimal("0"), reverse=reverse)
+    elif sort_key == "discount":
+        clients.sort(
+            key=lambda u: getattr(getattr(u, "customerprofile", None), "discount_percent", Decimal("0")) or Decimal("0"),
+            reverse=reverse,
+        )
+    elif sort_key == "credit":
+        clients.sort(
+            key=lambda u: bool(getattr(getattr(u, "customerprofile", None), "credit_allowed", False)),
+            reverse=reverse,
+        )
 
     context = {
         "clients": clients,
         "balances": balances,
         "sort": sort,
         "q": q,
+        "customer_filter": customer_id,
+        "customer_options": list(
+            User.objects.filter(is_customer=True)
+            .select_related("customerprofile")
+            .order_by("customerprofile__full_name", "email")
+        ),
         "next_sort": lambda field: (f"-{field}" if sort == field else field),
     }
     return render(request, "accounts/clients_list.html", context)

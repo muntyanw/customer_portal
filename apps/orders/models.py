@@ -534,6 +534,7 @@ class OrderFabricItem(models.Model):
         related_name="fabric_items",
     )
     fabric_name = models.CharField(max_length=255)
+    fabric_color_code = models.CharField(max_length=100, blank=True, default="")
     roll_width_mm = models.PositiveIntegerField(default=0)
     width_mm = models.PositiveIntegerField(default=0)
     included_height_mm = models.PositiveIntegerField(default=0)

@@ -107,20 +107,20 @@ _PROPOSAL_SALT = "orders-proposal-link-v1"
 _BALANCE_SALT = "orders-balance-link-v1"
 OPTION_LABELS = {
     "magnets_price_eur": "Фіксація магнітами",
-    "cord_pvc_tension_price_eur": "Фіксація Леска ПВХ з дотяжкою",
-    "cord_copper_barrel_price_eur": "Фіксація Леска з мідною діжкою",
+    "cord_pvc_tension_price_eur": "Фіксація Леска ПВХ з дотяжкою (шт)",
+    "cord_copper_barrel_price_eur": "Фіксація Леска з мідною діжкою (шт)",
     "magnet_fix_price_eur": "Фіксація магнітами (доп.)",
     "top_pvc_clip_pair_price_eur": "Кліпса кріплення для верхньої планки ПВХ, пара",
-    "top_pvc_bar_tape_price_eur_mp": "Верхня планка ПВХ зі скотчем (монтаж без свердління), за м.п.",
-    "bottom_wide_bar_price_eur_mp": "Нижня широка планка, за м.п.",
-    "top_bar_scotch_price_eur_mp": "Верхній скотч, за м.п.",
-    "metal_cord_fix_price_eur": "Металева фіксація шнура",
-    "middle_bracket_price_eur": "Проміжковий кронштейн, шт",
-    "remote_5ch_price_eur": "5-ти канальний пульт ДУ, шт",
-    "remote_15ch_price_eur": "15-ти канальний пульт ДУ, шт",
-    "motor_with_remote_price_eur": "Електродвигун з одноканальним пультом ДУ (входить до вартості), шт",
-    "motor_no_remote_price_eur": "Електродвигун без пульта, шт",
-    "metal_kronsht_price_eur": "Металевий кронштейн, шт",
+    "top_pvc_bar_tape_price_eur_mp": "Доплата за верхню планку ПВХ зі скотчем (монтаж без свердління), за м.п.",
+    "bottom_wide_bar_price_eur_mp": "Доплата за широку нижню планку 10/28, за м.п.",
+    "top_bar_scotch_price_eur_mp": "Скотч на верхню планку для встановлення без свердління, за м.п.",
+    "metal_kronsht_price_eur": "Доплата за металеві кронштейни, шт",
+    "metal_cord_fix_price_eur": "Фіксація лески металева",
+    "motor_no_remote_price_eur": "Доплата за електродвигун без пульта (під вимикач, вимикач в вартість не входить), шт",
+    "motor_with_remote_price_eur": "Доплата за електродвигун з одноканальним пультом ДУ (входить до вартості), шт",
+    "middle_bracket_price_eur": "Доплата за проміжковий кронштейн, шт",
+    "remote_5ch_price_eur": "Доплата за 5-ти канальний пульт ДУ, шт",
+    "remote_15ch_price_eur": "Доплата за 15-ти канальний пульт ДУ, шт",
     "adapter_mosel_internal_price_eur": "Адаптер внутрішній MOSel",
     "adapter_mosel_external_price_eur": "Адаптер зовнішній MOSel",
 }
@@ -1035,6 +1035,8 @@ def order_list(request):
     status_filter = request.GET.get("status") or ""
     customer_filter = request.GET.get("customer") or ""
     q = (request.GET.get("q") or "").strip()
+    customer_id = (request.GET.get("customer") or "").strip()
+    customer_id = (request.GET.get("customer") or "").strip()
     date_from, date_to, date_from_str, date_to_str = _parse_date_range(request.GET)
     balance_user = request.user
     orders_qs = (
@@ -2120,6 +2122,135 @@ def balances_excel(request):
     return response
 
 
+@login_required
+def order_list_excel(request):
+    """
+    Export orders list to XLSX with current filters.
+    Default period: last 365 days if no date filters provided.
+    """
+    User = get_user_model()
+    list_mode = (request.GET.get("list_mode") or "rollers").strip()
+    status_filter = request.GET.get("status") or ""
+    customer_filter = request.GET.get("customer") or ""
+    q = (request.GET.get("q") or "").strip()
+
+    date_from_str = (request.GET.get("date_from") or "").strip()
+    date_to_str = (request.GET.get("date_to") or "").strip()
+    if not date_from_str and not date_to_str:
+        today = timezone.localdate()
+        date_to = today
+        date_from = today - datetime.timedelta(days=365)
+        date_from_str = date_from.isoformat()
+        date_to_str = date_to.isoformat()
+    else:
+        date_from, date_to, date_from_str, date_to_str = _parse_date_range(request.GET)
+
+    qs = (
+        _orders_scope(request.user)
+        .select_related("customer", "customer__customerprofile")
+        .annotate(last_status_at=Coalesce(Max("status_logs__created_at"), "created_at"))
+        .prefetch_related("status_logs")
+        .order_by("-id")
+        .distinct()
+    )
+
+    if list_mode == "components":
+        qs = qs.filter(component_items__isnull=False)
+    elif list_mode == "fabrics":
+        qs = qs.filter(fabric_items__isnull=False)
+    else:
+        qs = qs.exclude(component_items__isnull=False).exclude(fabric_items__isnull=False)
+
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+
+    if customer_filter and is_manager(request.user):
+        balance_user = get_object_or_404(User, pk=customer_filter)
+        qs = qs.filter(customer=balance_user)
+    if q:
+        qs = qs.filter(pk__icontains=q)
+
+    current_rate = get_current_eur_rate()
+    qs = _set_order_totals_uah(qs, current_rate)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Замовлення"
+
+    headers = [
+        "№",
+        "Тип",
+        "Клієнт",
+        "Телефон",
+        "Статус",
+        "Сума, грн",
+        "Дата",
+        "Примітка",
+    ]
+    ws.append(headers)
+    bold = Font(bold=True)
+    for col in range(1, len(headers) + 1):
+        ws.cell(row=1, column=col).font = bold
+
+    for o in qs:
+        profile = getattr(o.customer, "customerprofile", None) if o.customer else None
+        customer_name = (
+            getattr(profile, "company_name", "")
+            or getattr(profile, "full_name", "")
+            or (str(o.customer) if o.customer else "")
+        )
+        phone = getattr(profile, "phone", "") if profile else ""
+        if o.component_items.exists():
+            order_type = "Комплектуючі"
+        elif o.fabric_items.exists():
+            order_type = "Тканина"
+        else:
+            order_type = "Ролети"
+        created_at = o.created_at
+        if hasattr(created_at, "tzinfo") and created_at.tzinfo:
+            created_at = timezone.localtime(created_at).replace(tzinfo=None)
+        ws.append(
+            [
+                o.id,
+                order_type,
+                customer_name,
+                phone,
+                o.get_status_display(),
+                float(o.total_uah_display or 0),
+                created_at,
+                (o.note or "").strip(),
+            ]
+        )
+
+    for col_letter in ["A", "B", "C", "D", "E", "F", "G", "H"]:
+        ws.column_dimensions[col_letter].width = 22
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    stamp = timezone.localdate().isoformat()
+    name_parts = ["orders", list_mode, stamp, f"from-{date_from_str}", f"to-{date_to_str}"]
+    if customer_filter:
+        name_parts.append(f"customer-{customer_filter}")
+    if status_filter:
+        name_parts.append(f"status-{status_filter}")
+    if q:
+        name_parts.append(f"q-{q}")
+    filename = "_".join(name_parts) + ".xlsx"
+
+    response = HttpResponse(
+        output.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
 def _balance_events_for_customer(customer, include_orders=True, include_transactions=True):
     orders_qs = (
         _orders_scope(customer)
@@ -2196,9 +2327,12 @@ def balances_users(request):
 
     User = get_user_model()
     q = (request.GET.get("q") or "").strip()
+    customer_id = (request.GET.get("customer") or "").strip()
     sort = request.GET.get("sort") or "-balance"
 
     users_qs = User.objects.filter(is_customer=True).select_related("customerprofile")
+    if customer_id:
+        users_qs = users_qs.filter(id=customer_id)
     if q:
         users_qs = users_qs.filter(
             Q(email__icontains=q)
@@ -2230,6 +2364,12 @@ def balances_users(request):
         "clients": clients,
         "balances": balances,
         "q": q,
+        "customer_filter": customer_id,
+        "customer_options": list(
+            User.objects.filter(is_customer=True)
+            .select_related("customerprofile")
+            .order_by("customerprofile__full_name", "email")
+        ),
         "sort": sort,
         "balance_tokens": {u.id: _balance_token(u.id) for u in clients},
     }
@@ -2434,6 +2574,7 @@ def order_fabric_builder(request, pk):
         discount_multiplier, _ = _customer_discount_multiplier(pct=discount_pct_val)
 
         names = request.POST.getlist("fabric_name")
+        colors = request.POST.getlist("fabric_color_code")
         roll_widths = request.POST.getlist("roll_width_mm")
         widths = request.POST.getlist("width_mm")
         included_heights = request.POST.getlist("included_height_mm")
@@ -2477,6 +2618,7 @@ def order_fabric_builder(request, pk):
                 OrderFabricItem(
                     order=order,
                     fabric_name=name,
+                    fabric_color_code=_get(colors, idx, ""),
                     roll_width_mm=roll_width_mm,
                     width_mm=width_mm,
                     included_height_mm=included_height_mm,
@@ -2529,6 +2671,7 @@ def order_fabric_builder(request, pk):
         fabrics_payload.append(
             {
                 "fabric_name": item.fabric_name,
+                "fabric_color_code": item.fabric_color_code,
                 "roll_width_mm": item.roll_width_mm,
                 "width_mm": item.width_mm,
                 "included_height_mm": item.included_height_mm,
@@ -2798,6 +2941,7 @@ def order_proposal_page(request, token: str):
         fabrics_payload.append(
             {
                 "name": fab.fabric_name,
+                "color_code": fab.fabric_color_code,
                 "roll_width_mm": fab.roll_width_mm,
                 "width_mm": fab.width_mm,
                 "height_mm": fab.height_mm,

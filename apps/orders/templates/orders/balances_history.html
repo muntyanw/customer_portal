@@ -1,5 +1,10 @@
 {% extends 'core/dashboard_base.html' %}
 
+{% block head_extra %}
+  {{ block.super }}
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+{% endblock %}
+
 {% block dashboard_title %}{% if request.user.is_manager %}Баланси{% else %}Баланс{% endif %}{% endblock %}
 {% block dashboard_heading %}
   <div class="d-flex align-items-center gap-3 flex-wrap">
@@ -26,7 +31,7 @@
         {% if customer_options %}
           <div class="col-auto">
             <label class="form-label mb-1">Клієнт</label>
-            <select name="customer" class="form-select form-select-sm" style="min-width: 180px;">
+            <select name="customer" id="balancesCustomerFilter" class="form-select form-select-sm" style="min-width: 180px;">
               <option value="">Усі</option>
               {% for c in customer_options %}
                 <option value="{{ c.id }}" {% if customer_filter|add:'0' == c.id|add:'0' %}selected{% endif %}>
@@ -100,4 +105,65 @@
       Поки немає записів.
     </div>
   {% endif %}
+{% endblock %}
+
+{% block body_extra %}
+  {{ block.super }}
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const $customer = $('#balancesCustomerFilter');
+      if ($customer.length) {
+        $customer.select2({
+          width: '100%',
+          allowClear: true,
+        });
+      }
+
+      const form = document.getElementById('balancesFilterForm');
+      if (form) {
+        const storageKey = 'balancesFilters';
+        const readFields = () => {
+          const data = {};
+          form.querySelectorAll('select[name], input[name]').forEach((el) => {
+            data[el.name] = el.value || '';
+          });
+          return data;
+        };
+        const writeFields = (data) => {
+          Object.keys(data || {}).forEach((name) => {
+            const el = form.querySelector(`[name="${name}"]`);
+            if (!el) return;
+            if (window.jQuery && el.classList.contains('select2-hidden-accessible')) {
+              $(el).val(data[name] || '').trigger('change');
+            } else if (el.type === 'checkbox') {
+              el.checked = data[name] === '1' || data[name] === 'on';
+            } else {
+              el.value = data[name] || '';
+            }
+          });
+        };
+
+        const hasQuery = window.location.search && window.location.search.length > 1;
+        if (hasQuery) {
+          try { localStorage.setItem(storageKey, JSON.stringify(readFields())); } catch (e) {}
+        } else {
+          try {
+            const saved = localStorage.getItem(storageKey);
+            if (saved) {
+              writeFields(JSON.parse(saved));
+              form.requestSubmit();
+            }
+          } catch (e) {}
+        }
+
+        form.addEventListener('change', function () {
+          try { localStorage.setItem(storageKey, JSON.stringify(readFields())); } catch (e) {}
+        });
+        form.addEventListener('submit', function () {
+          try { localStorage.setItem(storageKey, JSON.stringify(readFields())); } catch (e) {}
+        });
+      }
+    });
+  </script>
 {% endblock %}

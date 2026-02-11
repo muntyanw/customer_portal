@@ -114,14 +114,6 @@
           <div class="order-summary-label mb-1">Всього, грн</div>
           <div class="order-summary-value"><span id="fabricsOrderTotalBaseUah">0.00</span></div>
         </div>
-        {% if request.user.is_manager or request.user.is_superuser %}
-          <div class="d-flex flex-column">
-            <div class="order-summary-label mb-1">Знижка, %</div>
-            <div class="order-summary-value text-success">
-              <span id="fabricsDiscountValue">{{ customer_discount_percent_js|default:"0" }}</span>
-            </div>
-          </div>
-        {% endif %}
         <div class="d-flex flex-column">
           <label class="order-summary-label mb-1" for="orderMarkup">Націнка на роздріб, %</label>
           <input
@@ -346,6 +338,12 @@
             <input type="text" class="form-control form-control-sm text-end cut-price-uah" readonly disabled />
           </div>
           <div class="col-12 col-lg-1">
+            <label class="form-label small mb-1">Колір</label>
+            <select class="form-select form-select-sm fabric-color-code" name="fabric_color_code" disabled>
+              <option value="" selected disabled>—</option>
+            </select>
+          </div>
+          <div class="col-12 col-lg-1">
             <label class="form-label small mb-1">Ширина, мм</label>
             <input type="number" min="1" class="form-control form-control-sm text-end fabric-width" name="width_mm" />
           </div>
@@ -353,19 +351,18 @@
             <label class="form-label small mb-1">Висота, мм</label>
             <input type="number" min="1" class="form-control form-control-sm text-end fabric-height" name="height_mm" />
           </div>
+
           <div class="col-12 col-lg-1">
             <label class="form-label small mb-1">К-сть</label>
             <input type="number" min="1" step="1" class="form-control form-control-sm text-end fabric-qty" name="quantity" value="1" />
           </div>
           <div class="col-12 col-lg-1">
             <label class="form-label small mb-1">Ціна позиції, грн</label>
-            <input type="text" class="form-control form-control-sm text-end item-total-uah-input" readonly disabled />
+            <input type="text" class="form-control form-control-sm text-end fw-semibold item-total-uah-input" readonly disabled />
           </div>
         </div>
 
-        <div class="d-flex flex-wrap gap-3 justify-content-end">
-          <div class="fw-semibold">Разом: <span class="item-total-uah">0</span> грн</div>
-        </div>
+        <div class="d-flex flex-wrap gap-3 justify-content-end"></div>
 
         <input type="hidden" name="roll_width_mm" class="roll-width-input" />
         <input type="hidden" name="included_height_mm" class="included-height-input" />
@@ -410,6 +407,7 @@
     const isManager = {{ request.user.is_manager|yesno:"true,false" }}
     const isOwner = {{ request.user.id }} === {{ order.customer_id|default:request.user.id }}
     let fabricsData = null;
+    const fabricColorsCache = new Map();
     let extraCutLabel = "";
     let extraCutPrice = 0;
     let sendToWorkModal = null;
@@ -451,6 +449,35 @@
         document.getElementById('fabricInfoLines').innerHTML = info;
       }
       return data;
+    }
+
+    async function loadFabricColors(fabricName) {
+      if (!fabricName) return { color_codes: [] };
+      if (fabricColorsCache.has(fabricName)) return fabricColorsCache.get(fabricName);
+      const resp = await fetch(`/api/v1/pricing/fabric-colors?fabric=${encodeURIComponent(fabricName)}`);
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: 'Error' }));
+        throw new Error(err.detail || 'Не вдалося завантажити кольори тканини');
+      }
+      const data = await resp.json();
+      fabricColorsCache.set(fabricName, data);
+      return data;
+    }
+
+    function fillFabricColorsForCard($card, codes, preselect) {
+      const $sel = $card.find('.fabric-color-code');
+      $sel.empty();
+      $sel.append('<option value="" selected disabled>— Оберіть колір —</option>');
+      (codes || []).forEach((code) => {
+        $sel.append(new Option(code, code));
+      });
+      if (preselect) {
+        $sel.val(preselect);
+      } else {
+        $sel.val(null);
+      }
+      $sel.prop('disabled', false);
+      $sel.trigger('change');
     }
 
     function fabricItemTemplate(index) {
@@ -594,6 +621,7 @@
       const $card = $('#fabricsContainer').find('.fabric-card').last();
 
       $card.find('.fabric-name').select2({ width: '100%', dropdownParent: $card });
+      $card.find('.fabric-color-code').select2({ width: '100%', dropdownParent: $card });
 
       await loadFabricsList();
       fillFabricsForCard($card, initial?.fabric_name || null);
@@ -643,6 +671,14 @@
         const found = fabricsData.items.find((f) => (f.name || '').toLowerCase() === (initial.fabric_name || '').toLowerCase());
         if (found) applyFabricMeta($card, found);
       }
+      if (initial?.fabric_name) {
+        try {
+          const colorsData = await loadFabricColors(initial.fabric_name);
+          fillFabricColorsForCard($card, colorsData.color_codes || [], initial.fabric_color_code || null);
+        } catch (e) {
+          window.showToast(e?.message || 'Не вдалося завантажити кольори тканини', 'danger');
+        }
+      }
 
       recalcFabricsPrice();
     }
@@ -668,12 +704,23 @@
       recalcFabricsPrice();
     });
 
-    $('#fabricsContainer').on('change', '.fabric-name', function () {
+    $('#fabricsContainer').on('change', '.fabric-name', async function () {
       const $card = $(this).closest('.fabric-card');
       const name = $(this).val();
       const found = (fabricsData.items || []).find((f) => (f.name || '').toLowerCase() === (name || '').toLowerCase());
       if (found) {
         applyFabricMeta($card, found);
+      }
+      if (!name) {
+        fillFabricColorsForCard($card, [], null);
+      } else {
+        try {
+          const data = await loadFabricColors(name);
+          fillFabricColorsForCard($card, data.color_codes || [], null);
+        } catch (e) {
+          window.showToast(e?.message || 'Не вдалося завантажити кольори тканини', 'danger');
+          fillFabricColorsForCard($card, [], null);
+        }
       }
       recalcFabricsPrice();
     });
@@ -746,7 +793,6 @@
           $('#fabricsOrderCustomer').on('change', function () {
             const pct = Number($(this).find('option:selected').data('discount') || 0)
             $('#customerDiscountValue').val(pct)
-            $('#fabricsDiscountValue').text(pct)
             recalcFabricsPrice();
           })
         }

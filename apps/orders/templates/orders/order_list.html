@@ -43,7 +43,7 @@
         </div>
       </div>
       <div class="collapse d-md-block" id="filtersCollapse">
-        <form method="get" class="d-flex flex-wrap align-items-end gap-2">
+        <form method="get" id="orderFiltersForm" data-list-mode="{{ list_mode }}" class="d-flex flex-wrap align-items-end gap-2">
           <div class="filter-field">
             <label class="form-label mb-1">Статус</label>
             <select name="status" class="form-select form-select-sm filter-narrow">
@@ -81,12 +81,18 @@
           <div class="d-flex gap-2 align-items-end">
             <button type="submit" class="btn btn-primary btn-sm">Фільтрувати</button>
             {% if list_mode == 'components' %}
-              <a href="{% url 'orders:components_list' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
+              <a href="{% url 'orders:components_list' %}" class="btn btn-secondary btn-sm">Скинути</a>
             {% elif list_mode == 'fabrics' %}
-              <a href="{% url 'orders:fabrics_list' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
+              <a href="{% url 'orders:fabrics_list' %}" class="btn btn-secondary btn-sm">Скинути</a>
             {% else %}
-              <a href="{% url 'orders:list' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
+              <a href="{% url 'orders:list' %}" class="btn btn-secondary btn-sm">Скинути</a>
             {% endif %}
+            <a
+              class="btn btn-outline-success btn-sm"
+              href="{% url 'orders:orders_excel' %}?{{ request.GET.urlencode }}&list_mode={{ list_mode }}"
+            >
+              <i class="bi bi-file-earmark-excel me-1"></i> Експорт списку за рік
+            </a>
           </div>
         </form>
       </div>
@@ -192,6 +198,36 @@
                       </button>
                     </form>
                   {% endif %}
+                  {% if request.user.is_manager %}
+                    {% with prev=o.prev_status %}
+                      {% if prev %}
+                        <form method="post" action="{{ send_to_work_url }}" class="d-inline">
+                          {% csrf_token %}
+                          <input type="hidden" name="status_action" value="prev">
+                          {% with badge=status_badges|get_item:prev|default:"secondary" %}
+                            <button type="submit" class="btn btn-sm btn-{{ badge }}">
+                              <i class="bi bi-arrow-left-short me-1"></i>{{ status_labels|get_item:prev|default:"Попередній статус" }}
+                            </button>
+                          {% endwith %}
+                        </form>
+                      {% endif %}
+                    {% endwith %}
+                    {% if o.status != o.STATUS_QUOTE %}
+                      {% with nxt=o.next_status %}
+                        {% if nxt %}
+                          <form method="post" action="{{ send_to_work_url }}" class="d-inline">
+                            {% csrf_token %}
+                            <input type="hidden" name="status_action" value="next">
+                            {% with badge=status_badges|get_item:nxt|default:"secondary" %}
+                              <button type="submit" class="btn btn-sm btn-{{ badge }}">
+                                {{ status_labels|get_item:nxt|default:"Наступний статус" }}<i class="bi bi-arrow-right-short ms-1"></i>
+                              </button>
+                            {% endwith %}
+                          </form>
+                        {% endif %}
+                      {% endwith %}
+                    {% endif %}
+                  {% endif %}
                   <a class="btn btn-sm btn-outline-secondary" href="{{ order_view_url }}">
                     <i class="bi bi-eye me-1"></i> Переглянути
                   </a>
@@ -266,6 +302,15 @@
     .filter-narrow { min-width: 110px; max-width: 140px; }
     .filter-field { min-width: 110px; max-width: 140px; }
     .filter-field.client { min-width: 220px; max-width: 280px; }
+    .filter-active {
+      border-color: var(--bs-primary) !important;
+      box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.15);
+      background-color: rgba(13, 110, 253, 0.06);
+    }
+    .filter-active + .select2 .select2-selection {
+      border-color: var(--bs-primary) !important;
+      box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.15);
+    }
     @media (max-width: 767.98px) {
       .filter-narrow,
       .filter-field,
@@ -304,6 +349,91 @@
           placeholder: 'Клієнт',
           allowClear: true,
         });
+      }
+
+      const filtersForm = document.getElementById('orderFiltersForm');
+      if (filtersForm) {
+        const listMode = filtersForm.dataset.listMode || 'default';
+        const storageKey = `orderFilters:${listMode}`;
+        const collapseKey = `orderFiltersCollapse:${listMode}`;
+        const collapseEl = document.getElementById('filtersCollapse');
+        const highlightActive = () => {
+          filtersForm.querySelectorAll('select[name], input[name]').forEach((el) => {
+            if (el.value && el.value.toString().trim() !== '') {
+              el.classList.add('filter-active');
+            } else {
+              el.classList.remove('filter-active');
+            }
+          });
+        };
+
+        const readFields = () => {
+          const data = {};
+          filtersForm.querySelectorAll('select[name], input[name]').forEach((el) => {
+            data[el.name] = el.value || '';
+          });
+          return data;
+        };
+
+        const writeFields = (data) => {
+          Object.keys(data || {}).forEach((name) => {
+            const el = filtersForm.querySelector(`[name="${name}"]`);
+            if (!el) return;
+            if (window.jQuery && el.classList.contains('select2-hidden-accessible')) {
+              $(el).val(data[name] || '').trigger('change');
+            } else {
+              el.value = data[name] || '';
+            }
+          });
+        };
+
+        const hasQuery = window.location.search && window.location.search.length > 1;
+        if (hasQuery) {
+          try {
+            localStorage.setItem(storageKey, JSON.stringify(readFields()));
+          } catch (e) {}
+        } else {
+          try {
+            const saved = localStorage.getItem(storageKey);
+            if (saved) {
+              writeFields(JSON.parse(saved));
+              filtersForm.requestSubmit();
+            }
+          } catch (e) {}
+        }
+        highlightActive();
+
+        filtersForm.addEventListener('change', function () {
+          try {
+            localStorage.setItem(storageKey, JSON.stringify(readFields()));
+          } catch (e) {}
+          highlightActive();
+        });
+        filtersForm.addEventListener('submit', function () {
+          try {
+            localStorage.setItem(storageKey, JSON.stringify(readFields()));
+          } catch (e) {}
+          highlightActive();
+        });
+
+        if (collapseEl) {
+          try {
+            const savedState = localStorage.getItem(collapseKey);
+            if (savedState === 'show') {
+              collapseEl.classList.add('show');
+            }
+          } catch (e) {}
+          collapseEl.addEventListener('shown.bs.collapse', function () {
+            try {
+              localStorage.setItem(collapseKey, 'show');
+            } catch (e) {}
+          });
+          collapseEl.addEventListener('hidden.bs.collapse', function () {
+            try {
+              localStorage.setItem(collapseKey, 'hide');
+            } catch (e) {}
+          });
+        }
       }
 
       if (modalEl) {

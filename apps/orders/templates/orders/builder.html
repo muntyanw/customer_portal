@@ -1239,8 +1239,14 @@
           if (prevVals.section) {
             await fillFabricsForCard($card, prevVals.system, prevVals.section, prevVals.fabric)
 
-            if (prevVals.fabric_color_code) {
-              copySelectOptionsFromPrevCard($card, ".fabric-color-code")
+            if (prevVals.fabric) {
+              try {
+                const data = await loadFabricColors(prevVals.fabric)
+                fillFabricColorsForCard($card, data.color_codes || [], prevVals.fabric_color_code || null)
+              } catch (e) {
+                window.showToast(e.message || 'Не вдалося завантажити кольори тканини', 'danger')
+                fillFabricColorsForCard($card, [], prevVals.fabric_color_code || null)
+              }
               $card.find('.h-mm, .w-mm, .qty, .gabarit-width-flag, .fabric-height-flag').prop('disabled', false)
               $card.find('.gabarit-width-flag .form-check-input, .fabric-height-flag .form-check-input').prop('disabled', false)
             }

@@ -1,21 +1,44 @@
 {% extends "core/dashboard_base.html" %}
 {% load form_tags %}
+
+{% block head_extra %}
+  {{ block.super }}
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+{% endblock %}
 {% block dashboard_title %}Користувачі{% endblock %}
 {% block dashboard_heading %}Користувачі{% endblock %}
 
 {% block dashboard_content %}
   <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-    <form method="get" class="d-flex flex-wrap align-items-center gap-2">
-      <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm" placeholder="Пошук (ПІБ, email, телефон)">
+    <form method="get" class="d-flex flex-wrap align-items-center gap-2 w-100 flex-md-nowrap">
+      <select name="customer" id="clientsCustomerFilter" class="form-select form-select-sm" style="min-width: 240px;" data-placeholder="Усі клієнти">
+        <option value="">Усі клієнти</option>
+        {% for c in customer_options %}
+          <option value="{{ c.id }}" {% if customer_filter|add:'0' == c.id|add:'0' %}selected{% endif %}>
+            {% if c.customerprofile.full_name %}{{ c.customerprofile.full_name }}{% else %}{{ c }}{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+      <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm flex-grow-1" placeholder="Пошук (ПІБ, email, телефон)">
       <button type="submit" class="btn btn-primary btn-sm">Фільтрувати</button>
       <a href="{% url 'accounts:clients_list' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
     </form>
     <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
       <div class="btn-group btn-group-sm" role="group" aria-label="Сортування">
-        <a class="btn btn-outline-primary {% if sort == 'full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}sort=full_name">Ім'я</a>
-        <a class="btn btn-outline-primary {% if sort == '-full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}sort=-full_name">Ім'я ↓</a>
-        <a class="btn btn-outline-primary {% if sort == 'email' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}sort=email">Email</a>
-        <a class="btn btn-outline-primary {% if sort == '-email' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}sort=-email">Email ↓</a>
+        <a class="btn btn-outline-primary {% if sort == 'full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=full_name">Ім'я</a>
+        <a class="btn btn-outline-primary {% if sort == '-full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-full_name">Ім'я ↓</a>
+        <a class="btn btn-outline-primary {% if sort == 'email' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=email">Email</a>
+        <a class="btn btn-outline-primary {% if sort == '-email' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-email">Email ↓</a>
+        <a class="btn btn-outline-primary {% if sort == 'phone' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=phone">Телефон</a>
+        <a class="btn btn-outline-primary {% if sort == '-phone' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-phone">Телефон ↓</a>
+        <a class="btn btn-outline-primary {% if sort == 'company' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=company">Компанія</a>
+        <a class="btn btn-outline-primary {% if sort == '-company' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-company">Компанія ↓</a>
+        <a class="btn btn-outline-primary {% if sort == 'balance' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=balance">Баланс</a>
+        <a class="btn btn-outline-primary {% if sort == '-balance' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-balance">Баланс ↓</a>
+        <a class="btn btn-outline-primary {% if sort == 'discount' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=discount">Знижка</a>
+        <a class="btn btn-outline-primary {% if sort == '-discount' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-discount">Знижка ↓</a>
+        <a class="btn btn-outline-primary {% if sort == 'credit' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=credit">Кредит</a>
+        <a class="btn btn-outline-primary {% if sort == '-credit' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-credit">Кредит ↓</a>
       </div>
       <a href="{% url 'accounts:client_create' %}" class="btn btn-success"><i class="bi bi-plus-lg me-1"></i> Створити акаунт</a>
     </div>
@@ -133,8 +156,65 @@
 
 {% block body_extra %}
   {{ block.super }}
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', function () {
+      const $customer = $('#clientsCustomerFilter');
+      if ($customer.length) {
+        $customer.select2({
+          width: '100%',
+          placeholder: $customer.data('placeholder') || 'Усі клієнти',
+          allowClear: true,
+        });
+        $customer.on('change', function () {
+          const form = document.querySelector('form[method=\"get\"]');
+          if (form) form.submit();
+        });
+      }
+
+      const form = document.querySelector('form[method="get"]');
+      if (form) {
+        const storageKey = 'clientsFilters';
+        const readFields = () => {
+          const data = {};
+          form.querySelectorAll('select[name], input[name]').forEach((el) => {
+            data[el.name] = el.value || '';
+          });
+          return data;
+        };
+        const writeFields = (data) => {
+          Object.keys(data || {}).forEach((name) => {
+            const el = form.querySelector(`[name="${name}"]`);
+            if (!el) return;
+            if (window.jQuery && el.classList.contains('select2-hidden-accessible')) {
+              $(el).val(data[name] || '').trigger('change');
+            } else {
+              el.value = data[name] || '';
+            }
+          });
+        };
+
+        const hasQuery = window.location.search && window.location.search.length > 1;
+        if (hasQuery) {
+          try { localStorage.setItem(storageKey, JSON.stringify(readFields())); } catch (e) {}
+        } else {
+          try {
+            const saved = localStorage.getItem(storageKey);
+            if (saved) {
+              writeFields(JSON.parse(saved));
+              form.requestSubmit();
+            }
+          } catch (e) {}
+        }
+
+        form.addEventListener('change', function () {
+          try { localStorage.setItem(storageKey, JSON.stringify(readFields())); } catch (e) {}
+        });
+        form.addEventListener('submit', function () {
+          try { localStorage.setItem(storageKey, JSON.stringify(readFields())); } catch (e) {}
+        });
+      }
+
       document.querySelectorAll('.discount-input').forEach(function (input) {
         const form = input.closest('.discount-form')
         const button = form ? form.querySelector('.save-discount-btn') : null

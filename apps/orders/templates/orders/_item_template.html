@@ -142,14 +142,6 @@
             </div>
 
             <hr class="my-2" />
-            {% if request.user.is_manager %}
-              <div class="d-flex flex-column">
-                <div class="order-summary-label mb-1">Знижка</div>
-                <div class="order-summary-value text-success">
-                  <span id="orderDiscountValue">{{ customer_discount_percent|default:'0' }}%</span>
-                </div>
-              </div>
-            {% endif %}
             <div class="d-flex justify-content-between">
               <span>Ціна позиції</span>
               <span class="text-end">
