@@ -2,6 +2,7 @@ from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
+from django import forms as django_forms
 from django.db import models
 from decimal import Decimal, InvalidOperation
 from .forms import RegisterForm, LoginForm, ProfileForm, ContactFormSet
@@ -9,6 +10,18 @@ from .models import User
 from apps.customers.models import CustomerProfile, CustomerContact
 from apps.accounts.roles import is_manager
 from apps.orders.views import compute_balance
+
+
+class AdminSetPasswordForm(django_forms.Form):
+    password = django_forms.CharField(label="Новий пароль", widget=django_forms.PasswordInput, min_length=6)
+    password2 = django_forms.CharField(label="Підтвердження пароля", widget=django_forms.PasswordInput, min_length=6)
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("password") != cleaned.get("password2"):
+            raise django_forms.ValidationError("Паролі не співпадають.")
+        return cleaned
+
 
 def register_view(request):
     # Only managers/admins can create accounts via this form
@@ -51,7 +64,7 @@ def login_view(request):
 def profile_view(request, pk=None):
     target_user = request.user
     if pk:
-        if not is_manager(request.user):
+        if not (is_manager(request.user) or request.user.is_superuser):
             messages.error(request, "Доступ заборонено.")
             return redirect("accounts:profile")
         target_user = get_object_or_404(User, pk=pk)
@@ -60,6 +73,7 @@ def profile_view(request, pk=None):
 
     can_edit_credit = is_manager(request.user)
     can_edit_role = is_manager(request.user)
+    can_edit_admin = request.user.is_superuser
     can_edit_discount = is_manager(request.user)
     can_edit_discount = is_manager(request.user)
 
@@ -76,6 +90,7 @@ def profile_view(request, pk=None):
             profile_instance=profile,
             can_edit_credit=can_edit_credit,
             can_edit_role=can_edit_role,
+            can_edit_admin=can_edit_admin,
             can_edit_discount=can_edit_discount,
         )
         contact_formset = ContactFormSet(request.POST, prefix="contacts")
@@ -121,6 +136,7 @@ def profile_view(request, pk=None):
             profile_instance=profile,
             can_edit_credit=can_edit_credit,
             can_edit_role=can_edit_role,
+            can_edit_admin=can_edit_admin,
             can_edit_discount=can_edit_discount,
         )
         contact_formset = ContactFormSet(initial=contacts_initial, prefix="contacts")
@@ -135,6 +151,7 @@ def profile_view(request, pk=None):
             "profile_instance": profile,
             "can_edit_credit": can_edit_credit,
             "can_edit_role": can_edit_role,
+            "can_edit_admin": can_edit_admin,
             "can_edit_discount": can_edit_discount,
             "contact_formset": contact_formset,
             "is_creation": False,
@@ -264,6 +281,7 @@ def client_create_view(request):
 
     can_edit_credit = True
     can_edit_role = True
+    can_edit_admin = request.user.is_superuser
 
     if request.method == "POST":
         form = ProfileForm(
@@ -273,6 +291,7 @@ def client_create_view(request):
             profile_instance=profile,
             can_edit_credit=can_edit_credit,
             can_edit_role=can_edit_role,
+            can_edit_admin=can_edit_admin,
             can_edit_discount=True,
             creating=True,
         )
@@ -307,6 +326,7 @@ def client_create_view(request):
             profile_instance=profile,
             can_edit_credit=can_edit_credit,
             can_edit_role=can_edit_role,
+            can_edit_admin=can_edit_admin,
             creating=True,
         )
         contact_formset = ContactFormSet(initial=[], prefix="contacts")
@@ -320,7 +340,35 @@ def client_create_view(request):
             "profile_instance": profile,
             "can_edit_credit": can_edit_credit,
             "can_edit_role": can_edit_role,
+            "can_edit_admin": can_edit_admin,
             "contact_formset": contact_formset,
             "is_creation": True,
+        },
+    )
+
+
+@login_required
+def client_password_change_view(request, pk):
+    if not request.user.is_superuser:
+        messages.error(request, "Доступ лише для адміністратора.")
+        return redirect("accounts:clients_list")
+
+    target_user = get_object_or_404(User, pk=pk)
+    if request.method == "POST":
+        form = AdminSetPasswordForm(request.POST)
+        if form.is_valid():
+            target_user.set_password(form.cleaned_data["password"])
+            target_user.save(update_fields=["password"])
+            messages.success(request, f"Пароль користувача {target_user.email} змінено.")
+            return redirect("accounts:clients_list")
+    else:
+        form = AdminSetPasswordForm()
+
+    return render(
+        request,
+        "accounts/client_password_change.html",
+        {
+            "form": form,
+            "target_user": target_user,
         },
     )

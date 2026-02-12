@@ -34,12 +34,14 @@ class ProfileForm(forms.Form):
     credit_allowed = forms.BooleanField(label="Кредит дозволено", required=False)
     avatar = forms.ImageField(label="Аватар", required=False)
     is_manager = forms.BooleanField(label="Роль: менеджер", required=False)
+    is_admin = forms.BooleanField(label="Роль: адміністратор", required=False)
 
     def __init__(self, *args, **kwargs):
         self.user_instance = kwargs.pop("user_instance")
         self.profile_instance = kwargs.pop("profile_instance")
         can_edit_credit = kwargs.pop("can_edit_credit", False)
         can_edit_role = kwargs.pop("can_edit_role", False)
+        can_edit_admin = kwargs.pop("can_edit_admin", False)
         can_edit_discount = kwargs.pop("can_edit_discount", False)
         self.creating = kwargs.pop("creating", False)
         super().__init__(*args, **kwargs)
@@ -66,6 +68,10 @@ class ProfileForm(forms.Form):
             self.fields["is_manager"].initial = bool(getattr(self.user_instance, "is_manager", False))
         else:
             self.fields.pop("is_manager", None)
+        if can_edit_admin:
+            self.fields["is_admin"].initial = bool(getattr(self.user_instance, "is_superuser", False))
+        else:
+            self.fields.pop("is_admin", None)
         if self.creating:
             # ensure password fields rendered after other fields
             self.order_fields(list(self.fields.keys()))
@@ -82,6 +88,11 @@ class ProfileForm(forms.Form):
         is_new = self.user_instance.pk is None
         if "is_manager" in self.cleaned_data:
             self.user_instance.is_manager = bool(self.cleaned_data.get("is_manager", False))
+        if "is_admin" in self.cleaned_data:
+            is_admin = bool(self.cleaned_data.get("is_admin", False))
+            self.user_instance.is_superuser = is_admin
+            # keep Django admin access flag in sync
+            self.user_instance.is_staff = is_admin
         if self.creating:
             self.user_instance.is_customer = True
             if "password" in self.cleaned_data:
@@ -91,6 +102,8 @@ class ProfileForm(forms.Form):
             update_fields = ["email", "username"]
             if "is_manager" in self.cleaned_data:
                 update_fields.append("is_manager")
+            if "is_admin" in self.cleaned_data:
+                update_fields.extend(["is_superuser", "is_staff"])
             self.user_instance.save(update_fields=update_fields)
 
         self.profile_instance.company_name = self.cleaned_data.get("company_name", "")

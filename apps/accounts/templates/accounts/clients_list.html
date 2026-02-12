@@ -140,6 +140,9 @@
             <div class="col-12 col-md-3">
               <div class="d-flex flex-wrap gap-2">
                 <a href="{% url 'accounts:profile_other' u.id %}" class="btn btn-sm btn-secondary">Переглянути</a>
+                {% if request.user.is_superuser %}
+                  <a href="{% url 'accounts:profile_password_change' u.id %}" class="btn btn-sm btn-warning text-dark">Змінити пароль</a>
+                {% endif %}
                 <a href="{% url 'orders:transaction_create' %}?customer={{ u.id }}" class="btn btn-sm btn-success">Створити транзакцію</a>
               </div>
             </div>
