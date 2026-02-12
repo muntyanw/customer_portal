@@ -33,14 +33,29 @@ def _manager_check(user):
 
 
 @login_required
-@user_passes_test(_manager_check)
 def news_list(request):
-    news_items = News.objects.all().order_by("-created_at")
-    return render(request, "core/news_list.html", {"news_items": news_items})
+    can_manage = _manager_check(request.user)
+    if can_manage:
+        news_items = News.objects.all().order_by("-created_at")
+    else:
+        news_items = News.objects.filter(is_active=True).order_by("-created_at")
+
+    # Mark visible active news as read when user opens the News page.
+    visible_active_ids = news_items.filter(is_active=True).exclude(
+        acknowledgements__user=request.user
+    ).values_list("id", flat=True)
+    unread_ids = list(visible_active_ids)
+    if unread_ids:
+        NewsAcknowledgement.objects.bulk_create(
+            [NewsAcknowledgement(news_id=news_id, user=request.user) for news_id in unread_ids],
+            ignore_conflicts=True,
+        )
+
+    return render(request, "core/news_list.html", {"news_items": news_items, "can_manage": can_manage})
 
 
 @login_required
-@user_passes_test(_manager_check)
+@user_passes_test(_manager_check, login_url="core:news_list")
 def news_create(request):
     if request.method == "POST":
         form = NewsForm(request.POST)
@@ -55,7 +70,7 @@ def news_create(request):
 
 
 @login_required
-@user_passes_test(_manager_check)
+@user_passes_test(_manager_check, login_url="core:news_list")
 def news_edit(request, pk: int):
     news = get_object_or_404(News, pk=pk)
     if request.method == "POST":

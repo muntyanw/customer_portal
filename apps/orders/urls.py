@@ -7,6 +7,7 @@ app_name = "orders"
 urlpatterns = [
     # список ролетів
     path("", views.order_list, name="list"),
+    path("all/", views.order_all_list, name="all_list"),
 
     # список замовлень з комплектуючими
     path("components/", views.order_components_list, name="components_list"),

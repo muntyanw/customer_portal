@@ -49,9 +49,6 @@
           {% if is_manager %}
             <span class="badge bg-warning text-dark">Manager</span>
           {% endif %}
-          {% if request.user.is_customer and not is_manager %}
-            <span class="badge bg-light text-dark">Customer</span>
-          {% endif %}
         </div>
       </div>
 
@@ -70,6 +67,10 @@
         </a>
 
         {# Ролеты #}
+        <a class="nav-link text-white {% if request.resolver_match.url_name == 'all_list' %}active{% endif %}"
+          href="{% url 'orders:all_list' %}">
+          <i class="bi bi-list-ul me-2"></i>Всі замовлення
+        </a>
         <a class="nav-link text-white {% if request.resolver_match.url_name == 'list' %}active{% endif %}"
           href="{% url 'orders:list' %}">
           <i class="bi bi-bag-check me-2"></i>Тканинні ролети

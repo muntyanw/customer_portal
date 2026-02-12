@@ -76,6 +76,17 @@
       if (!searchInput || !select) return;
       const options = Array.from(select.options);
 
+      select.addEventListener("change", () => {
+        const val = select.value || "";
+        const url = new URL(window.location.href);
+        if (val) {
+          url.searchParams.set("customer", val);
+        } else {
+          url.searchParams.delete("customer");
+        }
+        window.location.href = url.toString();
+      });
+
       const expandList = () => {
         // показуємо список як лістбокс, щоб одразу бачити варіанти
         const visible = options.filter((opt) => !opt.hidden);

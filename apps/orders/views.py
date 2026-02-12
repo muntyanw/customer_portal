@@ -4,7 +4,7 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django import forms
 from django.db import transaction
-from django.db.models import Case, DecimalField, ExpressionWrapper, F, Sum, When, Max, Q
+from django.db.models import Case, DecimalField, ExpressionWrapper, F, Sum, When, Max, Q, Exists, OuterRef
 from django.db.models.functions import Coalesce
 from django.contrib import messages
 from .models import (
@@ -464,6 +464,7 @@ def _build_order_workbook(
     row = 1
     full_name = getattr(profile, "full_name", "") or str(order.customer)
     phone = getattr(profile, "phone", "") or ""
+    address = getattr(profile, "trade_address", "") or ""
     # Keep the top "client info" block always 5 rows for stable formatting (merge C-L for rows 1-5).
     if client_info_mode == "proposal":
         # In proposal we don't show "Клієнт" and "Примітки до замовлення".
@@ -471,7 +472,7 @@ def _build_order_workbook(
             ("", ""),
             ("Тел.", phone),
             ("ПІБ.", full_name),
-            ("Адреса доставки", ""),
+            ("Адреса доставки", address),
             ("", ""),
         ]
     else:
@@ -479,7 +480,7 @@ def _build_order_workbook(
             ("Клієнт", full_name),
             ("Тел.", phone),
             ("ПІБ.", full_name),
-            ("Адреса доставки", ""),
+            ("Адреса доставки", address),
             ("Примітки до замовлення", order.note or ""),
         ]
     for label, val in client_info:
@@ -948,10 +949,12 @@ class TransactionForm(forms.ModelForm):
 
         def _label(u):
             profile = getattr(u, "customerprofile", None)
+            company = getattr(profile, "company_name", "") or ""
             full_name = getattr(profile, "full_name", "") or u.get_full_name() or u.username
             phone = getattr(profile, "phone", "") or ""
             contact_email = getattr(profile, "contact_email", "") or u.email
-            parts = [full_name]
+            title = company or full_name
+            parts = [title]
             if phone:
                 parts.append(phone)
             if contact_email:
@@ -961,7 +964,44 @@ class TransactionForm(forms.ModelForm):
         self.fields["customer"].label_from_instance = _label
         self.fields["customer"].widget.attrs.update({"class": "form-select", "data-customer-picker": "true"})
         self.fields["type"].widget.attrs.update({"class": "form-select"})
-        self.fields["orders"].queryset = Order.objects.filter(deleted=False)
+
+        customer_id = None
+        if self.data.get("customer"):
+            customer_id = self.data.get("customer")
+        elif self.initial.get("customer"):
+            customer_id = self.initial.get("customer")
+
+        orders_qs = Order.objects.filter(
+            deleted=False,
+            status__in=[Order.STATUS_IN_WORK, Order.STATUS_READY, Order.STATUS_SHIPPED],
+        )
+        if customer_id:
+            orders_qs = orders_qs.filter(customer_id=customer_id)
+
+        paid_map = {}
+        tx_qs = Transaction.objects.filter(
+            deleted=False,
+            type=Transaction.DEBIT,
+            order__in=orders_qs,
+        ).select_related("order")
+        for tx in tx_qs:
+            if not tx.order_id:
+                continue
+            paid = Decimal(tx.amount or 0) * Decimal(tx.eur_rate or 0)
+            paid_map[tx.order_id] = (paid_map.get(tx.order_id) or Decimal("0")) + paid
+
+        current_rate = Decimal(self.current_rate or 0)
+        unpaid_ids = []
+        for o in orders_qs:
+            order_total_uah = _round_uah_total(_order_base_total(o) * _order_rate(o, current_rate))
+            paid_uah = Decimal(paid_map.get(o.id) or 0)
+            if paid_uah < order_total_uah:
+                unpaid_ids.append(o.id)
+
+        if unpaid_ids:
+            self.fields["orders"].queryset = Order.objects.filter(pk__in=unpaid_ids).order_by("-id")
+        else:
+            self.fields["orders"].queryset = Order.objects.none()
         self.fields["orders"].widget.attrs.update(
             {
                 "class": "form-select",
@@ -1274,6 +1314,102 @@ def order_fabrics_list(request):
 
 
 @login_required
+def order_all_list(request):
+    """
+    EN: Unified list of all order types.
+    UA: Єдиний список усіх типів замовлень.
+    """
+    User = get_user_model()
+    status_filter = request.GET.get("status") or ""
+    customer_filter = request.GET.get("customer") or ""
+    q = (request.GET.get("q") or "").strip()
+    date_from, date_to, date_from_str, date_to_str = _parse_date_range(request.GET)
+    balance_user = request.user
+
+    qs = (
+        _orders_scope(request.user)
+        .select_related("customer", "customer__customerprofile")
+        .annotate(
+            last_status_at=Coalesce(Max("status_logs__created_at"), "created_at"),
+            has_components=Exists(OrderComponentItem.objects.filter(order_id=OuterRef("pk"))),
+            has_fabrics=Exists(OrderFabricItem.objects.filter(order_id=OuterRef("pk"))),
+        )
+        .prefetch_related("status_logs")
+        .distinct()
+        .order_by("-id")
+    )
+
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+    if customer_filter and is_manager(request.user):
+        balance_user = get_object_or_404(User, pk=customer_filter)
+        qs = qs.filter(customer=balance_user)
+    if q:
+        qs = qs.filter(pk__icontains=q)
+
+    customers_filter_list = (
+        User.objects.filter(orders__isnull=False).select_related("customerprofile").distinct()
+        if is_manager(request.user) else []
+    )
+    current_rate = get_current_eur_rate()
+    qs = _set_order_totals_uah(qs, current_rate)
+    quote_orders_count = qs.filter(status=Order.STATUS_QUOTE).count()
+    show_bulk_select = quote_orders_count > 1
+    payment_message_text = _get_payment_message_text() or ""
+    payment_shortage_map = {}
+    proposal_tokens = {o.id: _proposal_token(o) for o in qs}
+    proposal_page_urls = {oid: reverse("orders:proposal_page", args=[tok]) for oid, tok in proposal_tokens.items()}
+    proposal_excel_urls = {oid: reverse("orders:proposal_excel", args=[tok]) for oid, tok in proposal_tokens.items()}
+    if quote_orders_count:
+        for o in qs:
+            if o.status != Order.STATUS_QUOTE or o.customer_id != request.user.id:
+                continue
+            shortage_ctx = _payment_shortage_context(o)
+            if shortage_ctx:
+                payment_shortage_map[o.id] = {
+                    "shortage": str(shortage_ctx.get("shortage") or ""),
+                    "orders": shortage_ctx.get("orders") or [],
+                }
+
+    order_kind_map = {}
+    for o in qs:
+        if getattr(o, "has_components", False):
+            order_kind_map[o.id] = "components"
+        elif getattr(o, "has_fabrics", False):
+            order_kind_map[o.id] = "fabrics"
+        else:
+            order_kind_map[o.id] = "rollers"
+
+    context = {
+        "orders": qs,
+        "list_mode": "all",
+        "order_kind_map": order_kind_map,
+        "statuses": Order.STATUS_CHOICES,
+        "status_filter": status_filter,
+        "customer_filter": customer_filter,
+        "date_from": date_from_str,
+        "date_to": date_to_str,
+        "customer_options": customers_filter_list,
+        "status_badges": STATUS_BADGES,
+        "status_labels": STATUS_LABELS,
+        "quote_orders_count": quote_orders_count,
+        "show_bulk_select": show_bulk_select,
+        "q": q,
+        "payment_message_text": payment_message_text,
+        "payment_shortage_map": payment_shortage_map,
+        "payment_shortage_json": json.dumps(payment_shortage_map),
+        "user_balance": compute_balance(balance_user),
+        "proposal_page_urls": proposal_page_urls,
+        "proposal_excel_urls": proposal_excel_urls,
+    }
+    return render(request, "orders/order_list.html", context)
+
+
+@login_required
 def order_notifications_settings(request):
     """
     EN: Manage recipient emails for order-in-work notifications.
@@ -1436,7 +1572,10 @@ def order_builder(request, pk=None):
         base_note = (request.POST.get("note") or "").strip()
         if chosen_customer and can_pick_customer:
             base_note = re.sub(r"\s*\(створено менеджером [^)]+\)\s*$", "", base_note).strip()
-            suffix = f" (створено менеджером {request.user.email})"
+            manager_profile = getattr(request.user, "customerprofile", None)
+            manager_name = getattr(manager_profile, "full_name", "") or request.user.get_full_name() or ""
+            manager_label = manager_name or request.user.email
+            suffix = f" (створено менеджером {manager_label})"
             base_note = (base_note + suffix).strip()
         order.note = base_note
         order.extra_service_label = (request.POST.get("extra_service_label") or "").strip()
@@ -2158,7 +2297,7 @@ def order_list_excel(request):
         qs = qs.filter(component_items__isnull=False)
     elif list_mode == "fabrics":
         qs = qs.filter(fabric_items__isnull=False)
-    else:
+    elif list_mode == "rollers":
         qs = qs.exclude(component_items__isnull=False).exclude(fabric_items__isnull=False)
 
     if status_filter:

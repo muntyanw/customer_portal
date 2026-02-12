@@ -2,7 +2,7 @@
 {% load form_tags %}
 
 {% block dashboard_title %}
-  {% if list_mode == 'components' %}Комплектуючі{% elif list_mode == 'fabrics' %}Тканина{% else %}Замовлення (Тканинні ролети){% endif %}
+  {% if list_mode == 'all' %}Всі замовлення{% elif list_mode == 'components' %}Комплектуючі{% elif list_mode == 'fabrics' %}Тканина{% else %}Замовлення (Тканинні ролети){% endif %}
 {% endblock %}
 
 {% block dashboard_heading %}
@@ -10,25 +10,39 @@
     Комплектуючі, список замовлень
   {% elif list_mode == 'fabrics' %}
     Тканина, список замовлень
+  {% elif list_mode == 'all' %}
+    Всі замовлення
   {% else %}
     Замовлення з тканинними ролетами
   {% endif %}
 {% endblock %}
 
 {% block dashboard_content %}
-  <div class="d-flex justify-content-end mb-2">
-    {% if list_mode == 'components' %}
-      <a href="{% url 'orders:components_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
+  <div class="d-flex flex-wrap justify-content-end gap-2 mb-2 {% if list_mode == 'all' %}new-order-actions{% endif %}">
+    {% if list_mode == 'all' %}
+      <a href="{% url 'orders:builder' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center new-order-btn-all">
+        <i class="bi bi-plus-lg me-1"></i> Нове замовлення (Ролети)
+      </a>
+      <a href="{% url 'orders:components_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center new-order-btn-all">
         <i class="bi bi-tools me-1"></i> Нове замовлення (Комплектуючі)
       </a>
-    {% elif list_mode == 'fabrics' %}
-      <a href="{% url 'orders:fabrics_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
+      <a href="{% url 'orders:fabrics_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center new-order-btn-all">
         <i class="bi bi-scissors me-1"></i> Нове замовлення (Тканина)
       </a>
     {% else %}
-      <a href="{% url 'orders:builder' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
-        <i class="bi bi-plus-lg me-1"></i> Нове замовлення (Ролети)
-      </a>
+      {% if list_mode == 'components' %}
+        <a href="{% url 'orders:components_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
+          <i class="bi bi-tools me-1"></i> Нове замовлення (Комплектуючі)
+        </a>
+      {% elif list_mode == 'fabrics' %}
+        <a href="{% url 'orders:fabrics_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
+          <i class="bi bi-scissors me-1"></i> Нове замовлення (Тканина)
+        </a>
+      {% else %}
+        <a href="{% url 'orders:builder' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
+          <i class="bi bi-plus-lg me-1"></i> Нове замовлення (Ролети)
+        </a>
+      {% endif %}
     {% endif %}
   </div>
 
@@ -84,6 +98,8 @@
               <a href="{% url 'orders:components_list' %}" class="btn btn-secondary btn-sm">Скинути</a>
             {% elif list_mode == 'fabrics' %}
               <a href="{% url 'orders:fabrics_list' %}" class="btn btn-secondary btn-sm">Скинути</a>
+            {% elif list_mode == 'all' %}
+              <a href="{% url 'orders:all_list' %}" class="btn btn-secondary btn-sm">Скинути</a>
             {% else %}
               <a href="{% url 'orders:list' %}" class="btn btn-secondary btn-sm">Скинути</a>
             {% endif %}
@@ -133,6 +149,16 @@
               {% url 'orders:order_components_builder' o.id as order_view_url %}
             {% elif list_mode == 'fabrics' %}
               {% url 'orders:order_fabric_builder' o.id as order_view_url %}
+            {% elif list_mode == 'all' %}
+              {% with order_kind=order_kind_map|get_item:o.id %}
+                {% if order_kind == 'components' %}
+                  {% url 'orders:order_components_builder' o.id as order_view_url %}
+                {% elif order_kind == 'fabrics' %}
+                  {% url 'orders:order_fabric_builder' o.id as order_view_url %}
+                {% else %}
+                  {% url 'orders:builder_edit' o.id as order_view_url %}
+                {% endif %}
+              {% endwith %}
             {% else %}
               {% url 'orders:builder_edit' o.id as order_view_url %}
             {% endif %}
@@ -150,6 +176,20 @@
                 <div class="fw-semibold mb-1">
                   <a href="{{ order_view_url }}">Замовлення №{{ o.id }}</a>
                 </div>
+                {% if list_mode == 'all' %}
+                  {% with order_kind=order_kind_map|get_item:o.id %}
+                    <div class="small text-muted mb-1 fw-bold">
+                      Тип:
+                      {% if order_kind == 'components' %}
+                        Комплектуючі
+                      {% elif order_kind == 'fabrics' %}
+                        Тканина
+                      {% else %}
+                        Ролети
+                      {% endif %}
+                    </div>
+                  {% endwith %}
+                {% endif %}
                 {% if o.note %}
                   <div class="small text-muted text-break">{{ o.note|safe }}</div>
                 {% endif %}
@@ -269,6 +309,8 @@
         Поки немає жодного замовлення з комплектуючими.
       {% elif list_mode == 'fabrics' %}
         Поки немає жодного замовлення з тканиною.
+      {% elif list_mode == 'all' %}
+        Поки немає жодного замовлення.
       {% else %}
         Поки немає жодного замовлення з тканинними ролетами.
       {% endif %}
@@ -299,6 +341,7 @@
   <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
   <style>
+    .new-order-btn-all { width: 100%; }
     .filter-narrow { min-width: 110px; max-width: 140px; }
     .filter-field { min-width: 110px; max-width: 140px; }
     .filter-field.client { min-width: 220px; max-width: 280px; }
@@ -310,6 +353,15 @@
     .filter-active + .select2 .select2-selection {
       border-color: var(--bs-primary) !important;
       box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.15);
+    }
+    @media (min-width: 992px) {
+      .new-order-actions {
+        flex-wrap: nowrap !important;
+      }
+      .new-order-btn-all {
+        width: auto;
+        white-space: nowrap;
+      }
     }
     @media (max-width: 767.98px) {
       .filter-narrow,

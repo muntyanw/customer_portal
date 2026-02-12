@@ -5,10 +5,12 @@
 
 {% block dashboard_content %}
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <div class="text-muted">Керування новинами для клієнтів</div>
-    <a class="btn btn-primary btn-sm" href="{% url 'core:news_create' %}">
-      Додати новину
-    </a>
+    <div class="text-muted">{% if can_manage %}Керування новинами для клієнтів{% else %}Оголошення для клієнтів{% endif %}</div>
+    {% if can_manage %}
+      <a class="btn btn-primary btn-sm" href="{% url 'core:news_create' %}">
+        Додати новину
+      </a>
+    {% endif %}
   </div>
 
   {% if news_items %}
@@ -20,7 +22,9 @@
             <div class="col-auto">Статус</div>
             <div class="col-auto">Оновлено</div>
             <div class="col-auto">Автор</div>
-            <div class="col-12 col-md-2 text-end">Дії</div>
+            {% if can_manage %}
+              <div class="col-12 col-md-2 text-end">Дії</div>
+            {% endif %}
           </div>
         </div>
 
@@ -44,9 +48,11 @@
               <div class="col-6 col-md-auto">
                 {{ item.created_by|default:"—" }}
               </div>
-              <div class="col-12 col-md-2 text-md-end">
-                <a class="btn btn-sm btn-outline-primary" href="{% url 'core:news_edit' item.id %}">Редагувати</a>
-              </div>
+              {% if can_manage %}
+                <div class="col-12 col-md-2 text-md-end">
+                  <a class="btn btn-sm btn-outline-primary" href="{% url 'core:news_edit' item.id %}">Редагувати</a>
+                </div>
+              {% endif %}
             </div>
           </div>
         {% endfor %}
