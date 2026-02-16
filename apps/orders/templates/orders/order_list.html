@@ -95,13 +95,13 @@
           <div class="d-flex gap-2 align-items-end">
             <button type="submit" class="btn btn-primary btn-sm">Фільтрувати</button>
             {% if list_mode == 'components' %}
-              <a href="{% url 'orders:components_list' %}" class="btn btn-secondary btn-sm">Скинути</a>
+              <a href="{% url 'orders:components_list' %}" class="btn btn-secondary btn-sm js-reset-order-filters">Скинути</a>
             {% elif list_mode == 'fabrics' %}
-              <a href="{% url 'orders:fabrics_list' %}" class="btn btn-secondary btn-sm">Скинути</a>
+              <a href="{% url 'orders:fabrics_list' %}" class="btn btn-secondary btn-sm js-reset-order-filters">Скинути</a>
             {% elif list_mode == 'all' %}
-              <a href="{% url 'orders:all_list' %}" class="btn btn-secondary btn-sm">Скинути</a>
+              <a href="{% url 'orders:all_list' %}" class="btn btn-secondary btn-sm js-reset-order-filters">Скинути</a>
             {% else %}
-              <a href="{% url 'orders:list' %}" class="btn btn-secondary btn-sm">Скинути</a>
+              <a href="{% url 'orders:list' %}" class="btn btn-secondary btn-sm js-reset-order-filters">Скинути</a>
             {% endif %}
             <a
               class="btn btn-outline-success btn-sm"
@@ -145,23 +145,6 @@
         </thead>
         <tbody>
           {% for o in orders %}
-            {% if list_mode == 'components' %}
-              {% url 'orders:order_components_builder' o.id as order_view_url %}
-            {% elif list_mode == 'fabrics' %}
-              {% url 'orders:order_fabric_builder' o.id as order_view_url %}
-            {% elif list_mode == 'all' %}
-              {% with order_kind=order_kind_map|get_item:o.id %}
-                {% if order_kind == 'components' %}
-                  {% url 'orders:order_components_builder' o.id as order_view_url %}
-                {% elif order_kind == 'fabrics' %}
-                  {% url 'orders:order_fabric_builder' o.id as order_view_url %}
-                {% else %}
-                  {% url 'orders:builder_edit' o.id as order_view_url %}
-                {% endif %}
-              {% endwith %}
-            {% else %}
-              {% url 'orders:builder_edit' o.id as order_view_url %}
-            {% endif %}
             {% url 'orders:update_status_preview' o.id as send_to_work_url %}
             {% url 'orders:delete' o.id as order_delete_url %}
             <tr>
@@ -174,7 +157,7 @@
               {% endif %}
               <td style="min-width: 220px; max-width: 420px;">
                 <div class="fw-semibold mb-1">
-                  <a href="{{ order_view_url }}">Замовлення №{{ o.id }}</a>
+                  <a href="{% if list_mode == 'components' %}{% url 'orders:order_components_builder' o.id %}{% elif list_mode == 'fabrics' %}{% url 'orders:order_fabric_builder' o.id %}{% elif list_mode == 'all' %}{{ order_view_urls|get_item:o.id }}{% else %}{% url 'orders:builder_edit' o.id %}{% endif %}">Замовлення №{{ o.id }}</a>
                 </div>
                 {% if list_mode == 'all' %}
                   {% with order_kind=order_kind_map|get_item:o.id %}
@@ -268,7 +251,7 @@
                       {% endwith %}
                     {% endif %}
                   {% endif %}
-                  <a class="btn btn-sm btn-outline-secondary" href="{{ order_view_url }}">
+                  <a class="btn btn-sm btn-outline-secondary" href="{% if list_mode == 'components' %}{% url 'orders:order_components_builder' o.id %}{% elif list_mode == 'fabrics' %}{% url 'orders:order_fabric_builder' o.id %}{% elif list_mode == 'all' %}{{ order_view_urls|get_item:o.id }}{% else %}{% url 'orders:builder_edit' o.id %}{% endif %}">
                     <i class="bi bi-eye me-1"></i> Переглянути
                   </a>
                   {% if request.user.is_manager %}
@@ -466,6 +449,15 @@
             localStorage.setItem(storageKey, JSON.stringify(readFields()));
           } catch (e) {}
           highlightActive();
+        });
+
+        document.querySelectorAll('.js-reset-order-filters').forEach((btn) => {
+          btn.addEventListener('click', function () {
+            try {
+              localStorage.removeItem(storageKey);
+              localStorage.removeItem(collapseKey);
+            } catch (e) {}
+          });
         });
 
         if (collapseEl) {

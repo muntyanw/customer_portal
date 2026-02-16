@@ -253,29 +253,30 @@ def _parse_date_range(params):
     Read date_from/date_to from GET params, fallback to last 30 days ending today.
     Returns (date_from, date_to, date_from_str, date_to_str).
     """
+    def _parse_flexible_date(value: str):
+        raw = (value or "").strip()
+        if not raw:
+            return None
+        for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"):
+            try:
+                return datetime.datetime.strptime(raw, fmt).date()
+            except ValueError:
+                continue
+        return None
+
     date_from_str = (params.get("date_from") or "").strip()
     date_to_str = (params.get("date_to") or "").strip()
-    date_from = None
-    date_to = None
-
-    if date_from_str:
-        try:
-            date_from = datetime.datetime.strptime(date_from_str, "%Y-%m-%d").date()
-        except ValueError:
-            date_from = None
-    if date_to_str:
-        try:
-            date_to = datetime.datetime.strptime(date_to_str, "%Y-%m-%d").date()
-        except ValueError:
-            date_to = None
+    date_from = _parse_flexible_date(date_from_str)
+    date_to = _parse_flexible_date(date_to_str)
 
     today = timezone.localdate()
     if not date_to:
         date_to = today
-        date_to_str = date_to.isoformat()
     if not date_from:
         date_from = date_to - datetime.timedelta(days=30)
-        date_from_str = date_from.isoformat()
+    # Always return ISO strings for stable frontend values and query params.
+    date_from_str = date_from.isoformat()
+    date_to_str = date_to.isoformat()
 
     return date_from, date_to, date_from_str, date_to_str
 
@@ -326,21 +327,19 @@ def _set_order_totals_uah(orders, current_rate: Decimal):
         rate = _order_rate(o, current_rate)
         total_eur = _order_base_total(o)
         o.display_rate = rate
-        extra_uah = Decimal(getattr(o, "extra_service_amount_uah", 0) or 0)
-        # Display без націнки, але з додатковою послугою
-        o.total_uah_display = _round_uah_total(total_eur * rate + extra_uah)
+        # Display base order total only (without additional service).
+        o.total_uah_display = _round_uah_total(total_eur * rate)
     return orders
 
 
 def _order_total_uah(order, current_rate: Decimal) -> Decimal:
-    extra_uah = Decimal(getattr(order, "extra_service_amount_uah", 0) or 0)
-    total = _order_base_total(order) * _order_rate(order, current_rate) * (Decimal("1") + Decimal(order.markup_percent or 0) / Decimal("100")) + extra_uah
+    total = _order_base_total(order) * _order_rate(order, current_rate) * (Decimal("1") + Decimal(order.markup_percent or 0) / Decimal("100"))
     return _round_uah_total(total)
 
 
 def _orders_total_uah(orders_qs, current_rate: Decimal) -> Decimal:
     return sum(
-        _round_uah_total(_order_base_total(o) * _order_rate(o, current_rate) * (Decimal("1") + Decimal(o.markup_percent or 0) / Decimal("100")) + Decimal(getattr(o, "extra_service_amount_uah", 0) or 0))
+        _round_uah_total(_order_base_total(o) * _order_rate(o, current_rate) * (Decimal("1") + Decimal(o.markup_percent or 0) / Decimal("100")))
         for o in orders_qs
     )
 
@@ -501,6 +500,12 @@ def _build_order_workbook(
 
     # пустая строка после блоку приміток
     ws.append([])
+    if client_info_mode == "proposal":
+        extra_service_label = (getattr(order, "extra_service_label", "") or "").strip()
+        extra_service_uah = Decimal(getattr(order, "extra_service_amount_uah", 0) or 0)
+        ws.cell(row=6, column=2).value = "Додаткова послуга"
+        ws.cell(row=6, column=3).value = extra_service_label
+        ws.cell(row=6, column=12).value = float(extra_service_uah)
 
     total_order_uah = Decimal("0")
     item_total_rows = []
@@ -706,6 +711,12 @@ def _build_order_workbook(
             )
             total_order_uah += Decimal(price_uah_val)
         ws.append([])
+
+    # For proposal Excel include additional service in the grand total only.
+    if client_info_mode == "proposal":
+        extra_service_uah = Decimal(getattr(order, "extra_service_amount_uah", 0) or 0)
+        if extra_service_uah > 0:
+            total_order_uah += extra_service_uah
 
     total_cell.value = float(_round_uah_total(total_order_uah)) if total_order_uah else 0
 
@@ -1376,18 +1387,24 @@ def order_all_list(request):
                 }
 
     order_kind_map = {}
+    order_view_urls = {}
     for o in qs:
         if getattr(o, "has_components", False):
-            order_kind_map[o.id] = "components"
+            order_kind = "components"
+            order_view_urls[o.id] = reverse("orders:order_components_builder", args=[o.id])
         elif getattr(o, "has_fabrics", False):
-            order_kind_map[o.id] = "fabrics"
+            order_kind = "fabrics"
+            order_view_urls[o.id] = reverse("orders:order_fabric_builder", args=[o.id])
         else:
-            order_kind_map[o.id] = "rollers"
+            order_kind = "rollers"
+            order_view_urls[o.id] = reverse("orders:builder_edit", args=[o.id])
+        order_kind_map[o.id] = order_kind
 
     context = {
         "orders": qs,
         "list_mode": "all",
         "order_kind_map": order_kind_map,
+        "order_view_urls": order_view_urls,
         "statuses": Order.STATUS_CHOICES,
         "status_filter": status_filter,
         "customer_filter": customer_filter,
@@ -3013,9 +3030,8 @@ def order_proposal_page(request, token: str):
     markup_multiplier = Decimal("1") + (markup / Decimal("100"))
     rate_with_markup = Decimal(rate or 0) * markup_multiplier
     total_with_markup_eur = base_total_eur * (Decimal("1") + markup / Decimal("100"))
-    extra_uah = Decimal(getattr(order, "extra_service_amount_uah", 0) or 0)
-    total_base_uah = _round_uah_total(base_total_eur * rate + extra_uah)
-    total_with_markup_uah = _round_uah_total(total_with_markup_eur * rate + extra_uah)
+    total_base_uah = _round_uah_total(base_total_eur * rate)
+    total_with_markup_uah = _round_uah_total(total_with_markup_eur * rate)
 
     items_payload = []
     for idx, it in enumerate(order.items.all(), start=1):

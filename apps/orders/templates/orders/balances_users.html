@@ -60,11 +60,9 @@
                 <div class="d-flex flex-wrap gap-2 justify-content-start justify-content-md-end">
                   <a class="btn btn-sm btn-outline-primary" href="{% url 'orders:balances' %}?customer={{ u.id }}">Переглянути</a>
                   <a class="btn btn-sm btn-success" href="{% url 'orders:transaction_create' %}?customer={{ u.id }}">Створити транзакцію</a>
-                  {% with query='customer='|add:u.id|stringformat:"s" %}
-                    <a class="btn btn-sm btn-outline-success" href="{% url 'orders:balances_excel' %}?{{ query }}">Експорт балансу (Excel)</a>
-                    {% with tok=balance_tokens|get_item:u.id %}
-                      <a class="btn btn-sm btn-outline-primary" href="{% url 'orders:balance_public' tok %}" target="_blank">Експорт балансу (сторінка)</a>
-                    {% endwith %}
+                  <a class="btn btn-sm btn-outline-success" href="{% url 'orders:balances_excel' %}?customer={{ u.id }}">Експорт балансу (Excel)</a>
+                  {% with tok=balance_tokens|get_item:u.id %}
+                    <a class="btn btn-sm btn-outline-primary" href="{% url 'orders:balance_public' tok %}" target="_blank">Експорт балансу (сторінка)</a>
                   {% endwith %}
                 </div>
               </div>
