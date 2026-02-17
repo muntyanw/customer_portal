@@ -84,15 +84,34 @@
             <label class="form-label mb-1">№ замовлення</label>
             <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm filter-narrow" placeholder="Наприклад: 123">
           </div>
-          <div class="filter-field">
-            <label class="form-label mb-1">Від дати</label>
-            <input type="date" name="date_from" value="{{ date_from }}" class="form-control form-control-sm filter-narrow">
+          <input type="hidden" name="date_mode" id="dateModeInput" value="{{ date_mode|default:'month' }}">
+          <div class="filter-field d-flex align-items-end me-md-4">
+            <div class="d-flex gap-2 mb-1">
+              <div class="form-check">
+                <input class="form-check-input js-date-mode" type="checkbox" id="dateModeMonth" data-mode="month" {% if date_mode == 'month' %}checked{% endif %}>
+                <label class="form-check-label" for="dateModeMonth">Місяць</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input js-date-mode" type="checkbox" id="dateModeYear" data-mode="year" {% if date_mode == 'year' %}checked{% endif %}>
+                <label class="form-check-label" for="dateModeYear">Рік</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input js-date-mode" type="checkbox" id="dateModeRange" data-mode="range" {% if date_mode == 'range' %}checked{% endif %}>
+                <label class="form-check-label" for="dateModeRange">Діапазон</label>
+              </div>
+            </div>
           </div>
-          <div class="filter-field">
-            <label class="form-label mb-1">До дати</label>
-            <input type="date" name="date_to" value="{{ date_to }}" class="form-control form-control-sm filter-narrow">
+          <div id="dateRangeFields" class="d-flex flex-wrap gap-2 ms-md-5 ps-md-3" {% if date_mode != 'range' %}style="display:none !important"{% endif %}>
+            <div class="filter-field">
+              <label class="form-label mb-1">Від дати</label>
+              <input type="date" name="date_from" value="{{ date_from }}" class="form-control form-control-sm filter-narrow">
+            </div>
+            <div class="filter-field">
+              <label class="form-label mb-1">До дати</label>
+              <input type="date" name="date_to" value="{{ date_to }}" class="form-control form-control-sm filter-narrow">
+            </div>
           </div>
-          <div class="d-flex gap-2 align-items-end">
+          <div class="d-flex gap-2 align-items-end ms-md-5 ps-md-3 mt-2 mt-md-0">
             <button type="submit" class="btn btn-primary btn-sm">Фільтрувати</button>
             {% if list_mode == 'components' %}
               <a href="{% url 'orders:components_list' %}" class="btn btn-secondary btn-sm js-reset-order-filters">Скинути</a>
@@ -137,7 +156,8 @@
             {% endif %}
             <th scope="col">Замовлення</th>
             <th scope="col">Клієнт</th>
-            <th scope="col">Сума, грн</th>
+            <th scope="col">Вартість гурт, грн</th>
+            <th scope="col">Вартість роздріб, грн</th>
             <th scope="col">Статус</th>
             <th scope="col">Дата</th>
             <th scope="col">Дії</th>
@@ -200,6 +220,13 @@
                 {% endif %}
               </td>
               <td>
+                {% if request.user.is_superuser or request.user.id == o.customer_id %}
+                  <div class="fw-semibold">{{ o.retail_total_uah_display|default_if_none:0|floatformat:0 }} грн</div>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
                 {% with badge=status_badges|get_item:o.status|default:"secondary" %}
                   <span class="badge bg-{{ badge }}">{{ o.get_status_display }}</span>
                 {% endwith %}
@@ -254,10 +281,12 @@
                   <a class="btn btn-sm btn-outline-secondary" href="{% if list_mode == 'components' %}{% url 'orders:order_components_builder' o.id %}{% elif list_mode == 'fabrics' %}{% url 'orders:order_fabric_builder' o.id %}{% elif list_mode == 'all' %}{{ order_view_urls|get_item:o.id }}{% else %}{% url 'orders:builder_edit' o.id %}{% endif %}">
                     <i class="bi bi-eye me-1"></i> Переглянути
                   </a>
-                  {% if request.user.is_manager %}
+                  {% if request.user.is_manager or request.user.is_superuser %}
                     <a class="btn btn-sm btn-outline-primary" href="{% url 'orders:workbook_download' o.id %}">
                       <i class="bi bi-file-earmark-excel me-1"></i> Файл
                     </a>
+                  {% endif %}
+                  {% if request.user.is_superuser or request.user.id == o.customer_id %}
                     {% with proposal_page=proposal_page_urls|get_item:o.id %}
                       {% if proposal_page %}
                         <a class="btn btn-sm btn-warning text-dark" href="{{ proposal_page }}" target="_blank">
@@ -390,11 +419,61 @@
       if (filtersForm) {
         const listMode = filtersForm.dataset.listMode || 'default';
         const storageKey = `orderFilters:${listMode}`;
+        const dateModeKey = `orderFiltersDateMode:${listMode}`;
         const collapseKey = `orderFiltersCollapse:${listMode}`;
         const collapseEl = document.getElementById('filtersCollapse');
+        const dateModeInput = document.getElementById('dateModeInput');
+        const modeChecks = Array.from(filtersForm.querySelectorAll('.js-date-mode'));
+        const dateRangeFields = document.getElementById('dateRangeFields');
+        const toIso = (d) => {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${y}-${m}-${day}`;
+        };
+        const applyPresetDates = (mode) => {
+          const dateFromInput = filtersForm.querySelector('input[name="date_from"]');
+          const dateToInput = filtersForm.querySelector('input[name="date_to"]');
+          if (!dateFromInput || !dateToInput) return;
+          const today = new Date();
+          const dateTo = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+          const dateFrom = new Date(dateTo);
+          const days = mode === 'year' ? 365 : 30;
+          dateFrom.setDate(dateFrom.getDate() - days);
+          dateFromInput.value = toIso(dateFrom);
+          dateToInput.value = toIso(dateTo);
+        };
+        const getCurrentMode = () => {
+          const checked = modeChecks.find((el) => el.checked);
+          return checked ? (checked.dataset.mode || 'month') : (dateModeInput?.value || 'month');
+        };
+        const setDateMode = (mode, { applyDates = false } = {}) => {
+          const nextMode = ['month', 'year', 'range'].includes(mode) ? mode : 'month';
+          modeChecks.forEach((el) => {
+            el.checked = (el.dataset.mode === nextMode);
+          });
+          if (dateModeInput) dateModeInput.value = nextMode;
+          if (dateRangeFields) {
+            if (nextMode === 'range') {
+              dateRangeFields.style.removeProperty('display');
+            } else {
+              dateRangeFields.style.setProperty('display', 'none', 'important');
+            }
+          }
+          if (applyDates && nextMode !== 'range') {
+            applyPresetDates(nextMode);
+          }
+        };
         const highlightActive = () => {
           filtersForm.querySelectorAll('select[name], input[name]').forEach((el) => {
-            if (el.value && el.value.toString().trim() !== '') {
+            if (el.name === 'date_mode') {
+              el.classList.remove('filter-active');
+              return;
+            }
+            const isActive = el.type === 'checkbox'
+              ? el.checked
+              : !!(el.value && el.value.toString().trim() !== '');
+            if (isActive) {
               el.classList.add('filter-active');
             } else {
               el.classList.remove('filter-active');
@@ -407,6 +486,7 @@
           filtersForm.querySelectorAll('select[name], input[name]').forEach((el) => {
             data[el.name] = el.value || '';
           });
+          data.date_mode = getCurrentMode();
           return data;
         };
 
@@ -420,18 +500,40 @@
               el.value = data[name] || '';
             }
           });
+          setDateMode((data && data.date_mode) || 'month', { applyDates: false });
         };
 
         const hasQuery = window.location.search && window.location.search.length > 1;
+        let restoredModeWithoutQuery = false;
+        if (!hasQuery) {
+          try {
+            const savedMode = localStorage.getItem(dateModeKey);
+            if (savedMode) {
+              setDateMode(savedMode, { applyDates: false });
+              restoredModeWithoutQuery = true;
+            } else {
+              setDateMode((dateModeInput && dateModeInput.value) || 'month', { applyDates: false });
+            }
+          } catch (e) {}
+        } else {
+          setDateMode((dateModeInput && dateModeInput.value) || 'month', { applyDates: false });
+        }
         if (hasQuery) {
           try {
             localStorage.setItem(storageKey, JSON.stringify(readFields()));
+            localStorage.setItem(dateModeKey, getCurrentMode());
           } catch (e) {}
         } else {
           try {
             const saved = localStorage.getItem(storageKey);
             if (saved) {
               writeFields(JSON.parse(saved));
+              filtersForm.requestSubmit();
+            } else if (restoredModeWithoutQuery) {
+              const mode = getCurrentMode();
+              if (mode !== 'range') {
+                applyPresetDates(mode);
+              }
               filtersForm.requestSubmit();
             }
           } catch (e) {}
@@ -441,12 +543,14 @@
         filtersForm.addEventListener('change', function () {
           try {
             localStorage.setItem(storageKey, JSON.stringify(readFields()));
+            localStorage.setItem(dateModeKey, getCurrentMode());
           } catch (e) {}
           highlightActive();
         });
         filtersForm.addEventListener('submit', function () {
           try {
             localStorage.setItem(storageKey, JSON.stringify(readFields()));
+            localStorage.setItem(dateModeKey, getCurrentMode());
           } catch (e) {}
           highlightActive();
         });
@@ -457,6 +561,19 @@
               localStorage.removeItem(storageKey);
               localStorage.removeItem(collapseKey);
             } catch (e) {}
+          });
+        });
+
+        modeChecks.forEach((el) => {
+          el.addEventListener('change', function () {
+            const mode = this.dataset.mode || 'month';
+            setDateMode(mode, { applyDates: mode !== 'range' });
+            try {
+              localStorage.setItem(dateModeKey, mode);
+              localStorage.setItem(storageKey, JSON.stringify(readFields()));
+            } catch (e) {}
+            highlightActive();
+            filtersForm.requestSubmit();
           });
         });
 

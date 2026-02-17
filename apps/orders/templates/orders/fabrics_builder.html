@@ -114,7 +114,7 @@
           <div class="order-summary-label mb-1">Всього, грн</div>
           <div class="order-summary-value"><span id="fabricsOrderTotalBaseUah">0.00</span></div>
         </div>
-        <div class="d-flex flex-column">
+        <div class="d-flex flex-column financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
           <label class="order-summary-label mb-1" for="orderMarkup">Націнка на роздріб, %</label>
           <input
             type="number"
@@ -126,7 +126,7 @@
             value="{{ order.markup_percent|default:'0'|floatformat:2 }}"
           />
         </div>
-        <div class="d-flex flex-column">
+        <div class="d-flex flex-column financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
           <div class="order-summary-label mb-1">З націнкою</div>
           <div class="order-summary-value"><span id="fabricsOrderTotalUah">0.00</span></div>
         </div>
@@ -148,7 +148,7 @@
       </div>
     </div>
 
-    <div class="row g-2 align-items-end mb-3">
+    <div class="row g-2 align-items-end mb-3 financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
       <div class="col-12 col-md-6">
         <label class="form-label small fw-semibold" for="extraServiceLabel">Додаткова послуга</label>
         <input
@@ -209,7 +209,7 @@
           {% endif %}
         </div>
       {% endif %}
-      {% if proposal_page_url or proposal_excel_url %}
+      {% if can_view_financial_controls and proposal_page_url or can_view_financial_controls and proposal_excel_url %}
         <div class="d-flex flex-wrap gap-2 mt-2">
           {% if proposal_page_url %}
             <a class="btn btn-warning text-dark proposal-link" href="{{ proposal_page_url }}" data-proposal-url="{{ proposal_page_url }}" target="_blank">
@@ -405,6 +405,9 @@
     const paymentShortage = paymentShortageRaw ? parseFloat(paymentShortageRaw.replace(',', '.')) : null
     const paymentShortageOrders = {{ payment_shortage.orders|default:"[]"|safe }}
     const isManager = {{ request.user.is_manager|yesno:"true,false" }}
+    const isStaff = {{ request.user.is_staff|yesno:"true,false" }}
+    const isSuperuser = {{ request.user.is_superuser|yesno:"true,false" }}
+    const currentUserId = {{ request.user.id|default:0 }}
     const isOwner = {{ request.user.id }} === {{ order.customer_id|default:request.user.id }}
     let fabricsData = null;
     const fabricColorsCache = new Map();
@@ -783,6 +786,20 @@
     (async function () {
       try {
         await loadFabricsList();
+        function updateFinancialVisibility() {
+          if (isSuperuser) {
+            $('.financial-only').removeAttr('style');
+            return;
+          }
+          const $customer = $('#fabricsOrderCustomer');
+          if (!$customer.length) return;
+          const selectedId = Number($customer.val() || 0);
+          if (selectedId === currentUserId) {
+            $('.financial-only').removeAttr('style');
+          } else {
+            $('.financial-only').attr('style', 'display:none !important');
+          }
+        }
         $('.eur_rate_at_creation').val(eur_rate);
         if ({{ request.user.is_manager|yesno:"true,false" }} || {{ request.user.is_superuser|yesno:"true,false" }}) {
           $('#fabricsOrderCustomer').select2({
@@ -793,8 +810,10 @@
           $('#fabricsOrderCustomer').on('change', function () {
             const pct = Number($(this).find('option:selected').data('discount') || 0)
             $('#customerDiscountValue').val(pct)
+            updateFinancialVisibility();
             recalcFabricsPrice();
           })
+          updateFinancialVisibility();
         }
 
         if (Array.isArray(builderFabrics) && builderFabrics.length > 0) {

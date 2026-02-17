@@ -248,10 +248,22 @@ def _orders_scope(user):
     return Order.objects.filter(customer=user, deleted=False)
 
 
+def _can_view_financial_controls(user, customer):
+    """Financial controls are visible/editable for superuser or order customer."""
+    return bool(
+        user
+        and user.is_authenticated
+        and (
+            user.is_superuser
+            or (customer and getattr(customer, "id", None) == user.id)
+        )
+    )
+
+
 def _parse_date_range(params):
     """
     Read date_from/date_to from GET params, fallback to last 30 days ending today.
-    Returns (date_from, date_to, date_from_str, date_to_str).
+    Returns (date_from, date_to, date_from_str, date_to_str, date_mode).
     """
     def _parse_flexible_date(value: str):
         raw = (value or "").strip()
@@ -266,6 +278,13 @@ def _parse_date_range(params):
 
     date_from_str = (params.get("date_from") or "").strip()
     date_to_str = (params.get("date_to") or "").strip()
+    date_mode_raw = str(params.get("date_mode") or "").strip().lower()
+    if date_mode_raw in ("month", "year", "range"):
+        date_mode = date_mode_raw
+    elif str(params.get("year_range") or "").strip().lower() in ("1", "true", "on", "yes"):
+        date_mode = "year"
+    else:
+        date_mode = "month"
     date_from = _parse_flexible_date(date_from_str)
     date_to = _parse_flexible_date(date_to_str)
 
@@ -273,12 +292,13 @@ def _parse_date_range(params):
     if not date_to:
         date_to = today
     if not date_from:
-        date_from = date_to - datetime.timedelta(days=30)
+        days = 365 if date_mode == "year" else 30
+        date_from = date_to - datetime.timedelta(days=days)
     # Always return ISO strings for stable frontend values and query params.
     date_from_str = date_from.isoformat()
     date_to_str = date_to.isoformat()
 
-    return date_from, date_to, date_from_str, date_to_str
+    return date_from, date_to, date_from_str, date_to_str, date_mode
 
 
 def _transactions_scope(user):
@@ -326,9 +346,13 @@ def _set_order_totals_uah(orders, current_rate: Decimal):
     for o in orders:
         rate = _order_rate(o, current_rate)
         total_eur = _order_base_total(o)
+        markup_multiplier = Decimal("1") + Decimal(o.markup_percent or 0) / Decimal("100")
+        extra_service_uah = Decimal(getattr(o, "extra_service_amount_uah", 0) or 0)
         o.display_rate = rate
         # Display base order total only (without additional service).
         o.total_uah_display = _round_uah_total(total_eur * rate)
+        # Retail total: with markup and additional service.
+        o.retail_total_uah_display = _round_uah_total((total_eur * rate * markup_multiplier) + extra_service_uah)
     return orders
 
 
@@ -472,7 +496,7 @@ def _build_order_workbook(
             ("Тел.", phone),
             ("ПІБ.", full_name),
             ("Адреса доставки", address),
-            ("", ""),
+            ("Прмітка", order.note or ""),
         ]
     else:
         client_info = [
@@ -1088,7 +1112,7 @@ def order_list(request):
     q = (request.GET.get("q") or "").strip()
     customer_id = (request.GET.get("customer") or "").strip()
     customer_id = (request.GET.get("customer") or "").strip()
-    date_from, date_to, date_from_str, date_to_str = _parse_date_range(request.GET)
+    date_from, date_to, date_from_str, date_to_str, date_mode = _parse_date_range(request.GET)
     balance_user = request.user
     orders_qs = (
         _orders_scope(request.user)
@@ -1145,6 +1169,7 @@ def order_list(request):
         "customer_filter": customer_filter,
         "date_from": date_from_str,
         "date_to": date_to_str,
+        "date_mode": date_mode,
         "customer_options": customers_filter_list,
         "list_mode": "rollers",
         "status_badges": STATUS_BADGES,
@@ -1172,7 +1197,7 @@ def order_components_list(request):
     status_filter = request.GET.get("status") or ""
     customer_filter = request.GET.get("customer") or ""
     q = (request.GET.get("q") or "").strip()
-    date_from, date_to, date_from_str, date_to_str = _parse_date_range(request.GET)
+    date_from, date_to, date_from_str, date_to_str, date_mode = _parse_date_range(request.GET)
     balance_user = request.user
 
     qs = (
@@ -1229,6 +1254,7 @@ def order_components_list(request):
         "customer_filter": customer_filter,
         "date_from": date_from_str,
         "date_to": date_to_str,
+        "date_mode": date_mode,
         "customer_options": customers_filter_list,
         "status_badges": STATUS_BADGES,
         "status_labels": STATUS_LABELS,
@@ -1251,7 +1277,7 @@ def order_fabrics_list(request):
     status_filter = request.GET.get("status") or ""
     customer_filter = request.GET.get("customer") or ""
     q = (request.GET.get("q") or "").strip()
-    date_from, date_to, date_from_str, date_to_str = _parse_date_range(request.GET)
+    date_from, date_to, date_from_str, date_to_str, date_mode = _parse_date_range(request.GET)
     balance_user = request.user
 
     qs = (
@@ -1308,6 +1334,7 @@ def order_fabrics_list(request):
         "customer_filter": customer_filter,
         "date_from": date_from_str,
         "date_to": date_to_str,
+        "date_mode": date_mode,
         "customer_options": customers_filter_list,
         "status_badges": STATUS_BADGES,
         "status_labels": STATUS_LABELS,
@@ -1334,7 +1361,7 @@ def order_all_list(request):
     status_filter = request.GET.get("status") or ""
     customer_filter = request.GET.get("customer") or ""
     q = (request.GET.get("q") or "").strip()
-    date_from, date_to, date_from_str, date_to_str = _parse_date_range(request.GET)
+    date_from, date_to, date_from_str, date_to_str, date_mode = _parse_date_range(request.GET)
     balance_user = request.user
 
     qs = (
@@ -1410,6 +1437,7 @@ def order_all_list(request):
         "customer_filter": customer_filter,
         "date_from": date_from_str,
         "date_to": date_to_str,
+        "date_mode": date_mode,
         "customer_options": customers_filter_list,
         "status_badges": STATUS_BADGES,
         "status_labels": STATUS_LABELS,
@@ -1567,6 +1595,7 @@ def order_builder(request, pk=None):
                 messages.error(request, "Оберіть клієнта для замовлення.")
                 return redirect("orders:builder")
         target_customer = chosen_customer or (order.customer if order else request.user)
+        can_edit_financial = _can_view_financial_controls(request.user, target_customer)
         if order and not chosen_customer:
             discount_pct_val = _normalize_discount_percent(order.discount_percent)
         else:
@@ -1574,7 +1603,11 @@ def order_builder(request, pk=None):
         discount_multiplier, _ = _customer_discount_multiplier(pct=discount_pct_val)
         # Если ордера нет — создаём
         if order is None:
-            markup_percent = _to_decimal(request.POST.get("markup_percent"), default="0")
+            markup_percent = (
+                _to_decimal(request.POST.get("markup_percent"), default="0")
+                if can_edit_financial
+                else Decimal("0")
+            )
             current_rate = get_current_eur_rate()
             order = Order.objects.create(
                 customer=target_customer,
@@ -1595,13 +1628,16 @@ def order_builder(request, pk=None):
             suffix = f" (створено менеджером {manager_label})"
             base_note = (base_note + suffix).strip()
         order.note = base_note
-        order.extra_service_label = (request.POST.get("extra_service_label") or "").strip()
-        extra_service_amount_uah = _to_decimal(request.POST.get("extra_service_amount_uah"), default="0")
+        if can_edit_financial:
+            order.extra_service_label = (request.POST.get("extra_service_label") or "").strip()
+            extra_service_amount_uah = _to_decimal(request.POST.get("extra_service_amount_uah"), default="0")
+        else:
+            extra_service_amount_uah = Decimal(getattr(order, "extra_service_amount_uah", 0) or 0)
 
         # Для менеджера можно добавить присвоение customer
         profile = getattr(request.user, "customerprofile", None)
         org = getattr(profile, "organization", None)
-        update_fields = ["markup_percent", "eur_rate", "total_eur", "eur_rate_at_creation", "note", "extra_service_label", "extra_service_amount_uah", "discount_percent"]
+        update_fields = ["eur_rate", "total_eur", "eur_rate_at_creation", "note", "discount_percent"]
 
         # Чтение всех списков (как раньше)
         systems = request.POST.getlist("system_sheet")
@@ -1735,7 +1771,10 @@ def order_builder(request, pk=None):
                 note=_get(item_notes, idx, "").strip(),
             )
 
-        markup_percent = _to_decimal(request.POST.get("markup_percent"), default=str(order.markup_percent or "0"))
+        if can_edit_financial:
+            markup_percent = _to_decimal(request.POST.get("markup_percent"), default=str(order.markup_percent or "0"))
+        else:
+            markup_percent = Decimal(order.markup_percent or 0)
         eur_rate_value = _to_decimal(
             request.POST.get("eur_rate"),
             default=str(order.eur_rate or get_current_eur_rate()),
@@ -1754,6 +1793,8 @@ def order_builder(request, pk=None):
             order.eur_rate_at_creation = eur_rate_value
         order.total_eur = items_total.quantize(Decimal("0.01"))
         order.discount_percent = discount_pct_val
+        if can_edit_financial:
+            update_fields.extend(["markup_percent", "extra_service_label", "extra_service_amount_uah"])
         if chosen_customer and can_pick_customer:
             order.customer = chosen_customer
             update_fields.append("customer")
@@ -1873,6 +1914,8 @@ def order_builder(request, pk=None):
     customer_discount_percent_js = format(discount_percent, "f")
 
     shortage_ctx = _payment_shortage_context(order)
+    financial_customer = order.customer if order else request.user
+    can_view_financial_controls = _can_view_financial_controls(request.user, financial_customer)
     payment_prompt = request.session.pop("payment_prompt", None)
     proposal_token = _proposal_token(order) if order else None
     proposal_page_url = reverse("orders:proposal_page", args=[proposal_token]) if proposal_token else None
@@ -1894,6 +1937,7 @@ def order_builder(request, pk=None):
         "customers_filter_list": customers_filter_list,
         "customer_discount_percent": discount_percent,
         "customer_discount_percent_js": customer_discount_percent_js,
+        "can_view_financial_controls": can_view_financial_controls,
     })
     
     
@@ -2299,7 +2343,7 @@ def order_list_excel(request):
         date_from_str = date_from.isoformat()
         date_to_str = date_to.isoformat()
     else:
-        date_from, date_to, date_from_str, date_to_str = _parse_date_range(request.GET)
+        date_from, date_to, date_from_str, date_to_str, _ = _parse_date_range(request.GET)
 
     qs = (
         _orders_scope(request.user)
@@ -2560,6 +2604,8 @@ def order_components_builder(request, pk):
             if chosen_customer is None:
                 messages.error(request, "Оберіть клієнта для замовлення.")
                 return redirect("orders:order_components_builder", pk=order.pk)
+        target_customer_for_financial = chosen_customer or order.customer
+        can_edit_financial = _can_view_financial_controls(request.user, target_customer_for_financial)
         components = parse_components_from_post(request.POST)
         base_note = (request.POST.get("note") or "").strip()
         if chosen_customer and can_pick_customer:
@@ -2567,9 +2613,12 @@ def order_components_builder(request, pk):
             suffix = f" (створено менеджером {request.user.email})"
             base_note = (base_note + suffix).strip()
         order.note = base_note
-        order.extra_service_label = (request.POST.get("extra_service_label") or "").strip()
-        order.extra_service_amount_uah = _to_decimal(request.POST.get("extra_service_amount_uah"), default="0").quantize(Decimal("0.01"))
-        markup_percent = _to_decimal(request.POST.get("markup_percent"), default=str(order.markup_percent or "0"))
+        if can_edit_financial:
+            order.extra_service_label = (request.POST.get("extra_service_label") or "").strip()
+            order.extra_service_amount_uah = _to_decimal(request.POST.get("extra_service_amount_uah"), default="0").quantize(Decimal("0.01"))
+            markup_percent = _to_decimal(request.POST.get("markup_percent"), default=str(order.markup_percent or "0"))
+        else:
+            markup_percent = Decimal(order.markup_percent or 0)
         if chosen_customer and can_pick_customer:
             order.customer = chosen_customer
         target_customer = chosen_customer or order.customer
@@ -2618,7 +2667,9 @@ def order_components_builder(request, pk):
             new_status = order.prev_status()
         # Default save keeps current status
 
-        update_fields = ["total_eur", "eur_rate", "markup_percent", "note", "extra_service_label", "extra_service_amount_uah", "discount_percent"]
+        update_fields = ["total_eur", "eur_rate", "note", "discount_percent"]
+        if can_edit_financial:
+            update_fields.extend(["markup_percent", "extra_service_label", "extra_service_amount_uah"])
         if chosen_customer and can_pick_customer:
             update_fields.append("customer")
         order.discount_percent = discount_pct_val
@@ -2681,6 +2732,7 @@ def order_components_builder(request, pk):
         "customers_filter_list": list(
             CustomerProfile.objects.select_related("user").order_by("full_name", "user__email")
         ) if is_manager(request.user) else [],
+        "can_view_financial_controls": _can_view_financial_controls(request.user, order.customer),
     }
 
     return render(request, "orders/components_builder.html", context)
@@ -2709,6 +2761,8 @@ def order_fabric_builder(request, pk):
             if chosen_customer is None:
                 messages.error(request, "Оберіть клієнта для замовлення.")
                 return redirect("orders:order_fabric_builder", pk=order.pk)
+        target_customer_for_financial = chosen_customer or order.customer
+        can_edit_financial = _can_view_financial_controls(request.user, target_customer_for_financial)
 
         base_note = (request.POST.get("note") or "").strip()
         if chosen_customer and can_pick_customer:
@@ -2716,10 +2770,12 @@ def order_fabric_builder(request, pk):
             suffix = f" (створено менеджером {request.user.email})"
             base_note = (base_note + suffix).strip()
         order.note = base_note
-        order.extra_service_label = (request.POST.get("extra_service_label") or "").strip()
-        order.extra_service_amount_uah = _to_decimal(request.POST.get("extra_service_amount_uah"), default="0").quantize(Decimal("0.01"))
-
-        markup_percent = _to_decimal(request.POST.get("markup_percent"), default=str(order.markup_percent or "0"))
+        if can_edit_financial:
+            order.extra_service_label = (request.POST.get("extra_service_label") or "").strip()
+            order.extra_service_amount_uah = _to_decimal(request.POST.get("extra_service_amount_uah"), default="0").quantize(Decimal("0.01"))
+            markup_percent = _to_decimal(request.POST.get("markup_percent"), default=str(order.markup_percent or "0"))
+        else:
+            markup_percent = Decimal(order.markup_percent or 0)
         if chosen_customer and can_pick_customer:
             order.customer = chosen_customer
         target_customer = chosen_customer or order.customer
@@ -2802,7 +2858,9 @@ def order_fabric_builder(request, pk):
         elif action == "prev":
             new_status = order.prev_status()
 
-        update_fields = ["total_eur", "eur_rate", "markup_percent", "note", "extra_service_label", "extra_service_amount_uah", "discount_percent"]
+        update_fields = ["total_eur", "eur_rate", "note", "discount_percent"]
+        if can_edit_financial:
+            update_fields.extend(["markup_percent", "extra_service_label", "extra_service_amount_uah"])
         if chosen_customer and can_pick_customer:
             update_fields.append("customer")
         order.discount_percent = discount_pct_val
@@ -2862,6 +2920,7 @@ def order_fabric_builder(request, pk):
         "customers_filter_list": list(
             CustomerProfile.objects.select_related("user").order_by("full_name", "user__email")
         ) if is_manager(request.user) else [],
+        "can_view_financial_controls": _can_view_financial_controls(request.user, order.customer),
     }
 
     return render(request, "orders/fabrics_builder.html", context)
@@ -3030,8 +3089,9 @@ def order_proposal_page(request, token: str):
     markup_multiplier = Decimal("1") + (markup / Decimal("100"))
     rate_with_markup = Decimal(rate or 0) * markup_multiplier
     total_with_markup_eur = base_total_eur * (Decimal("1") + markup / Decimal("100"))
+    extra_uah = Decimal(getattr(order, "extra_service_amount_uah", 0) or 0)
     total_base_uah = _round_uah_total(base_total_eur * rate)
-    total_with_markup_uah = _round_uah_total(total_with_markup_eur * rate)
+    total_with_markup_uah = _round_uah_total(total_with_markup_eur * rate + extra_uah)
 
     items_payload = []
     for idx, it in enumerate(order.items.all(), start=1):

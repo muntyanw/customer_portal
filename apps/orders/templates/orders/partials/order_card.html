@@ -115,6 +115,8 @@
           <a class="btn btn-sm btn-outline-primary" href="{% url 'orders:workbook_download' order.id %}">
             <i class="bi bi-file-earmark-excel me-1"></i> Файл замовлення
           </a>
+        {% endif %}
+        {% if request.user.is_superuser or request.user.id == order.customer_id %}
           {% with proposal_page=proposal_page_urls|get_item:order.id %}
             {% if proposal_page %}
               <a class="btn btn-sm btn-warning text-dark" href="{{ proposal_page }}" target="_blank">

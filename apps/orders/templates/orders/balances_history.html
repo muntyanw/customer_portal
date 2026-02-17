@@ -57,7 +57,7 @@
         </div>
         <div class="col-auto d-flex flex-wrap gap-2">
           <button type="submit" class="btn btn-primary btn-sm">Фільтрувати</button>
-          <a href="{% url 'orders:balances' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
+          <a href="{% url 'orders:balances' %}" class="btn btn-outline-secondary btn-sm js-reset-balances-filters">Скинути</a>
         </div>
         <div class="col ms-auto d-flex justify-content-end flex-wrap gap-2">
           {% if customer_options %}
@@ -162,6 +162,12 @@
         });
         form.addEventListener('submit', function () {
           try { localStorage.setItem(storageKey, JSON.stringify(readFields())); } catch (e) {}
+        });
+
+        document.querySelectorAll('.js-reset-balances-filters').forEach((btn) => {
+          btn.addEventListener('click', function () {
+            try { localStorage.removeItem(storageKey); } catch (e) {}
+          });
         });
       }
     });

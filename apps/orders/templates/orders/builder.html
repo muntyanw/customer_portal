@@ -140,7 +140,7 @@
           <div class="order-summary-value"><span id="orderTotalBaseUah">0.00</span></div>
         </div>
        
-        <div class="d-flex flex-column">
+        <div class="d-flex flex-column financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
           <label class="order-summary-label mb-1" for="orderMarkup">Націнка на роздріб, %</label>
           <input
             type="number"
@@ -152,7 +152,7 @@
             value="{{ order.markup_percent|default_if_none:0|unlocalize }}"
           />
         </div>
-        <div class="d-flex flex-column">
+        <div class="d-flex flex-column financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
           <div class="order-summary-label mb-1">З націнкою та дод. посл.</div>
           <div class="order-summary-value"><span id="orderTotalUah">0.00</span></div>
         </div>
@@ -174,7 +174,7 @@
       </div>
     </div>
 
-    <div class="row g-2 align-items-end mb-3">
+    <div class="row g-2 align-items-end mb-3 financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
       <div class="col-12 col-md-6">
         <label class="form-label fw-semibold" for="extraServiceLabel">Додаткова послуга</label>
         <input
@@ -241,7 +241,7 @@
           {% endif %}
         </div>
       {% endif %}
-      {% if order %}
+      {% if order and can_view_financial_controls %}
         {% if proposal_page_url or proposal_excel_url %}
           <div class="d-flex flex-wrap gap-2 mt-2">
             {% if proposal_page_url %}
@@ -372,6 +372,9 @@
     const paymentShortage = paymentShortageRaw ? parseFloat(paymentShortageRaw.replace(',', '.')) : null
     const paymentShortageOrders = {{ payment_shortage.orders|default:"[]"|safe }}
     const isManager = {{ request.user.is_manager|yesno:"true,false" }}
+    const isStaff = {{ request.user.is_staff|yesno:"true,false" }}
+    const isSuperuser = {{ request.user.is_superuser|yesno:"true,false" }}
+    const currentUserId = {{ request.user.id|default:0 }}
     const isOwner = {{ request.user.id }} === {{ order.customer_id|default:request.user.id }}
     const eur_rate = parseFloat(
       '{{ builder_rate|default:"0.00" }}'
@@ -554,6 +557,22 @@
         $form.find('input, select, textarea, button').prop('disabled', true)
         $form.find('a').prop('disabled', false) // allow navigation
       }
+      function updateFinancialVisibility() {
+        if (isSuperuser) {
+          $('.financial-only').removeAttr('style')
+          return
+        }
+        const $customer = $('#orderCustomer')
+        if (!$customer.length) {
+          return
+        }
+        const selectedId = Number($customer.val() || 0)
+        if (selectedId === currentUserId) {
+          $('.financial-only').removeAttr('style')
+        } else {
+          $('.financial-only').attr('style', 'display:none !important')
+        }
+      }
       if (isManager || {{ request.user.is_superuser|yesno:"true,false" }}) {
         $('#orderCustomer').select2({
           width: '100%',
@@ -563,8 +582,10 @@
         $('#orderCustomer').on('change', function () {
           const pct = Number($(this).find('option:selected').data('discount') || 0)
           $('#customerDiscountValue').val(pct)
+          updateFinancialVisibility()
           recalcPrice()
         })
+        updateFinancialVisibility()
       }
       enforceReadonly()
       finishInit()
