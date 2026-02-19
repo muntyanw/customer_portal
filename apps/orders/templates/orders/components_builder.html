@@ -102,7 +102,7 @@
               <option value="">— Оберіть клієнта —</option>
               {% for c in customers_filter_list %}
                 <option value="{{ c.user.id }}" {% if order and order.customer_id == c.user.id %}selected{% elif not order and request.user.id == c.user.id %}selected{% endif %}>
-                  {% if c.full_name %}{{ c.full_name }}{% else %}{{ c.user.email }}{% endif %}
+                  {% if c.company_name %}{{ c.company_name }}{% elif c.organization and c.organization.name %}{{ c.organization.name }}{% elif c.full_name %}{{ c.full_name }}{% else %}{{ c.user.email }}{% endif %}
                 </option>
               {% endfor %}
             </select>

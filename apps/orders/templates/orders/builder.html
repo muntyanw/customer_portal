@@ -116,7 +116,7 @@
                   data-discount="{{ c.discount_percent|default_if_none:0|stringformat:'0.2f' }}"
                   {% if order and order.customer_id == c.user.id %}selected{% elif not order and request.user.id == c.user.id %}selected{% endif %}
                 >
-                  {% if c.full_name %}{{ c.full_name }}{% else %}{{ c.user.email }}{% endif %}
+                  {% if c.company_name %}{{ c.company_name }}{% elif c.organization and c.organization.name %}{{ c.organization.name }}{% elif c.full_name %}{{ c.full_name }}{% else %}{{ c.user.email }}{% endif %}
                 </option>
               {% endfor %}
             </select>

@@ -74,7 +74,7 @@
                 <option value="">Усі</option>
                 {% for c in customer_options %}
                   <option value="{{ c.id }}" {% if customer_filter|add:'0' == c.id|add:'0' %}selected{% endif %}>
-                    {% if c.customerprofile.full_name %}{{ c.customerprofile.full_name }}{% else %}{{ c }}{% endif %}
+                    {% if c.customerprofile.company_name %}{{ c.customerprofile.company_name }}{% elif c.customerprofile.organization and c.customerprofile.organization.name %}{{ c.customerprofile.organization.name }}{% elif c.customerprofile.full_name %}{{ c.customerprofile.full_name }}{% else %}{{ c }}{% endif %}
                   </option>
                 {% endfor %}
               </select>
