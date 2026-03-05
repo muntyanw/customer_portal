@@ -1107,7 +1107,7 @@
         return
       }
 
-      if (!fabric || !fabric_color_code || !h || !w) {
+      if (!fabric || !h || !w) {
         renderPriceOptions($card, 0, mergedPreselect)
         return
       }
@@ -1130,15 +1130,7 @@
       const url = link.dataset.proposalUrl || link.href
       if (!url) return
       e.preventDefault()
-      if (isDirty) {
-        const nextUrlInput = document.getElementById('nextUrlInput')
-        const statusActionInput = document.getElementById('statusActionInput')
-        if (nextUrlInput) nextUrlInput.value = url
-        if (statusActionInput) statusActionInput.value = 'save'
-        document.getElementById('orderForm').requestSubmit()
-      } else {
-        window.open(url, '_blank')
-      }
+      window.open(url, '_blank')
     })
 
     function copySelectOptionsFromPrevCard($card, selectClass) {
@@ -1917,14 +1909,12 @@
         const sys = $c.find('.system-sheet').val()
         const sec = $c.find('.table-section').val()
         const fab = $c.find('.fabric').val()
-        const fabc = $c.find('.fabric-color-code').val()
 
-        if (!sys || !sec || !fab || !fabc) {
+        if (!sys || !sec || !fab) {
           ok = false
           if (!sys) $c.find('.system-sheet').addClass('is-invalid')
           if (!sec) $c.find('.table-section').addClass('is-invalid')
           if (!fab) $c.find('.fabric').addClass('is-invalid')
-          if (!fabc) $c.find('.fabric-color-code').addClass('is-invalid')
           if(!$c.find('.control_side').hasClass("d-none")){
               if (!$c.find('.control_side select').val()) $c.find('.control_side select').addClass('is-invalid')
           }

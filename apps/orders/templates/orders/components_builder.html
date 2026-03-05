@@ -596,15 +596,7 @@
         const url = link.dataset.proposalUrl || link.href;
         if (!url) return;
         e.preventDefault();
-        if (isDirty) {
-          const nextUrlInput = document.getElementById('nextUrlInput');
-          const statusActionInput = document.getElementById('statusActionInput');
-          if (nextUrlInput) nextUrlInput.value = url;
-          if (statusActionInput) statusActionInput.value = 'save';
-          document.getElementById('componentsOrderForm').requestSubmit();
-        } else {
-          window.open(url, '_blank');
-        }
+        window.open(url, '_blank');
       });
 
       enforceReadonlyComponents();

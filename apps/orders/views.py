@@ -332,6 +332,23 @@ def _order_base_total(order) -> Decimal:
     ).get("total") or Decimal("0")
     return agg
 
+
+def _customer_delivery_text(profile) -> str:
+    """Human-readable customer delivery method/point for docs."""
+    if not profile:
+        return ""
+    method = ""
+    try:
+        method = profile.get_delivery_method_display() or ""
+    except Exception:
+        method = ""
+    branch = (getattr(profile, "delivery_branch", "") or "").strip()
+    if method and branch:
+        return f"{method}: {branch}"
+    if method:
+        return method
+    return branch
+
 STATUS_LABELS = dict(Order.STATUS_CHOICES)
 STATUS_BADGES = {
     Order.STATUS_QUOTE: "secondary",
@@ -464,7 +481,9 @@ def _build_order_workbook(
     ws = wb.active
     ws.title = "Пропозиція" if client_info_mode == "proposal" else "Замовлення"
     profile = getattr(order.customer, "customerprofile", None)
-    rate = Decimal(order.eur_rate or get_current_eur_rate() or 0)
+    # Use the same rate-selection logic as in the order screens:
+    # quote -> current rate, in_work/ready/shipped -> frozen order rate.
+    rate = _order_rate(order, get_current_eur_rate())
     markup_multiplier = Decimal("1")
     if include_markup:
         markup = Decimal(order.markup_percent or 0)
@@ -476,18 +495,16 @@ def _build_order_workbook(
     center_wrap_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
     def price_uah(eur, qty=1):
-        if not rate:
-            return float(Decimal(eur or 0) * Decimal(qty or 0))
-        return float(
-            (Decimal(eur or 0) * Decimal(qty or 0) * rate * markup_multiplier).quantize(
-                Decimal("1"), rounding=ROUND_UP
-            )
-        )
+        value = Decimal(eur or 0) * Decimal(qty or 0)
+        if rate:
+            value = value * rate * markup_multiplier
+        # Do not ceil per row; keep line values with копійки.
+        return float(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
     row = 1
     full_name = getattr(profile, "full_name", "") or str(order.customer)
     phone = getattr(profile, "phone", "") or ""
-    address = getattr(profile, "trade_address", "") or ""
+    delivery_info = _customer_delivery_text(profile)
     # Keep the top "client info" block always 5 rows for stable formatting (merge C-L for rows 1-5).
     if client_info_mode == "proposal":
         # In proposal we don't show "Клієнт" and "Примітки до замовлення".
@@ -495,7 +512,7 @@ def _build_order_workbook(
             ("", ""),
             ("Тел.", phone),
             ("ПІБ.", full_name),
-            ("Адреса доставки", address),
+            ("Отримання", delivery_info),
             ("Прмітка", order.note or ""),
         ]
     else:
@@ -503,7 +520,7 @@ def _build_order_workbook(
             ("Клієнт", full_name),
             ("Тел.", phone),
             ("ПІБ.", full_name),
-            ("Адреса доставки", address),
+            ("Отримання", delivery_info),
             ("Примітки до замовлення", order.note or ""),
         ]
     for label, val in client_info:
@@ -736,13 +753,14 @@ def _build_order_workbook(
             total_order_uah += Decimal(price_uah_val)
         ws.append([])
 
-    # For proposal Excel include additional service in the grand total only.
+    # Grand total must match order/balance math:
+    # round once from the order-level total in EUR, not from a sum of already-rounded rows.
+    canonical_total_uah = Decimal(_order_base_total(order) or 0) * rate * markup_multiplier
     if client_info_mode == "proposal":
         extra_service_uah = Decimal(getattr(order, "extra_service_amount_uah", 0) or 0)
         if extra_service_uah > 0:
-            total_order_uah += extra_service_uah
-
-    total_cell.value = float(_round_uah_total(total_order_uah)) if total_order_uah else 0
+            canonical_total_uah += extra_service_uah
+    total_cell.value = float(_round_uah_total(canonical_total_uah)) if canonical_total_uah else 0
 
     # center all column B cells
     for r in range(1, ws.max_row + 1):
@@ -3082,7 +3100,7 @@ def order_proposal_page(request, token: str):
     customer_name = getattr(profile, "company_name", "") or getattr(profile, "full_name", "") or str(order.customer)
     customer_phone = getattr(profile, "phone", "") or ""
     customer_full_name = getattr(profile, "full_name", "") or str(order.customer)
-    customer_address = getattr(profile, "trade_address", "") or ""
+    customer_address = _customer_delivery_text(profile)
     rate = _order_rate(order, get_current_eur_rate())
     base_total_eur = _order_base_total(order)
     markup = Decimal(order.markup_percent or 0)
