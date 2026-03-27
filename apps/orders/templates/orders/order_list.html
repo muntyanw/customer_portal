@@ -303,7 +303,7 @@
                     {% endwith %}
                   {% endif %}
                   {% if request.user.is_manager or o.status == o.STATUS_QUOTE %}
-                    <a class="btn btn-sm btn-danger" href="{{ order_delete_url }}">
+                    <a class="btn btn-sm btn-danger" href="{{ order_delete_url }}?next={{ request.get_full_path|urlencode }}">
                       <i class="bi bi-trash me-1"></i> Видалити
                     </a>
                   {% endif %}

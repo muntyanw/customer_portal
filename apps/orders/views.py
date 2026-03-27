@@ -1966,7 +1966,7 @@ def order_delete(request, pk: int):
     Customer — может удалить только свой.
     Manager — может удалить любой.
     """
-    redirect_target = "orders:list"
+    fallback_redirect = "orders:list"
     if is_manager(request.user):
         order = get_object_or_404(Order, pk=pk, deleted=False)
     else:
@@ -1975,11 +1975,22 @@ def order_delete(request, pk: int):
     # Ограничение: клієнт може видаляти лише статус "Прорахунок"
     if (not is_manager(request.user)) and order.status != Order.STATUS_QUOTE:
         messages.warning(request, "Ви можете видаляти лише замовлення в статусі 'Прорахунок'.")
-        return redirect(redirect_target if redirect_target == "orders:list" else reverse(redirect_target))
+        return redirect(fallback_redirect)
 
-    # если есть комплектующие, возвращаем на список комплектующих
+    # Fallback by order type if explicit next is not provided.
     if order.component_items.exists():
-        redirect_target = "orders:components_list"
+        fallback_redirect = "orders:components_list"
+    elif order.fabric_items.exists():
+        fallback_redirect = "orders:fabrics_list"
+
+    next_url = (request.POST.get("next_url") or request.GET.get("next") or "").strip()
+    if next_url and not url_has_allowed_host_and_scheme(
+        next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        next_url = ""
+    redirect_url = next_url or reverse(fallback_redirect)
 
     if request.method == "POST":
         order.deleted = True
@@ -1988,10 +1999,10 @@ def order_delete(request, pk: int):
             order.deleted_by = request.user
         order.save(update_fields=["deleted", "deleted_at", "deleted_by"])
         messages.success(request, "Замовлення переміщено до кошика.")
-        return redirect(redirect_target)
+        return redirect(redirect_url)
 
     # GET → страница підтвердження
-    return render(request, "orders/delete_confirm.html", {"order": order, "soft": True})
+    return render(request, "orders/delete_confirm.html", {"order": order, "soft": True, "next_url": redirect_url})
 
 
 @login_required

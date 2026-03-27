@@ -12,12 +12,15 @@
 
 <form method="post">
     {% csrf_token %}
+    {% if next_url %}
+      <input type="hidden" name="next_url" value="{{ next_url }}">
+    {% endif %}
     {% if restore %}
       <button class="btn btn-primary">Так, відновити</button>
       <a href="{% url 'orders:trash' %}" class="btn btn-secondary">Скасувати</a>
     {% else %}
       <button class="btn btn-danger">Так, перемістити</button>
-      <a href="{% url 'orders:detail' order.id %}" class="btn btn-secondary">Скасувати</a>
+      <a href="{% if next_url %}{{ next_url }}{% else %}{% url 'orders:detail' order.id %}{% endif %}" class="btn btn-secondary">Скасувати</a>
     {% endif %}
 </form>
 {% endblock %}

@@ -158,6 +158,26 @@ def get_fabric_color_codes(fabric_name: str) -> List[str]:
     if not fabric_name:
         return []
 
+    def _norm_name(name: str) -> str:
+        """
+        Normalize fabric name for color lookup:
+        - lowercase
+        - remove status postfixes like 'виводиться', 'вийшла'
+        - trim separators and extra spaces
+        """
+        s = (name or "").strip().lower()
+        if not s:
+            return ""
+        # drop common lifecycle markers that may be appended to a fabric name
+        for marker in ("виводиться", "вийшла", "выводится", "вышла"):
+            pos = s.find(marker)
+            if pos != -1:
+                s = s[:pos]
+        # remove trailing separators around removed markers
+        s = s.strip(" -–—()[]")
+        s = " ".join(s.split())
+        return s
+
     values = _get_fabric_colors_values_with_cache()
     if not values:
         return []
@@ -179,11 +199,13 @@ def get_fabric_color_codes(fabric_name: str) -> List[str]:
     if color_col_idx is None:
         color_col_idx = 2
 
-    # шукаємо рядок, де A == fabric_name (без регістру)
+    target_norm = _norm_name(fabric_name)
+
+    # шукаємо рядок, де A == fabric_name (після нормалізації)
     target_row = None
     for row in data_rows:
         name_cell = row[0] if len(row) > 0 else ""
-        if isinstance(name_cell, str) and name_cell.strip().lower() == fabric_name.lower():
+        if isinstance(name_cell, str) and _norm_name(name_cell) == target_norm:
             target_row = row
             break
 
