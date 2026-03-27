@@ -130,6 +130,11 @@
               {{ form.delivery_branch|add_class:"form-control form-control-lg" }}
               {% if form.delivery_branch.errors %}<div class="invalid-feedback d-block">{{ form.delivery_branch.errors|striptags }}</div>{% endif %}
             </div>
+            <div class="col-12 d-none" id="deliveryAddressField">
+              <label class="form-label fw-semibold">Адреса доставки</label>
+              {{ form.delivery_address|add_class:"form-control form-control-lg" }}
+              {% if form.delivery_address.errors %}<div class="invalid-feedback d-block">{{ form.delivery_address.errors|striptags }}</div>{% endif %}
+            </div>
             <div class="col-12">
               <label class="form-label fw-semibold">Примітка</label>
               {{ form.note|add_class:"form-control" }}
@@ -222,15 +227,22 @@
 
       const methodSelect = document.getElementById('id_delivery_method');
       const branchField = document.getElementById('deliveryBranchField');
+      const addressField = document.getElementById('deliveryAddressField');
       const contactsContainer = document.getElementById('contactsContainer');
       const addContactBtn = document.getElementById('addContactBtn');
       const totalForms = document.getElementById('id_contacts-TOTAL_FORMS');
       const emptyIndex = () => parseInt(totalForms.value || '0', 10);
 
       function toggleBranchField() {
-        if (!methodSelect || !branchField) return;
-        const show = methodSelect.value === 'nova_poshta';
-        branchField.classList.toggle('d-none', !show);
+        if (!methodSelect) return;
+        const showBranch = methodSelect.value === 'nova_poshta';
+        const showAddress = methodSelect.value === 'address_kyiv';
+        if (branchField) {
+          branchField.classList.toggle('d-none', !showBranch);
+        }
+        if (addressField) {
+          addressField.classList.toggle('d-none', !showAddress);
+        }
       }
 
       function bindRemove(btn) {

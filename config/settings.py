@@ -176,6 +176,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "apps.accounts.context_processors.roles",
                 "apps.core.context_processors.news_unread",
+                "apps.core.context_processors.resource_links",
                 "apps.orders.context_processors.currency_rate",
                 "apps.orders.context_processors.user_balance",
             ],

@@ -5,7 +5,7 @@
 {% endblock %}
 
 {% block dashboard_heading %}
-  Комплектуючі, замовлення №{{ order.id|default:'null' }}
+  Комплектуючі до тк. рол., замовлення №{{ order.id|default:'null' }}
 {% endblock %}
 
 {% block head_extra %}
@@ -191,7 +191,7 @@
     <div id="componentsContainer" class="d-flex flex-column gap-3"></div>
 
     <div class="d-grid mt-2">
-      <button type="button" class="btn btn-outline-primary" id="addComponentRow">
+      <button type="button" class="btn btn-primary" id="addComponentRow">
         <i class="bi bi-plus-lg me-1"></i> Додати комплектуючу
       </button>
     </div>
@@ -643,7 +643,7 @@
       return money(eurToUahRaw(x));
     }
     function uahTotal(x) {
-      return String(Math.ceil(eurToUahRaw(x)));
+      return String(Math.round(eurToUahRaw(x)));
     }
 
     function getCsrf() {
@@ -874,8 +874,8 @@
       const withMarkupUah = eurToUahRaw(sumWithMarkup);
 
       $('#componentsOrderTotal').text(money(sumTotal));
-      $('#componentsOrderTotalBaseUah').text(String(Math.ceil(baseUah + extraServiceUah)));
-      $('#componentsOrderTotalUah').text(String(Math.ceil(withMarkupUah + extraServiceUah)));
+      $('#componentsOrderTotalBaseUah').text(String(Math.round(baseUah + extraServiceUah)));
+      $('#componentsOrderTotalUah').text(String(Math.round(withMarkupUah + extraServiceUah)));
     }
 
     // ---------- Add / remove rows ----------

@@ -45,6 +45,7 @@ class ProfileForm(forms.Form):
     trade_address = forms.CharField(label="Адреса торгової точки", required=False)
     delivery_method = forms.ChoiceField(label="Спосіб доставки", required=True, choices=CustomerProfile.DELIVERY_CHOICES)
     delivery_branch = forms.CharField(label="Вантажне відділення (від 200кг)", required=False)
+    delivery_address = forms.CharField(label="Адреса доставки", required=False)
     note = forms.CharField(label="Примітка", required=False, widget=forms.Textarea(attrs={"rows": 3}))
     discount_percent = forms.DecimalField(label="Знижка, %", max_digits=5, decimal_places=2, required=False, min_value=-100, max_value=100)
     credit_allowed = forms.BooleanField(label="Кредит дозволено", required=False)
@@ -76,6 +77,7 @@ class ProfileForm(forms.Form):
         self.fields["trade_address"].initial = self.profile_instance.trade_address
         self.fields["delivery_method"].initial = self.profile_instance.delivery_method
         self.fields["delivery_branch"].initial = self.profile_instance.delivery_branch
+        self.fields["delivery_address"].initial = getattr(self.profile_instance, "delivery_address", "")
         self.fields["note"].initial = self.profile_instance.note
         self.fields["discount_percent"].initial = self.profile_instance.discount_percent
         self.fields["credit_allowed"].initial = self.profile_instance.credit_allowed
@@ -142,6 +144,7 @@ class ProfileForm(forms.Form):
         self.profile_instance.trade_address = self.cleaned_data.get("trade_address", "")
         self.profile_instance.delivery_method = self.cleaned_data.get("delivery_method", "")
         self.profile_instance.delivery_branch = self.cleaned_data.get("delivery_branch", "")
+        self.profile_instance.delivery_address = self.cleaned_data.get("delivery_address", "")
         self.profile_instance.note = self.cleaned_data.get("note", "")
         if "credit_allowed" in self.cleaned_data:
             self.profile_instance.credit_allowed = self.cleaned_data.get("credit_allowed", False)
@@ -168,8 +171,11 @@ class ProfileForm(forms.Form):
                 self.add_error("password2", "Паролі не співпадають")
         method = cleaned.get("delivery_method")
         branch = (cleaned.get("delivery_branch") or "").strip()
+        address = (cleaned.get("delivery_address") or "").strip()
         if method == CustomerProfile.DELIVERY_NP and not branch:
             self.add_error("delivery_branch", "Вкажіть вантажне відділення для Нової Пошти.")
+        if method == CustomerProfile.DELIVERY_ADDRESS and not address:
+            self.add_error("delivery_address", "Вкажіть адресу доставки.")
         return cleaned
 
 

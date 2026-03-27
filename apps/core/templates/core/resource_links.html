@@ -1,0 +1,41 @@
+{% extends "core/dashboard_base.html" %}
+
+{% block dashboard_title %}{{ page_title }}{% endblock %}
+{% block dashboard_heading %}{{ page_heading }}{% endblock %}
+
+{% block dashboard_content %}
+  <div class="card shadow-sm mb-3">
+    <div class="card-body">
+      <div class="fw-semibold mb-2">Як змінювати посилання самостійно</div>
+      <div class="text-muted mb-2">
+        Відредагуйте список <code>{{ links_var_name }}</code> у файлі:
+      </div>
+      <div class="mb-2">
+        [resource_links.py]({{ links_file_path }})
+      </div>
+      <div class="small text-muted">
+        Формат елемента: <code>{"title": "...", "url": "...", "description": "..."}</code>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-body">
+      {% if links %}
+        <div class="list-group list-group-flush">
+          {% for item in links %}
+            <a href="{{ item.url }}" target="_blank" rel="noopener noreferrer" class="list-group-item list-group-item-action">
+              <div class="fw-semibold">{{ item.title }}</div>
+              {% if item.description %}
+                <div class="small text-muted">{{ item.description }}</div>
+              {% endif %}
+              <div class="small mt-1">{{ item.url }}</div>
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="text-muted">Посилання поки не додані.</div>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}

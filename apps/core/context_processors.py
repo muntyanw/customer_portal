@@ -1,4 +1,5 @@
 from .models import News
+from .link_data.resource_links import TECHNICAL_INFO_LINKS, VIDEO_LINKS
 
 
 def news_unread(request):
@@ -17,4 +18,17 @@ def news_unread(request):
     return {
         "news_unread": unread_count > 0,
         "news_unread_count": unread_count,
+    }
+
+
+def resource_links(request):
+    technical_info_url = ""
+    video_url = ""
+    if TECHNICAL_INFO_LINKS:
+        technical_info_url = (TECHNICAL_INFO_LINKS[0].get("url") or "").strip()
+    if VIDEO_LINKS:
+        video_url = (VIDEO_LINKS[0].get("url") or "").strip()
+    return {
+        "technical_info_url": technical_info_url,
+        "video_url": video_url,
     }

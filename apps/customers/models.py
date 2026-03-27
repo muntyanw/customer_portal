@@ -31,6 +31,7 @@ class CustomerProfile(models.Model):
     trade_address = models.CharField(max_length=255, blank=True, verbose_name="Адреса торгової точки")
     delivery_method = models.CharField(max_length=32, blank=True, choices=DELIVERY_CHOICES, default="")
     delivery_branch = models.CharField(max_length=255, blank=True, verbose_name="Вантажне відділення (від 200кг)")
+    delivery_address = models.CharField(max_length=255, blank=True, verbose_name="Адреса доставки")
     note = models.TextField(blank=True, verbose_name="Примітка")
     avatar = models.ImageField(upload_to="avatars/", blank=True, null=True)
     credit_allowed = models.BooleanField(default=False)

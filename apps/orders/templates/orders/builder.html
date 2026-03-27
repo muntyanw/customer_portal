@@ -209,7 +209,7 @@
     <div id="itemsContainer" class="d-flex flex-column gap-3"></div>
 
     <div class="d-grid mt-2">
-      <button type="button" class="btn btn-outline-primary" id="addRow"><i class="bi bi-plus-lg me-1"></i> Додати позицію</button>
+      <button type="button" class="btn btn-primary" id="addRow"><i class="bi bi-plus-lg me-1"></i> Додати позицію</button>
     </div>
 
     <!-- Підсумок по замовленню -->
@@ -469,7 +469,7 @@
       return money(eurToUahRaw(x))
     }
     function uahTotal(x) {
-      return String(Math.ceil(eurToUahRaw(x)))
+      return String(Math.round(eurToUahRaw(x)))
     }
 
     // UA: Записуємо курс, який піде на бекенд
@@ -731,6 +731,12 @@
 
       // все дополнительные опции (карточки + строки в таблице)
       removePriceOptions($card)
+      priceOptionsConfig.forEach((option) => {
+        const optionName = option.key
+        const qtyName = optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
+        $card.find(`input[name="${optionName}"]`).val('0')
+        $card.find(`input[name="${qtyName}"]`).val('0')
+      })
 
       // пересчёт общего итога
       recalcPrice()
@@ -1516,9 +1522,9 @@
       const baseUah = eurToUahRaw(sumTotal)
       const withMarkupUah = eurToUahRaw(sumWithMarkup)
 
-      $('#orderTotalBaseUah').text(String(Math.ceil(baseUah)))
+      $('#orderTotalBaseUah').text(String(Math.round(baseUah)))
       $('#orderTotal').text(money(sumTotal)) // hidden EUR base value for backend
-      $('#orderTotalUah').text(String(Math.ceil(withMarkupUah + extraServiceUah)))
+      $('#orderTotalUah').text(String(Math.round(withMarkupUah + extraServiceUah)))
       $('#orderTotalInput').val(money(sumTotal))
     }
 
@@ -1534,8 +1540,9 @@
       const $el = $(el)
       const $card = $el.closest('.item-card')
       const $block = $el.closest('.op-card')
-      const $hidden = $block.find('.price-hidden')
-      const $hiddenQty = $block.find('.qty-hidden')
+      const qtyName = optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
+      const $hidden = $card.find(`input[name="${optionName}"]`)
+      const $hiddenQty = $card.find(`input[name="${qtyName}"]`)
       const $blockValQty = $block.find('.option-qty-value')
       const $buttons = $block.find('.qty-button')
       const labelText = $block.find('.option-title').text()
@@ -1608,8 +1615,9 @@
       if (!optionPrice && unitEurData) {
         optionPrice = unitEurData
       }
-      const $hidden = $block.find('.price-hidden')
-      const $hiddenQty = $block.find('.qty-hidden')
+      const qtyName = optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
+      const $hidden = $card.find(`input[name="${optionName}"]`)
+      const $hiddenQty = $card.find(`input[name="${qtyName}"]`)
       const $blockValQty = $block.find('.option-qty-value')
       const labelText = $block.find('.option-title').text()
       const gb_width_mm = Number($card.find('.gb_width_mm').val() || 0)
@@ -1731,10 +1739,7 @@
             + `</div>`
         }
 
-        htmlPriceOption +=
-          `<input class="price-hidden" type="hidden" name="${optionName}" value="0" />`
-          + `<input class="qty-hidden" type="hidden" name="${optionQtyName}" value="${optionQty}" />`
-          + `</div>`
+        htmlPriceOption += `</div>`
 
         $card.find('.op-card-list').append(htmlPriceOption)
       } else {
@@ -1855,6 +1860,25 @@
       $card.find('.surcharge-uah').text('0.00')
 
       $card.find('.gb_width_mm').val((Number(preSelectsPriceOptions.gb_width_mm || data?.gb_width_mm || 0)))
+
+      const availableOptionNames = new Set()
+      priceOptionsConfig.forEach((option) => {
+        const optionName = option.key
+        const price = preSelectsPriceOptions[optionName] ?? (data ? data[optionName] : undefined)
+        if (Number(price || 0) > 0) {
+          availableOptionNames.add(optionName)
+        }
+      })
+      $card.find('.op-card.price-option-card').each(function () {
+        const $block = $(this)
+        const optionName = ($block.attr('class').match(/op-card\s+(\S+)/) || [])[1] || ''
+        if (!optionName || availableOptionNames.has(optionName)) return
+        const optionQtyName = optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
+        $card.find(`input[name="${optionName}"]`).val('0')
+        $card.find(`input[name="${optionQtyName}"]`).val('0')
+        $card.find('.price-options-manifest .' + optionName + '-row').remove()
+        $block.remove()
+      })
 
       priceOptionsConfig.forEach((option) => {
         const optionName = option.key

@@ -10,4 +10,6 @@ urlpatterns = [
     path("news/new/", views.news_create, name="news_create"),
     path("news/<int:pk>/edit/", views.news_edit, name="news_edit"),
     path("news/<int:pk>/ack/", views.news_acknowledge, name="news_ack"),
+    path("technical-info/", views.technical_info_links, name="technical_info"),
+    path("videos/", views.video_links, name="videos"),
 ]

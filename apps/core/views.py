@@ -2,9 +2,11 @@ from django import forms
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
+from pathlib import Path
 
 from apps.accounts.roles import is_manager
 from .models import News, NewsAcknowledgement
+from .link_data.resource_links import TECHNICAL_INFO_LINKS, VIDEO_LINKS
 
 
 class NewsForm(forms.ModelForm):
@@ -89,3 +91,35 @@ def news_acknowledge(request, pk: int):
     news = get_object_or_404(News, pk=pk, is_active=True)
     NewsAcknowledgement.objects.get_or_create(news=news, user=request.user)
     return redirect("core:dashboard")
+
+
+@login_required
+def technical_info_links(request):
+    links_file = Path(__file__).resolve().parent / "link_data" / "resource_links.py"
+    return render(
+        request,
+        "core/resource_links.html",
+        {
+            "page_title": "Технічна інформація",
+            "page_heading": "Технічна інформація",
+            "links": TECHNICAL_INFO_LINKS,
+            "links_file_path": str(links_file),
+            "links_var_name": "TECHNICAL_INFO_LINKS",
+        },
+    )
+
+
+@login_required
+def video_links(request):
+    links_file = Path(__file__).resolve().parent / "link_data" / "resource_links.py"
+    return render(
+        request,
+        "core/resource_links.html",
+        {
+            "page_title": "Відео",
+            "page_heading": "Відео",
+            "links": VIDEO_LINKS,
+            "links_file_path": str(links_file),
+            "links_var_name": "VIDEO_LINKS",
+        },
+    )

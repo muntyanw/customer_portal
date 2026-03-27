@@ -24,7 +24,7 @@ from .models import (
 from apps.customers.models import CustomerProfile
 from apps.accounts.roles import is_manager
 import json
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 from django.contrib.admin.views.decorators import staff_member_required
 from django.conf import settings
@@ -367,7 +367,7 @@ def _order_product_category(order):
 def _order_product_category_label(order):
     category = _order_product_category(order)
     if category == "components":
-        return "Комплектуючі"
+        return "Комплектуючі до тк. рол."
     if category == "fabrics":
         return "Тканина"
     return "Ролети"
@@ -509,8 +509,8 @@ def _order_rate(order, current_rate: Decimal) -> Decimal:
     return Decimal(current_rate or 0)
 
 def _round_uah_total(value: Decimal) -> Decimal:
-    # Округлюємо завжди вгору (ceil) для узгодження з фронтом
-    return Decimal(value or 0).quantize(Decimal("1"), rounding=ROUND_UP)
+    # Standard mathematical rounding: 0.49 down, 0.50 up.
+    return Decimal(value or 0).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
 
 def _order_base_total(order) -> Decimal:
@@ -537,11 +537,14 @@ def _customer_delivery_text(profile) -> str:
     except Exception:
         method = ""
     branch = (getattr(profile, "delivery_branch", "") or "").strip()
+    address = (getattr(profile, "delivery_address", "") or "").strip()
+    if getattr(profile, "delivery_method", "") == CustomerProfile.DELIVERY_ADDRESS and address:
+        return f"{method}: {address}" if method else address
     if method and branch:
         return f"{method}: {branch}"
     if method:
         return method
-    return branch
+    return branch or address
 
 STATUS_LABELS = dict(Order.STATUS_CHOICES)
 STATUS_BADGES = {
@@ -968,7 +971,7 @@ def _build_order_workbook(
         total_order_uah += total_item_uah
 
     if order.component_items.exists():
-        ws.append(["", "Комплектуючі"])
+        ws.append(["", "Комплектуючі до тк. рол."])
         ws.append(["", "Найменування", "Колір", "Од. вим", "К-сть", "Ціна, грн"])
         for comp in order.component_items.all():
             price_uah_val = price_uah(comp.price_eur, comp.quantity)
@@ -2746,7 +2749,7 @@ def order_list_excel(request):
         )
         phone = getattr(profile, "phone", "") if profile else ""
         if o.component_items.exists():
-            order_type = "Комплектуючі"
+            order_type = "Комплектуючі до тк. рол."
         elif o.fabric_items.exists():
             order_type = "Тканина"
         else:

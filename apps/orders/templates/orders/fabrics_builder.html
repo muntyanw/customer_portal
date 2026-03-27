@@ -427,7 +427,7 @@
       return money(eurToUahRaw(x));
     }
     function uahTotal(x) {
-      return String(Math.ceil(eurToUahRaw(x)));
+      return String(Math.round(eurToUahRaw(x)));
     }
 
     function normalizeNumber(val, fallback = 0) {
@@ -577,8 +577,8 @@
       const unitTotal = (unit + cutPrice) * discountMultiplier;
       const total = unitTotal * qty;
 
-      const unitUah = Math.ceil(eurToUahRaw(unitTotal));
-      const totalUah = Math.ceil(eurToUahRaw(total));
+      const unitUah = Math.round(eurToUahRaw(unitTotal));
+      const totalUah = Math.round(eurToUahRaw(total));
       $card.find('.unit-price-uah').text(String(unitUah));
       $card.find('.item-total-uah').text(String(totalUah));
       $card.find('.item-total-uah-input').val(String(totalUah));
@@ -602,9 +602,9 @@
       const withMarkupUah = eurToUahRaw(sumWithMarkup);
 
       $('#fabricsOrderTotal').text(money(sumTotal));
-      $('#fabricsCutTotalUah').text(String(Math.ceil(eurToUahRaw(cutTotal))));
-      $('#fabricsOrderTotalBaseUah').text(String(Math.ceil(baseUah + extraServiceUah)));
-      $('#fabricsOrderTotalUah').text(String(Math.ceil(withMarkupUah + extraServiceUah)));
+      $('#fabricsCutTotalUah').text(String(Math.round(eurToUahRaw(cutTotal))));
+      $('#fabricsOrderTotalBaseUah').text(String(Math.round(baseUah + extraServiceUah)));
+      $('#fabricsOrderTotalUah').text(String(Math.round(withMarkupUah + extraServiceUah)));
     }
 
     function buildPaymentMessage() {
