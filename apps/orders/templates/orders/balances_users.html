@@ -42,8 +42,10 @@
           <div class="border-bottom">
             <div class="row g-3 align-items-center px-3 py-3">
               <div class="col-12 col-md">
-                <div class="fw-semibold">{{ profile.full_name|default:u.email }}</div>
-                {% if profile.company_name %}<div class="text-muted small">{{ profile.company_name }}</div>{% endif %}
+                <div class="fw-semibold text-uppercase">{% firstof profile.company_name profile.organization.name profile.full_name u.email %}</div>
+                {% if profile.full_name and profile.full_name != profile.company_name %}
+                  <div class="text-muted small">{{ profile.full_name }}</div>
+                {% endif %}
               </div>
               <div class="col-12 col-md">
                 {{ u.email|default:"—" }}

@@ -25,7 +25,10 @@
               </div>
               <div class="col-12 col-md">
                 {% with profile=tx.customer.customerprofile %}
-                  {{ profile.full_name|default:tx.customer.email }}
+                  <div class="fw-semibold">{% firstof profile.company_name profile.organization.name profile.full_name tx.customer.email %}</div>
+                  {% if profile.full_name and profile.full_name != profile.company_name %}
+                    <div class="text-muted small">{{ profile.full_name }}</div>
+                  {% endif %}
                 {% endwith %}
               </div>
               <div class="col-6 col-md">

@@ -1,0 +1,31 @@
+{% extends "core/dashboard_base.html" %}
+
+{% block dashboard_title %}Видалення клієнта{% endblock %}
+{% block dashboard_heading %}Видалення клієнта{% endblock %}
+
+{% block dashboard_content %}
+  <div class="row justify-content-center">
+    <div class="col-12 col-lg-6">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body p-4">
+          <h2 class="h5 mb-3">Підтвердьте видалення</h2>
+          <p class="mb-3">
+            Ви дійсно хочете видалити кабінет клієнта
+            <strong>{% firstof profile.company_name profile.full_name target_user.email %}</strong>?
+          </p>
+          {% if profile.full_name and profile.full_name != profile.company_name %}
+            <div class="text-muted mb-3">Контактна особа: {{ profile.full_name }}</div>
+          {% endif %}
+          <div class="alert alert-warning mb-4">
+            Користувача буде переміщено до кошика. Обліковий запис зникне зі списків і не зможе увійти, але його можна буде відновити з кошика.
+          </div>
+          <form method="post" class="d-flex gap-2">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger">Видалити</button>
+            <a href="{% url 'accounts:clients_list' %}" class="btn btn-outline-secondary">Скасувати</a>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

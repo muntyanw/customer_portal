@@ -179,7 +179,7 @@
     <div id="fabricsContainer" class="d-flex flex-column gap-3"></div>
 
     <div class="d-grid mt-2">
-      <button type="button" class="btn btn-outline-primary" id="addFabricRow">
+      <button type="button" class="btn btn-primary" id="addFabricRow">
         <i class="bi bi-plus-lg me-1"></i> Додати тканину
       </button>
     </div>
@@ -322,6 +322,12 @@
             </select>
           </div>
           <div class="col-12 col-lg-1">
+            <label class="form-label small mb-1">Номер тканини</label>
+            <select class="form-select form-select-sm fabric-color-code" name="fabric_color_code" disabled>
+              <option value="" selected disabled>—</option>
+            </select>
+          </div>
+          <div class="col-12 col-lg-1">
             <label class="form-label small mb-1">Ширина рулону, мм</label>
             <input type="text" class="form-control form-control-sm text-end roll-width" readonly disabled />
           </div>
@@ -336,12 +342,6 @@
           <div class="col-12 col-lg-1">
             <label class="form-label small mb-1">Порізка, грн/відріз</label>
             <input type="text" class="form-control form-control-sm text-end cut-price-uah" readonly disabled />
-          </div>
-          <div class="col-12 col-lg-1">
-            <label class="form-label small mb-1">Колір</label>
-            <select class="form-select form-select-sm fabric-color-code" name="fabric_color_code" disabled>
-              <option value="" selected disabled>—</option>
-            </select>
           </div>
           <div class="col-12 col-lg-1">
             <label class="form-label small mb-1">Ширина, мм</label>
@@ -481,6 +481,21 @@
       }
       $sel.prop('disabled', false);
       $sel.trigger('change');
+    }
+
+    function readFabricCardValues($card) {
+      if (!$card || !$card.length) return null;
+      return {
+        fabric_name: $card.find('.fabric-name').val() || '',
+        fabric_color_code: $card.find('.fabric-color-code').val() || '',
+        width_mm: $card.find('.fabric-width').val() || '',
+        height_mm: $card.find('.fabric-height').val() || '',
+        quantity: $card.find('.fabric-qty').val() || '1',
+        roll_width_mm: $card.find('.roll-width-input').val() || '',
+        included_height_mm: $card.find('.included-height-input').val() || '',
+        price_eur_mp: $card.find('.price-eur-mp-input').val() || '',
+        cut_price_eur: $card.find('.cut-price-input').val() || '',
+      };
     }
 
     function fabricItemTemplate(index) {
@@ -694,7 +709,13 @@
     });
 
     $('#addFabricRow').on('click', async function () {
-      await addFabricRowWithData(null);
+      const $prev = $('#fabricsContainer').find('.fabric-card').last();
+      const prevVals = readFabricCardValues($prev);
+      const initial = prevVals && prevVals.fabric_name ? {
+        ...prevVals,
+        quantity: 1,
+      } : null;
+      await addFabricRowWithData(initial);
     });
 
     $('#fabricsContainer').on('click', '.remove-row', function () {
@@ -750,15 +771,19 @@
       $cards.each(function () {
         const $c = $(this);
         const name = $c.find('.fabric-name').val();
+        const color = $c.find('.fabric-color-code').val();
         const width = normalizeNumber($c.find('.fabric-width').val(), 0);
         const height = normalizeNumber($c.find('.fabric-height').val(), 0);
-        if (!name || width <= 0 || height <= 0) {
+        const colorRequired = $c.find('.fabric-color-code option').length > 1;
+        if (!name || (colorRequired && !color) || width <= 0 || height <= 0) {
           ok = false;
           if (!name) $c.find('.fabric-name').addClass('is-invalid');
+          if (colorRequired && !color) $c.find('.fabric-color-code').next('.select2').find('.select2-selection').addClass('is-invalid');
           if (width <= 0) $c.find('.fabric-width').addClass('is-invalid');
           if (height <= 0) $c.find('.fabric-height').addClass('is-invalid');
         } else {
           $c.find('.fabric-name, .fabric-width, .fabric-height').removeClass('is-invalid');
+          $c.find('.fabric-color-code').next('.select2').find('.select2-selection').removeClass('is-invalid');
         }
       });
       if (!ok) {

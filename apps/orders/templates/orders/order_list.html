@@ -167,7 +167,7 @@
           {% for o in orders %}
             {% url 'orders:update_status_preview' o.id as send_to_work_url %}
             {% url 'orders:delete' o.id as order_delete_url %}
-            <tr>
+            <tr data-order-row="{{ o.id }}">
               {% if show_bulk_select %}
                 <td>
                   {% if o.status == o.STATUS_QUOTE %}
@@ -202,9 +202,12 @@
                   {% with profile=o.customer.customerprofile %}
                     <div class="fw-semibold">
                       <a href="{% url 'accounts:profile_other' o.customer.id %}">
-                        {% if profile.full_name %}{{ profile.full_name }}{% else %}{{ o.customer }}{% endif %}
+                        {% firstof profile.company_name profile.organization.name profile.full_name o.customer.email %}
                       </a>
                     </div>
+                    {% if profile.full_name and profile.full_name != profile.company_name %}
+                      <div class="small text-muted">{{ profile.full_name }}</div>
+                    {% endif %}
                     {% if profile.phone %}
                       <div class="small text-muted">{{ profile.phone }}</div>
                     {% endif %}
@@ -226,7 +229,7 @@
                   <span class="text-muted">—</span>
                 {% endif %}
               </td>
-              <td>
+              <td data-order-status-cell>
                 {% with badge=status_badges|get_item:o.status|default:"secondary" %}
                   <span class="badge bg-{{ badge }}">{{ o.get_status_display }}</span>
                 {% endwith %}
@@ -234,8 +237,9 @@
               <td>{{ o.created_at|date:"d.m.Y H:i" }}</td>
               <td>
                 <div class="d-flex flex-wrap gap-1">
+                  <span data-order-controls class="d-flex flex-wrap gap-1">
                   {% if send_to_work_url and o.status == o.STATUS_QUOTE %}
-                    <form method="post" action="{{ send_to_work_url }}" class="d-inline">
+                    <form method="post" action="{{ send_to_work_url }}" class="d-inline js-status-form">
                       {% csrf_token %}
                       <input type="hidden" name="status_action" value="to_work">
                       <button
@@ -251,7 +255,7 @@
                   {% if request.user.is_manager %}
                     {% with prev=o.prev_status %}
                       {% if prev %}
-                        <form method="post" action="{{ send_to_work_url }}" class="d-inline">
+                        <form method="post" action="{{ send_to_work_url }}" class="d-inline js-status-form">
                           {% csrf_token %}
                           <input type="hidden" name="status_action" value="prev">
                           {% with badge=status_badges|get_item:prev|default:"secondary" %}
@@ -265,7 +269,7 @@
                     {% if o.status != o.STATUS_QUOTE %}
                       {% with nxt=o.next_status %}
                         {% if nxt %}
-                          <form method="post" action="{{ send_to_work_url }}" class="d-inline">
+                          <form method="post" action="{{ send_to_work_url }}" class="d-inline js-status-form">
                             {% csrf_token %}
                             <input type="hidden" name="status_action" value="next">
                             {% with badge=status_badges|get_item:nxt|default:"secondary" %}
@@ -278,6 +282,7 @@
                       {% endwith %}
                     {% endif %}
                   {% endif %}
+                  </span>
                   <a class="btn btn-sm btn-outline-secondary" href="{% if list_mode == 'components' %}{% url 'orders:order_components_builder' o.id %}{% elif list_mode == 'fabrics' %}{% url 'orders:order_fabric_builder' o.id %}{% elif list_mode == 'all' %}{{ order_view_urls|get_item:o.id }}{% else %}{% url 'orders:builder_edit' o.id %}{% endif %}">
                     <i class="bi bi-eye me-1"></i> Переглянути
                   </a>
@@ -389,7 +394,6 @@
       const isManager = {{ request.user.is_manager|yesno:"true,false" }};
       const paymentMessageText = "{{ payment_message_text|default:''|escapejs }}";
       const paymentShortageMap = {{ payment_shortage_json|default:"{}"|safe }};
-
       const selectAll = document.getElementById('selectAllOrders');
       if (selectAll) {
         selectAll.addEventListener('change', function () {
@@ -504,38 +508,11 @@
         };
 
         const hasQuery = window.location.search && window.location.search.length > 1;
-        let restoredModeWithoutQuery = false;
-        if (!hasQuery) {
-          try {
-            const savedMode = localStorage.getItem(dateModeKey);
-            if (savedMode) {
-              setDateMode(savedMode, { applyDates: false });
-              restoredModeWithoutQuery = true;
-            } else {
-              setDateMode((dateModeInput && dateModeInput.value) || 'month', { applyDates: false });
-            }
-          } catch (e) {}
-        } else {
-          setDateMode((dateModeInput && dateModeInput.value) || 'month', { applyDates: false });
-        }
+        setDateMode((dateModeInput && dateModeInput.value) || 'month', { applyDates: false });
         if (hasQuery) {
           try {
             localStorage.setItem(storageKey, JSON.stringify(readFields()));
             localStorage.setItem(dateModeKey, getCurrentMode());
-          } catch (e) {}
-        } else {
-          try {
-            const saved = localStorage.getItem(storageKey);
-            if (saved) {
-              writeFields(JSON.parse(saved));
-              filtersForm.requestSubmit();
-            } else if (restoredModeWithoutQuery) {
-              const mode = getCurrentMode();
-              if (mode !== 'range') {
-                applyPresetDates(mode);
-              }
-              filtersForm.requestSubmit();
-            }
           } catch (e) {}
         }
         highlightActive();
@@ -601,6 +578,49 @@
         modal = new bootstrap.Modal(modalEl);
       }
 
+      const submitStatusFormAjax = async (form) => {
+        const row = form.closest('[data-order-row]');
+        if (!row) {
+          form.submit();
+          return;
+        }
+        const statusCell = row.querySelector('[data-order-status-cell]');
+        const controls = row.querySelector('[data-order-controls]');
+        const formData = new FormData(form);
+        const submitBtn = form.querySelector('button[type="submit"]');
+        if (submitBtn) submitBtn.disabled = true;
+        row.classList.add('opacity-75');
+        try {
+          const response = await fetch(form.action, {
+            method: 'POST',
+            headers: {
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: formData,
+            credentials: 'same-origin',
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) {
+            if (data && data.redirect_url) {
+              window.location.href = data.redirect_url;
+              return;
+            }
+            throw new Error((data && data.message) || 'Не вдалося змінити статус.');
+          }
+          if (statusCell && data.status_html) {
+            statusCell.innerHTML = data.status_html;
+          }
+          if (controls && data.controls_html !== undefined) {
+            controls.innerHTML = data.controls_html;
+          }
+        } catch (error) {
+          alert(error.message || 'Не вдалося змінити статус.');
+        } finally {
+          row.classList.remove('opacity-75');
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      };
+
       document.addEventListener('click', function (e) {
         const btn = e.target.closest('button[data-payment-check]');
         if (!btn || !modal || !modalText) return;
@@ -623,7 +643,7 @@
       if (confirmBtn) {
         confirmBtn.addEventListener('click', function () {
           if (modal) modal.hide();
-          if (pendingForm) pendingForm.submit();
+          if (pendingForm) submitStatusFormAjax(pendingForm);
           pendingForm = null;
         });
       }
@@ -634,6 +654,18 @@
           pendingForm = null;
         });
       }
+
+      document.addEventListener('submit', function (e) {
+        const form = e.target.closest('form.js-status-form');
+        if (!form) return;
+        const paymentBtn = form.querySelector('button[data-payment-check]');
+        if (paymentBtn && !form.dataset.paymentConfirmed) {
+          return;
+        }
+        e.preventDefault();
+        delete form.dataset.paymentConfirmed;
+        submitStatusFormAjax(form);
+      });
     });
   </script>
 {% endblock %}

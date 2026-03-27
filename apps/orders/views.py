@@ -33,6 +33,7 @@ from django.core.mail import EmailMessage, send_mail
 from django.core.files.base import ContentFile
 from io import BytesIO
 from openpyxl import Workbook
+from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Border, Side, Font, PatternFill
 from django.utils import timezone
 import datetime
@@ -43,6 +44,8 @@ from django.views.decorators.http import require_POST
 from django.http import JsonResponse, Http404, HttpResponse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.html import format_html, format_html_join, conditional_escape
+from django.middleware.csrf import get_token
+from django.utils.safestring import mark_safe
 
         
 def _get(lst, idx, default=""):
@@ -100,6 +103,46 @@ def _control_side_label(val):
     if val == "right":
         return "Праве"
     return val or ""
+
+
+def _profile_display_name(profile, user=None):
+    return (
+        getattr(profile, "company_name", "")
+        or getattr(profile, "full_name", "")
+        or getattr(user, "email", "")
+        or ""
+    )
+
+
+def _profile_initial(profile, user=None):
+    name = _profile_display_name(profile, user).strip()
+    return (name[:1] or "?").upper()
+
+
+def _proposal_logo_fallback_text(profile, user=None):
+    return (
+        getattr(profile, "company_name", "")
+        or getattr(profile, "full_name", "")
+        or getattr(user, "email", "")
+        or "?"
+    )
+
+
+def _customer_ordering_fields(prefix="customerprofile__"):
+    return [
+        f"{prefix}company_name",
+        f"{prefix}full_name",
+        "email",
+    ]
+
+
+def _normalize_website_url(value):
+    value = (value or "").strip()
+    if not value:
+        return ""
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", value):
+        return value
+    return f"https://{value}"
 
 
 _TIME_RE = re.compile(r"^(\d{1,2}):(\d{2})$")
@@ -301,6 +344,157 @@ def _parse_date_range(params):
     return date_from, date_to, date_from_str, date_to_str, date_mode
 
 
+def _parse_optional_flexible_date(value: str):
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"):
+        try:
+            return datetime.datetime.strptime(raw, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _order_product_category(order):
+    if getattr(order, "component_items", None) and order.component_items.exists():
+        return "components"
+    if getattr(order, "fabric_items", None) and order.fabric_items.exists():
+        return "fabrics"
+    return "rollers"
+
+
+def _order_product_category_label(order):
+    category = _order_product_category(order)
+    if category == "components":
+        return "Комплектуючі"
+    if category == "fabrics":
+        return "Тканина"
+    return "Ролети"
+
+
+def _filter_orders_by_product_category(qs, category_filter):
+    if category_filter == "components":
+        return qs.filter(component_items__isnull=False)
+    if category_filter == "fabrics":
+        return qs.filter(fabric_items__isnull=False)
+    if category_filter == "rollers":
+        return qs.exclude(component_items__isnull=False).exclude(fabric_items__isnull=False)
+    return qs
+
+
+def _filter_transactions_by_product_category(qs, category_filter):
+    if not category_filter:
+        return qs
+    qs = qs.filter(order__isnull=False)
+    if category_filter == "components":
+        return qs.filter(order__component_items__isnull=False)
+    if category_filter == "fabrics":
+        return qs.filter(order__fabric_items__isnull=False)
+    if category_filter == "rollers":
+        return qs.exclude(order__component_items__isnull=False).exclude(order__fabric_items__isnull=False)
+    return qs
+
+
+def _status_action_payload(order):
+    payload = {
+        "status": order.status,
+        "status_display": order.get_status_display(),
+        "status_badge": STATUS_BADGES.get(order.status, "secondary"),
+        "prev": None,
+        "next": None,
+        "can_to_work": order.status == Order.STATUS_QUOTE,
+    }
+    prev_status = order.prev_status()
+    next_status = order.next_status()
+    if prev_status:
+        payload["prev"] = {
+            "code": prev_status,
+            "label": STATUS_LABELS.get(prev_status, "Попередній статус"),
+            "badge": STATUS_BADGES.get(prev_status, "secondary"),
+        }
+    if next_status:
+        payload["next"] = {
+            "code": next_status,
+            "label": STATUS_LABELS.get(next_status, "Наступний статус"),
+            "badge": STATUS_BADGES.get(next_status, "secondary"),
+        }
+    return payload
+
+
+def _order_status_badge_html(order):
+    return format_html(
+        '<span class="badge bg-{}">{}</span>',
+        STATUS_BADGES.get(order.status, "secondary"),
+        order.get_status_display(),
+    )
+
+
+def _order_status_controls_html(request, order):
+    token = get_token(request)
+    action_url = reverse("orders:update_status_preview", args=[order.pk])
+    chunks = []
+
+    def form_button_html(action, btn_class, label, icon_html="", extra_attrs=""):
+        return format_html(
+            '<form method="post" action="{}" class="d-inline js-status-form">'
+            '<input type="hidden" name="csrfmiddlewaretoken" value="{}">'
+            '<input type="hidden" name="status_action" value="{}">'
+            '<button type="submit" class="btn btn-sm {}"{}>{}{}</button>'
+            '</form>',
+            action_url,
+            token,
+            action,
+            btn_class,
+            mark_safe(f" {extra_attrs}") if extra_attrs else "",
+            mark_safe(icon_html) if icon_html else "",
+            label,
+        )
+
+    if order.status == Order.STATUS_QUOTE:
+        extra_attrs = format_html(
+            ' data-order-id="{}"{}',
+            order.pk,
+            format_html(' data-payment-check="1"') if order.customer_id == request.user.id else "",
+        )
+        chunks.append(
+            form_button_html(
+                "to_work",
+                "btn-success",
+                " В роботу",
+                '<i class="bi bi-play-fill me-1"></i>',
+                extra_attrs,
+            )
+        )
+
+    if is_manager(request.user):
+        prev_status = order.prev_status()
+        if prev_status:
+            chunks.append(
+                form_button_html(
+                    "prev",
+                    f'btn-{STATUS_BADGES.get(prev_status, "secondary")}',
+                    STATUS_LABELS.get(prev_status, "Попередній статус"),
+                    '<i class="bi bi-arrow-left-short me-1"></i>',
+                )
+            )
+        if order.status != Order.STATUS_QUOTE:
+            next_status = order.next_status()
+            if next_status:
+                chunks.append(
+                    form_button_html(
+                        "next",
+                        f'btn-{STATUS_BADGES.get(next_status, "secondary")}',
+                        format_html(
+                            '{}<i class="bi bi-arrow-right-short ms-1"></i>',
+                            STATUS_LABELS.get(next_status, "Наступний статус"),
+                        ),
+                    )
+                )
+
+    return format_html_join("", "{}", ((chunk,) for chunk in chunks))
+
+
 def _transactions_scope(user):
     if is_manager(user):
         return Transaction.objects.select_related("customer", "customer__customerprofile", "created_by", "order").filter(deleted=False)
@@ -494,6 +688,44 @@ def _build_order_workbook(
     center_align = Alignment(horizontal="center", vertical="center")
     center_wrap_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
+    def add_workbook_logo():
+        fallback_text = _proposal_logo_fallback_text(profile, order.customer)
+        avatar = getattr(profile, "avatar", None)
+        ws.column_dimensions["A"].width = max(ws.column_dimensions["A"].width or 0, 4)
+        ws.column_dimensions["B"].width = max(ws.column_dimensions["B"].width or 0, 30)
+        for logo_row in range(2, 6):
+            ws.row_dimensions[logo_row].height = 24
+
+        image = None
+        if avatar:
+            try:
+                avatar_path = avatar.path
+            except (ValueError, OSError):
+                avatar_path = ""
+            if avatar_path:
+                try:
+                    image = XLImage(avatar_path)
+                except Exception:
+                    image = None
+
+        if image is not None:
+            max_width = 220
+            max_height = 110
+            if getattr(image, "width", 0) and getattr(image, "height", 0):
+                scale = min(max_width / image.width, max_height / image.height, 1)
+                image.width = int(image.width * scale)
+                image.height = int(image.height * scale)
+            ws.row_dimensions[1].height = max(24, round(((getattr(image, "height", 0) or 0) + 6) * 0.75))
+            image.anchor = "B1"
+            ws.add_image(image)
+            return
+
+        ws.row_dimensions[1].height = 72
+        fallback_cell = ws.cell(row=1, column=2)
+        fallback_cell.value = fallback_text
+        fallback_cell.alignment = center_align
+        fallback_cell.font = Font(bold=True, size=16)
+
     def price_uah(eur, qty=1):
         value = Decimal(eur or 0) * Decimal(qty or 0)
         if rate:
@@ -505,11 +737,14 @@ def _build_order_workbook(
     full_name = getattr(profile, "full_name", "") or str(order.customer)
     phone = getattr(profile, "phone", "") or ""
     delivery_info = _customer_delivery_text(profile)
-    # Keep the top "client info" block always 5 rows for stable formatting (merge C-L for rows 1-5).
+    website = getattr(profile, "website", "") or ""
+    website_url = _normalize_website_url(website)
+    add_workbook_logo()
+    # Keep the top client-info block merged row-by-row.
     if client_info_mode == "proposal":
         # In proposal we don't show "Клієнт" and "Примітки до замовлення".
         client_info = [
-            ("", ""),
+            ("", website),
             ("Тел.", phone),
             ("ПІБ.", full_name),
             ("Отримання", delivery_info),
@@ -525,28 +760,35 @@ def _build_order_workbook(
         ]
     for label, val in client_info:
         ws.append(["", label, val])
+    client_info_rows = len(client_info)
     # widen column B and center
     ws.column_dimensions["B"].width = 24
     ws.column_dimensions["D"].width = 20
     for r in range(1, ws.max_row + 1):
         ws.cell(row=r, column=2).alignment = center_align
 
-    # merge C-L in rows 1-5 and add borders B-L, center text
-    for r in range(1, 6):
+    # merge C-L in the client info rows and add borders B-L, center text
+    for r in range(1, client_info_rows + 1):
         ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=12)
         for c in range(2, 13):
             cell = ws.cell(row=r, column=c)
             cell.border = border_all
         ws.cell(row=r, column=3).alignment = center_wrap_align
+    if client_info_mode == "proposal" and website:
+        website_cell = ws.cell(row=1, column=3)
+        website_cell.value = website
+        website_cell.hyperlink = website_url
+        website_cell.font = Font(color="0563C1", underline="single")
 
     # пустая строка после блоку приміток
-    ws.append([])
+    ws.append([""] * 12)
+    header_aux_row = ws.max_row
     if client_info_mode == "proposal":
         extra_service_label = (getattr(order, "extra_service_label", "") or "").strip()
         extra_service_uah = Decimal(getattr(order, "extra_service_amount_uah", 0) or 0)
-        ws.cell(row=6, column=2).value = "Додаткова послуга"
-        ws.cell(row=6, column=3).value = extra_service_label
-        ws.cell(row=6, column=12).value = float(extra_service_uah)
+        ws.cell(row=header_aux_row, column=2).value = "Додаткова послуга"
+        ws.cell(row=header_aux_row, column=3).value = extra_service_label
+        ws.cell(row=header_aux_row, column=12).value = float(extra_service_uah)
 
     total_order_uah = Decimal("0")
     item_total_rows = []
@@ -736,13 +978,14 @@ def _build_order_workbook(
 
     if order.fabric_items.exists():
         ws.append(["", "Тканина"])
-        ws.append(["", "Найменування", "Ширина рулону, мм", "Ширина, мм", "Висота, мм", "К-сть", "Ціна, грн"])
+        ws.append(["", "Найменування", "Номер тканини", "Ширина рулону, мм", "Ширина, мм", "Висота, мм", "К-сть", "Ціна, грн"])
         for fab in order.fabric_items.all():
             price_uah_val = price_uah(fab.total_eur, 1)
             ws.append(
                 [
                     "",
                     fab.fabric_name,
+                    fab.fabric_color_code or "",
                     fab.roll_width_mm or "",
                     fab.width_mm or "",
                     fab.height_mm or "",
@@ -781,13 +1024,12 @@ def _build_order_workbook(
             else:
                 ws.cell(row=r, column=c).border = border_all
 
-    # override borders: row 6 horizontal only, before total labels remove verticals
-    # blank row after header (row 6)
+    # override borders: auxiliary row after header horizontal-only, before total labels remove verticals
     for c in range(1, 7):
-        ws.cell(row=6, column=c).border = Border()
+        ws.cell(row=header_aux_row, column=c).border = Border()
     for c in range(7, 13):
-        ws.cell(row=6, column=c).border = border_horiz
-    ws.cell(row=6, column=1).border = Border(left=thin)
+        ws.cell(row=header_aux_row, column=c).border = border_horiz
+    ws.cell(row=header_aux_row, column=1).border = Border(left=thin)
     # overall total row: remove verticals before text (cols 1-6)
     for c in range(1, 7):
         ws.cell(row=total_row, column=c).border = border_horiz
@@ -996,8 +1238,9 @@ class TransactionForm(forms.ModelForm):
         self.current_rate = rate_decimal.quantize(Decimal("0.0001")) if rate_decimal else rate_decimal
         User = get_user_model()
         self.fields["customer"].queryset = (
-            User.objects.select_related("customerprofile")
-            .order_by("customerprofile__full_name", "email")
+            User.objects.filter(is_customer=True, is_active=True)
+            .select_related("customerprofile")
+            .order_by(*_customer_ordering_fields())
         )
 
         def _label(u):
@@ -1157,7 +1400,10 @@ def order_list(request):
         orders_qs = orders_qs.filter(pk__icontains=q)
 
     customers_filter_list = (
-        User.objects.filter(orders__isnull=False).select_related("customerprofile").distinct()
+        User.objects.filter(orders__isnull=False, is_customer=True, is_active=True)
+        .select_related("customerprofile")
+        .distinct()
+        .order_by(*_customer_ordering_fields())
         if is_manager(request.user) else []
     )
     current_rate = get_current_eur_rate()
@@ -1241,7 +1487,10 @@ def order_components_list(request):
         qs = qs.filter(pk__icontains=q)
 
     customers_filter_list = (
-        User.objects.filter(orders__isnull=False).select_related("customerprofile").distinct()
+        User.objects.filter(orders__isnull=False, is_customer=True, is_active=True)
+        .select_related("customerprofile")
+        .distinct()
+        .order_by(*_customer_ordering_fields())
         if is_manager(request.user) else []
     )
     current_rate = get_current_eur_rate()
@@ -1321,7 +1570,10 @@ def order_fabrics_list(request):
         qs = qs.filter(pk__icontains=q)
 
     customers_filter_list = (
-        User.objects.filter(orders__isnull=False).select_related("customerprofile").distinct()
+        User.objects.filter(orders__isnull=False, is_customer=True, is_active=True)
+        .select_related("customerprofile")
+        .distinct()
+        .order_by(*_customer_ordering_fields())
         if is_manager(request.user) else []
     )
     current_rate = get_current_eur_rate()
@@ -1408,7 +1660,10 @@ def order_all_list(request):
         qs = qs.filter(pk__icontains=q)
 
     customers_filter_list = (
-        User.objects.filter(orders__isnull=False).select_related("customerprofile").distinct()
+        User.objects.filter(orders__isnull=False, is_customer=True, is_active=True)
+        .select_related("customerprofile")
+        .distinct()
+        .order_by(*_customer_ordering_fields())
         if is_manager(request.user) else []
     )
     current_rate = get_current_eur_rate()
@@ -1847,7 +2102,8 @@ def order_builder(request, pk=None):
     if is_manager(request.user) or request.user.is_staff or request.user.is_superuser:
         customers_filter_list = list(
             CustomerProfile.objects.select_related("user")
-            .order_by("full_name", "user__email")
+            .filter(user__is_active=True, user__is_customer=True)
+            .order_by("company_name", "full_name", "user__email")
         )
 
     # Если новый заказ
@@ -2147,7 +2403,12 @@ def balances_history(request):
     status_filter = request.GET.get("status") or ""
     customer_filter = request.GET.get("customer") or ""
     type_filter = request.GET.get("type") or ""
+    category_filter = request.GET.get("category") or ""
     negative_only = request.GET.get("negative") in ("1", "true", "on")
+    date_from_str = (request.GET.get("date_from") or "").strip()
+    date_to_str = (request.GET.get("date_to") or "").strip()
+    date_from = _parse_optional_flexible_date(date_from_str)
+    date_to = _parse_optional_flexible_date(date_to_str)
     balance_user = request.user
 
     orders_qs = (
@@ -2161,6 +2422,14 @@ def balances_history(request):
 
     if status_filter:
         orders_qs = orders_qs.filter(status=status_filter)
+    if date_from:
+        orders_qs = orders_qs.filter(created_at__date__gte=date_from)
+        tx_qs = tx_qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        orders_qs = orders_qs.filter(created_at__date__lte=date_to)
+        tx_qs = tx_qs.filter(created_at__date__lte=date_to)
+    orders_qs = _filter_orders_by_product_category(orders_qs, category_filter)
+    tx_qs = _filter_transactions_by_product_category(tx_qs, category_filter)
     if type_filter == "orders":
         tx_qs = tx_qs.none()
     elif type_filter == "transactions":
@@ -2172,7 +2441,10 @@ def balances_history(request):
         tx_qs = tx_qs.filter(customer=balance_user)
 
     customers_filter_list = (
-        User.objects.filter(orders__isnull=False).select_related("customerprofile").distinct()
+        User.objects.filter(orders__isnull=False, is_customer=True, is_active=True)
+        .select_related("customerprofile")
+        .distinct()
+        .order_by(*_customer_ordering_fields())
         if is_manager(request.user) else []
     )
 
@@ -2194,6 +2466,17 @@ def balances_history(request):
     proposal_tokens = {o.id: _proposal_token(o) for o in orders_qs}
     proposal_page_urls = {oid: reverse("orders:proposal_page", args=[tok]) for oid, tok in proposal_tokens.items()}
     proposal_excel_urls = {oid: reverse("orders:proposal_excel", args=[tok]) for oid, tok in proposal_tokens.items()}
+    payment_message_text = _get_payment_message_text() or ""
+    payment_shortage_map = {}
+    for o in orders_qs:
+        if o.status != Order.STATUS_QUOTE or o.customer_id != request.user.id:
+            continue
+        shortage_ctx = _payment_shortage_context(o)
+        if shortage_ctx:
+            payment_shortage_map[o.id] = {
+                "shortage": str(shortage_ctx.get("shortage") or ""),
+                "orders": shortage_ctx.get("orders") or [],
+            }
 
     events = []
     for o in orders_qs:
@@ -2216,7 +2499,10 @@ def balances_history(request):
         "status_filter": status_filter,
         "customer_filter": customer_filter,
         "type_filter": type_filter,
+        "category_filter": category_filter,
         "negative_only": negative_only,
+        "date_from": date_from_str,
+        "date_to": date_to_str,
         "customer_options": customers_filter_list,
         "balance": compute_balance(balance_user),
         "balance_user": balance_user,
@@ -2228,6 +2514,8 @@ def balances_history(request):
         "proposal_page_urls": proposal_page_urls,
         "proposal_excel_urls": proposal_excel_urls,
         "balance_page_url": balance_page_url,
+        "payment_message_text": payment_message_text,
+        "payment_shortage_json": json.dumps(payment_shortage_map),
     }
     return render(request, "orders/balances_history.html", context)
 
@@ -2241,7 +2529,12 @@ def balances_excel(request):
     status_filter = request.GET.get("status") or ""
     customer_filter = request.GET.get("customer") or ""
     type_filter = request.GET.get("type") or ""
+    category_filter = request.GET.get("category") or ""
     negative_only = request.GET.get("negative") in ("1", "true", "on")
+    date_from_str = (request.GET.get("date_from") or "").strip()
+    date_to_str = (request.GET.get("date_to") or "").strip()
+    date_from = _parse_optional_flexible_date(date_from_str)
+    date_to = _parse_optional_flexible_date(date_to_str)
     balance_user = request.user
 
     orders_qs = (
@@ -2255,6 +2548,14 @@ def balances_excel(request):
 
     if status_filter:
         orders_qs = orders_qs.filter(status=status_filter)
+    if date_from:
+        orders_qs = orders_qs.filter(created_at__date__gte=date_from)
+        tx_qs = tx_qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        orders_qs = orders_qs.filter(created_at__date__lte=date_to)
+        tx_qs = tx_qs.filter(created_at__date__lte=date_to)
+    orders_qs = _filter_orders_by_product_category(orders_qs, category_filter)
+    tx_qs = _filter_transactions_by_product_category(tx_qs, category_filter)
     if type_filter == "orders":
         tx_qs = tx_qs.none()
     elif type_filter == "transactions":
@@ -2266,7 +2567,10 @@ def balances_excel(request):
         tx_qs = tx_qs.filter(customer=balance_user)
 
     customers_filter_list = (
-        User.objects.filter(orders__isnull=False).select_related("customerprofile").distinct()
+        User.objects.filter(orders__isnull=False, is_customer=True, is_active=True)
+        .select_related("customerprofile")
+        .distinct()
+        .order_by(*_customer_ordering_fields())
         if is_manager(request.user) else []
     )
 
@@ -2297,7 +2601,7 @@ def balances_excel(request):
     ws = wb.active
     ws.title = "Баланс"
 
-    headers = ["Дата", "Тип", "Опис", "Сума, грн"]
+    headers = ["Дата", "Тип", "Категорія", "Опис", "Сума, грн"]
     ws.append(headers)
     bold = Font(bold=True)
     for col in range(1, len(headers) + 1):
@@ -2309,21 +2613,23 @@ def balances_excel(request):
             amount = -_round_uah_total(_order_base_total(o) * _order_rate(o, current_rate))
             desc = f"Замовлення №{o.id} ({o.get_status_display()})"
             type_label = "Замовлення"
+            category_label = _order_product_category_label(o)
         else:
             tx = e["object"]
             amount = _tx_amount_uah(tx)
             desc = f"Транзакція №{tx.id} ({tx.get_type_display()})"
             type_label = "Транзакція"
+            category_label = _order_product_category_label(tx.order) if tx.order_id else ""
         created_at = e["created_at"]
         if hasattr(created_at, "tzinfo") and created_at.tzinfo:
             created_at = timezone.localtime(created_at).replace(tzinfo=None)
-        ws.append([created_at, type_label, desc, float(amount)])
+        ws.append([created_at, type_label, category_label, desc, float(amount)])
 
     total_row = ws.max_row + 1
     ws.cell(row=total_row, column=1, value="Разом").font = bold
-    ws.cell(row=total_row, column=4, value=float(filtered_balance)).font = bold
+    ws.cell(row=total_row, column=5, value=float(filtered_balance)).font = bold
 
-    for col_letter in ["A", "B", "C", "D"]:
+    for col_letter in ["A", "B", "C", "D", "E"]:
         ws.column_dimensions[col_letter].width = 25
 
     output = BytesIO()
@@ -2339,8 +2645,14 @@ def balances_excel(request):
         name_parts.append(f"status-{status_filter}")
     if type_filter:
         name_parts.append(f"type-{type_filter}")
+    if category_filter:
+        name_parts.append(f"category-{category_filter}")
     if negative_only:
         name_parts.append("negative")
+    if date_from_str:
+        name_parts.append(f"from-{date_from_str}")
+    if date_to_str:
+        name_parts.append(f"to-{date_to_str}")
     filename = "_".join(name_parts) + ".xlsx"
 
     response = HttpResponse(
@@ -2557,9 +2869,9 @@ def balances_users(request):
     User = get_user_model()
     q = (request.GET.get("q") or "").strip()
     customer_id = (request.GET.get("customer") or "").strip()
-    sort = request.GET.get("sort") or "-balance"
+    sort = request.GET.get("sort") or "company"
 
-    users_qs = User.objects.filter(is_customer=True).select_related("customerprofile")
+    users_qs = User.objects.filter(is_customer=True, is_active=True).select_related("customerprofile")
     if customer_id:
         users_qs = users_qs.filter(id=customer_id)
     if q:
@@ -2581,9 +2893,14 @@ def balances_users(request):
 
     if sort_key == "balance":
         clients.sort(key=lambda u: balance_val(u), reverse=reverse)
-    elif sort_key in ("name", "full_name"):
+    elif sort_key in ("name", "full_name", "company"):
         clients.sort(
-            key=lambda u: (getattr(getattr(u, "customerprofile", None), "full_name", "") or u.email or "").lower(),
+            key=lambda u: (
+                getattr(getattr(u, "customerprofile", None), "company_name", "")
+                or getattr(getattr(u, "customerprofile", None), "full_name", "")
+                or u.email
+                or ""
+            ).lower(),
             reverse=reverse,
         )
     else:
@@ -2595,9 +2912,9 @@ def balances_users(request):
         "q": q,
         "customer_filter": customer_id,
         "customer_options": list(
-            User.objects.filter(is_customer=True)
+            User.objects.filter(is_customer=True, is_active=True)
             .select_related("customerprofile")
-            .order_by("customerprofile__full_name", "email")
+            .order_by(*_customer_ordering_fields())
         ),
         "sort": sort,
         "balance_tokens": {u.id: _balance_token(u.id) for u in clients},
@@ -2759,7 +3076,9 @@ def order_components_builder(request, pk):
         "proposal_page_url": proposal_page_url,
         "proposal_excel_url": proposal_excel_url,
         "customers_filter_list": list(
-            CustomerProfile.objects.select_related("user").order_by("full_name", "user__email")
+            CustomerProfile.objects.select_related("user")
+            .filter(user__is_active=True, user__is_customer=True)
+            .order_by("company_name", "full_name", "user__email")
         ) if is_manager(request.user) else [],
         "can_view_financial_controls": _can_view_financial_controls(request.user, order.customer),
     }
@@ -2947,7 +3266,9 @@ def order_fabric_builder(request, pk):
         "proposal_excel_url": proposal_excel_url,
         "customer_discount_percent_js": customer_discount_percent_js,
         "customers_filter_list": list(
-            CustomerProfile.objects.select_related("user").order_by("full_name", "user__email")
+            CustomerProfile.objects.select_related("user")
+            .filter(user__is_active=True, user__is_customer=True)
+            .order_by("company_name", "full_name", "user__email")
         ) if is_manager(request.user) else [],
         "can_view_financial_controls": _can_view_financial_controls(request.user, order.customer),
     }
@@ -2989,7 +3310,17 @@ def update_status_preview(request, pk):
     Quick status update to 'in_work' from preview without opening builder.
     """
     redirect_back = request.META.get("HTTP_REFERER") or reverse("orders:list")
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest"
+
+    def json_error(message, status=400, redirect_url=None):
+        payload = {"ok": False, "message": message}
+        if redirect_url:
+            payload["redirect_url"] = redirect_url
+        return JsonResponse(payload, status=status)
+
     if request.method not in ("POST", "GET"):
+        if wants_json:
+            return json_error("Невірний метод запиту.", status=405)
         messages.warning(request, "Невірний метод запиту.")
         return redirect(redirect_back)
 
@@ -2999,6 +3330,8 @@ def update_status_preview(request, pk):
         order = get_object_or_404(Order, pk=pk, customer=request.user, deleted=False)
 
     if request.method == "GET" and "status_action" not in request.GET:
+        if wants_json:
+            return json_error("Невірний запит.")
         messages.warning(request, "Невірний запит.")
         return redirect(redirect_back)
 
@@ -3008,6 +3341,8 @@ def update_status_preview(request, pk):
 
     # Клиент может только перевести прорахунок у роботу
     if not is_manager(request.user) and action != "to_work":
+        if wants_json:
+            return json_error("Дія недоступна.", status=403)
         messages.warning(request, "Дія недоступна.")
         return redirect(redirect_back)
 
@@ -3020,12 +3355,16 @@ def update_status_preview(request, pk):
         new_status = order.next_status()
 
     if not new_status:
+        if wants_json:
+            return json_error("Не можна змінити статус.")
         messages.warning(request, "Не можна змінити статус.")
         return redirect(redirect_back)
 
     if not _apply_status_change(order, new_status, request):
         if show_payment_prompt == "1" and action == "to_work":
             if is_manager(request.user):
+                if wants_json:
+                    return json_error("Не вдалося перевести замовлення в роботу.")
                 return redirect(redirect_back)
             shortage_ctx = _payment_shortage_context(order)
             if shortage_ctx:
@@ -3035,11 +3374,31 @@ def update_status_preview(request, pk):
                     "orders": shortage_ctx.get("orders") or [],
                 }
                 if order.component_items.exists():
+                    if wants_json:
+                        return json_error("Потрібне підтвердження оплати.", redirect_url=reverse("orders:order_components_builder", kwargs={"pk": order.pk}))
                     return redirect("orders:order_components_builder", pk=order.pk)
                 if order.fabric_items.exists():
+                    if wants_json:
+                        return json_error("Потрібне підтвердження оплати.", redirect_url=reverse("orders:order_fabric_builder", kwargs={"pk": order.pk}))
                     return redirect("orders:order_fabric_builder", pk=order.pk)
+                if wants_json:
+                    return json_error("Потрібне підтвердження оплати.", redirect_url=reverse("orders:builder_edit", kwargs={"pk": order.pk}))
                 return redirect("orders:builder_edit", pk=order.pk)
+        if wants_json:
+            return json_error("Не вдалося змінити статус.")
         return redirect(redirect_back)
+
+    if wants_json:
+        order.refresh_from_db()
+        return JsonResponse(
+            {
+                "ok": True,
+                "order_id": order.pk,
+                "status_html": _order_status_badge_html(order),
+                "controls_html": _order_status_controls_html(request, order),
+                "message": f"Статус замовлення №{order.pk} оновлено.",
+            }
+        )
 
     messages.success(request, f"Замовлення №{order.pk} переведено в роботу.")
     return redirect(redirect_back)
@@ -3112,6 +3471,8 @@ def order_proposal_page(request, token: str):
     customer_phone = getattr(profile, "phone", "") or ""
     customer_full_name = getattr(profile, "full_name", "") or str(order.customer)
     customer_address = _customer_delivery_text(profile)
+    customer_website = getattr(profile, "website", "") or ""
+    customer_website_url = _normalize_website_url(customer_website)
     rate = _order_rate(order, get_current_eur_rate())
     base_total_eur = _order_base_total(order)
     markup = Decimal(order.markup_percent or 0)
@@ -3196,6 +3557,13 @@ def order_proposal_page(request, token: str):
         )
 
     proposal_excel_url = reverse("orders:proposal_excel", args=[token])
+    proposal_logo_url = ""
+    avatar = getattr(profile, "avatar", None)
+    if avatar:
+        try:
+            proposal_logo_url = avatar.url
+        except (ValueError, OSError):
+            proposal_logo_url = ""
     context = {
         "order": order,
         "customer_info": {
@@ -3203,6 +3571,8 @@ def order_proposal_page(request, token: str):
             "phone": customer_phone,
             "full_name": customer_full_name,
             "address": customer_address,
+            "website": customer_website,
+            "website_url": customer_website_url,
         },
         "rate": rate,
         "base_total_eur": base_total_eur,
@@ -3215,6 +3585,8 @@ def order_proposal_page(request, token: str):
         "components": components_payload,
         "fabrics": fabrics_payload,
         "proposal_excel_url": proposal_excel_url,
+        "proposal_logo_url": proposal_logo_url,
+        "proposal_logo_fallback_text": _proposal_logo_fallback_text(profile, order.customer),
     }
     return render(request, "orders/proposal_public.html", context)
 

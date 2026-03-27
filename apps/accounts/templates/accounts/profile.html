@@ -20,10 +20,12 @@
           {% if profile_instance and profile_instance.avatar %}
             <img src="{{ profile_instance.avatar.url }}" class="rounded-circle border me-3 avatar-click" width="72" height="72" alt="avatar" role="button" title="Змінити аватар">
           {% else %}
-            <img src="/static/media/avatar.png" class="rounded-circle border me-3 avatar-click" width="72" height="72" alt="avatar" role="button" title="Змінити аватар">
+            <div class="avatar-fallback border me-3 avatar-click" style="width:72px; height:72px; font-size:32px;" role="button" title="Змінити аватар">
+              {% firstof profile_instance.company_name|slice:":1"|upper profile_instance.full_name|slice:":1"|upper target_user.email|slice:":1"|upper "?" %}
+            </div>
           {% endif %}
           <div>
-            <h2 class="h5 fw-semibold mb-0">{{ target_user.email }}</h2>
+            <h2 class="h5 fw-semibold mb-0">{% firstof profile_instance.company_name profile_instance.full_name target_user.email %}</h2>
             {% if target_user.is_superuser %}
               <span class="badge bg-danger">Admin</span>
             {% elif target_user.is_staff %}
@@ -42,7 +44,7 @@
           {% csrf_token %}
           <div class="row g-3">
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Email (логін)</label>
+              <label class="form-label fw-semibold">Email (логін, не обов'язково)</label>
               {{ form.email|add_class:"form-control form-control-lg" }}
               {% if form.email.errors %}<div class="invalid-feedback d-block">{{ form.email.errors|striptags }}</div>{% endif %}
             </div>
@@ -74,6 +76,11 @@
               <label class="form-label fw-semibold">ПІБ</label>
               {{ form.full_name|add_class:"form-control form-control-lg" }}
               {% if form.full_name.errors %}<div class="invalid-feedback d-block">{{ form.full_name.errors|striptags }}</div>{% endif %}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Сайт</label>
+              {{ form.website|add_class:"form-control form-control-lg" }}
+              {% if form.website.errors %}<div class="invalid-feedback d-block">{{ form.website.errors|striptags }}</div>{% endif %}
             </div>
             <div class="col-md-6">
               <label class="form-label fw-semibold">Адреса торгової точки</label>
@@ -182,6 +189,17 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <style>
     .avatar-click { cursor: pointer; }
+    .avatar-fallback {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: #e9ecef;
+      color: #495057;
+      font-weight: 700;
+      line-height: 1;
+      flex: 0 0 auto;
+    }
   </style>
 {% endblock %}
 

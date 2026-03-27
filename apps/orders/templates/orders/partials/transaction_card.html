@@ -14,10 +14,15 @@
           <div class="small text-muted">
             {{ tx.created_at|date:'d.m.Y H:i' }} ·
             <a href="{% url 'accounts:profile_other' tx.customer.id %}">
-              {% if profile.full_name %}{{ profile.full_name }}{% else %}{{ tx.customer }}{% endif %}
+              {% firstof profile.company_name profile.organization.name profile.full_name tx.customer.email %}
             </a>
-            {% if profile.phone %} · {{ profile.phone }}{% endif %}
           </div>
+          {% if profile.full_name and profile.full_name != profile.company_name %}
+            <div class="small text-muted">{{ profile.full_name }}</div>
+          {% endif %}
+          {% if profile.phone %}
+            <div class="small text-muted">{{ profile.phone }}</div>
+          {% endif %}
         {% endwith %}
         {% if tx.description %}
           <div class="small text-muted">{{ tx.description|safe }}</div>

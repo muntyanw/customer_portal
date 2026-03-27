@@ -1086,6 +1086,8 @@
     }
 
     async function previewCard($card, preSelectsPriceOptions = {}) {
+      const previewSeq = Number($card.data('previewSeq') || 0) + 1
+      $card.data('previewSeq', previewSeq)
       const url = priceUrlInput.val()
       const system = $card.find('.system-sheet').val()
       const section = $card.find('.table-section').val()
@@ -1114,10 +1116,16 @@
 
       try {
         const data = await previewPrice({ url, system, section, fabric, fabric_color_code, h, w, gabarit_width_flag, fabric_height_flag })
+        if (previewSeq !== Number($card.data('previewSeq') || 0)) {
+          return
+        }
         let posIndex = Number($card.find('.pos-index').text())
         pricesCache[posIndex] = data
         renderPriceOptions($card, 0, mergedPreselect)
       } catch (err) {
+        if (previewSeq !== Number($card.data('previewSeq') || 0)) {
+          return
+        }
         $card.find('.h-mm').val(0)
         $card.find('.w-mm').val(0)
         window.showToast(err.message || 'Помилка розрахунку', 'danger')

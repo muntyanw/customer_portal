@@ -27,6 +27,7 @@ class CustomerProfile(models.Model):
     company_name = models.CharField(max_length=255, blank=True)
     full_name = models.CharField(max_length=255, blank=True, verbose_name="ПІБ")
     contact_email = models.EmailField(blank=True, verbose_name="Email (контактний)")
+    website = models.URLField(blank=True, verbose_name="Сайт")
     trade_address = models.CharField(max_length=255, blank=True, verbose_name="Адреса торгової точки")
     delivery_method = models.CharField(max_length=32, blank=True, choices=DELIVERY_CHOICES, default="")
     delivery_branch = models.CharField(max_length=255, blank=True, verbose_name="Вантажне відділення (від 200кг)")

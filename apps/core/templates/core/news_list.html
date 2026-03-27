@@ -19,6 +19,7 @@
         <div class="d-none d-md-block border-bottom bg-light">
           <div class="row g-2 align-items-center px-3 py-2 text-uppercase small fw-semibold text-muted">
             <div class="col">Заголовок</div>
+            <div class="col">Початок новини</div>
             <div class="col-auto">Статус</div>
             <div class="col-auto">Оновлено</div>
             <div class="col-auto">Автор</div>
@@ -34,6 +35,9 @@
               <div class="col-12 col-md">
                 <div class="fw-semibold">{{ item.title }}</div>
                 <div class="small text-muted">{{ item.created_at|date:"d.m.Y H:i" }}</div>
+              </div>
+              <div class="col-12 col-md">
+                <div class="text-muted small text-break">{{ item.body|striptags|truncatechars:140 }}</div>
               </div>
               <div class="col-6 col-md-auto">
                 {% if item.is_active %}

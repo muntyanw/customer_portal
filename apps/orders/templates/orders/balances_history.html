@@ -7,74 +7,103 @@
 
 {% block dashboard_title %}{% if request.user.is_manager %}Баланси{% else %}Баланс{% endif %}{% endblock %}
 {% block dashboard_heading %}
-  <div class="d-flex align-items-center gap-3 flex-wrap">
-    <span>{% if request.user.is_manager %}Баланси{% else %}Баланс{% endif %}</span>
-    <span class="{% if filtered_balance < 0 %}text-danger{% else %}text-success{% endif %}">
-      {{ filtered_balance|default_if_none:0|floatformat:0 }} грн
-    </span>
+  <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
+    <div class="d-flex align-items-center gap-3 flex-wrap">
+      <span>{% if request.user.is_manager %}Баланси{% else %}Баланс{% endif %}</span>
+      <span class="{% if filtered_balance < 0 %}text-danger{% else %}text-success{% endif %}">
+        {{ filtered_balance|default_if_none:0|floatformat:0 }} грн
+      </span>
+    </div>
+    {% if customer_options %}
+      <a href="{% url 'orders:transaction_create' %}?{% if customer_filter %}customer={{ customer_filter }}{% endif %}" class="btn btn-primary btn-sm">
+        <i class="bi bi-cash-coin me-1"></i> Нова транзакція
+      </a>
+    {% endif %}
   </div>
 {% endblock %}
 
 {% block dashboard_content %}
   <div class="card shadow-sm mb-3">
     <div class="card-body">
-      <form id="balancesFilterForm" method="get" class="row g-2 align-items-end">
-        <div class="col-auto">
-          <label class="form-label mb-1">Статус</label>
-          <select name="status" class="form-select form-select-sm" style="min-width: 160px;">
-            <option value="">Усі</option>
-            {% for code,label in statuses %}
-              <option value="{{ code }}" {% if status_filter == code %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        {% if customer_options %}
-          <div class="col-auto">
-            <label class="form-label mb-1">Клієнт</label>
-            <select name="customer" id="balancesCustomerFilter" class="form-select form-select-sm" style="min-width: 180px;">
-              <option value="">Усі</option>
-              {% for c in customer_options %}
-                <option value="{{ c.id }}" {% if customer_filter|add:'0' == c.id|add:'0' %}selected{% endif %}>
-                  {% if c.customerprofile.company_name %}{{ c.customerprofile.company_name }}{% elif c.customerprofile.organization and c.customerprofile.organization.name %}{{ c.customerprofile.organization.name }}{% elif c.customerprofile.full_name %}{{ c.customerprofile.full_name }}{% else %}{{ c }}{% endif %}
-                </option>
-              {% endfor %}
-            </select>
+      <form id="balancesFilterForm" method="get" class="row g-3 align-items-start">
+        <div class="col-12 col-xl">
+          <div class="row g-3 align-items-end">
+            <div class="col-12 col-md-6 col-xl-3">
+              <label class="form-label mb-1">Статус</label>
+              <select name="status" class="form-select form-select-sm">
+                <option value="">Усі</option>
+                {% for code,label in statuses %}
+                  <option value="{{ code }}" {% if status_filter == code %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            {% if customer_options %}
+              <div class="col-12 col-md-6 col-xl-3">
+                <label class="form-label mb-1">Клієнт</label>
+                <select name="customer" id="balancesCustomerFilter" class="form-select form-select-sm">
+                  <option value="">Усі</option>
+                  {% for c in customer_options %}
+                    <option value="{{ c.id }}" {% if customer_filter|add:'0' == c.id|add:'0' %}selected{% endif %}>
+                      {% if c.customerprofile.company_name %}{{ c.customerprofile.company_name }}{% elif c.customerprofile.organization and c.customerprofile.organization.name %}{{ c.customerprofile.organization.name }}{% elif c.customerprofile.full_name %}{{ c.customerprofile.full_name }}{% else %}{{ c }}{% endif %}
+                    </option>
+                  {% endfor %}
+                </select>
+              </div>
+            {% endif %}
+            <div class="col-12 col-md-6 col-xl-3">
+              <label class="form-label mb-1">Тип</label>
+              <select name="type" class="form-select form-select-sm">
+                <option value="" {% if not type_filter %}selected{% endif %}>Усі</option>
+                <option value="orders" {% if type_filter == 'orders' %}selected{% endif %}>Замовлення</option>
+                <option value="transactions" {% if type_filter == 'transactions' %}selected{% endif %}>Транзакції</option>
+              </select>
+            </div>
+            <div class="col-12 col-md-6 col-xl-3">
+              <label class="form-label mb-1">Категорія</label>
+              <select name="category" class="form-select form-select-sm">
+                <option value="" {% if not category_filter %}selected{% endif %}>Усі</option>
+                <option value="rollers" {% if category_filter == 'rollers' %}selected{% endif %}>Ролети</option>
+                <option value="components" {% if category_filter == 'components' %}selected{% endif %}>Комплектуючі</option>
+                <option value="fabrics" {% if category_filter == 'fabrics' %}selected{% endif %}>Тканина</option>
+              </select>
+            </div>
+            <div class="col-12 col-md-4 col-xl-3">
+              <label class="form-label mb-1">Від дати</label>
+              <input type="date" name="date_from" value="{{ date_from }}" class="form-control form-control-sm">
+            </div>
+            <div class="col-12 col-md-4 col-xl-3">
+              <label class="form-label mb-1">До дати</label>
+              <input type="date" name="date_to" value="{{ date_to }}" class="form-control form-control-sm">
+            </div>
+            {% if customer_options %}
+              <div class="col-12 col-md-4 col-xl-6">
+                <div class="form-check pt-4 pt-md-0 mt-md-4">
+                  <input class="form-check-input" type="checkbox" id="negativeOnly" name="negative" value="1" {% if negative_only %}checked{% endif %}>
+                  <label class="form-check-label" for="negativeOnly">Негативні баланси</label>
+                </div>
+              </div>
+            {% endif %}
           </div>
-          <div class="col-auto">
-            <div class="form-check mt-4">
-              <input class="form-check-input" type="checkbox" id="negativeOnly" name="negative" value="1" {% if negative_only %}checked{% endif %}>
-              <label class="form-check-label" for="negativeOnly">Негативні баланси</label>
+        </div>
+        <div class="col-12 col-xl-auto pt-xl-4">
+          <div class="d-grid gap-2" style="min-width: 280px;">
+            <div class="d-grid gap-2 d-sm-flex justify-content-xl-end">
+              <button type="submit" class="btn btn-primary btn-sm flex-fill">Фільтрувати</button>
+              <a href="{% url 'orders:balances' %}" class="btn btn-secondary btn-sm js-reset-balances-filters flex-fill">Скинути</a>
+            </div>
+            <div class="d-grid gap-2">
+              {% with query=request.GET.urlencode %}
+                <a href="{% url 'orders:balances_excel' %}{% if query %}?{{ query }}{% endif %}" class="btn btn-success btn-sm text-start">
+                  <i class="bi bi-download me-1"></i> Вивантаження оберту (Excel)
+                </a>
+              {% endwith %}
+              {% if balance_page_url %}
+                <a href="{{ balance_page_url }}" target="_blank" class="btn btn-primary btn-sm text-start">
+                  <i class="bi bi-link-45deg me-1"></i> Вивантаження оберту (сторінка)
+                </a>
+              {% endif %}
             </div>
           </div>
-        {% endif %}
-        <div class="col-auto">
-          <label class="form-label mb-1">Тип</label>
-          <select name="type" class="form-select form-select-sm" style="min-width: 180px;">
-            <option value="" {% if not type_filter %}selected{% endif %}>Усі</option>
-            <option value="orders" {% if type_filter == 'orders' %}selected{% endif %}>Замовлення</option>
-            <option value="transactions" {% if type_filter == 'transactions' %}selected{% endif %}>Транзакції</option>
-          </select>
-        </div>
-        <div class="col-auto d-flex flex-wrap gap-2">
-          <button type="submit" class="btn btn-primary btn-sm">Фільтрувати</button>
-          <a href="{% url 'orders:balances' %}" class="btn btn-outline-secondary btn-sm js-reset-balances-filters">Скинути</a>
-        </div>
-        <div class="col ms-auto d-flex justify-content-end flex-wrap gap-2">
-          {% if customer_options %}
-            <a href="{% url 'orders:transaction_create' %}?{% if customer_filter %}customer={{ customer_filter }}{% endif %}" class="btn btn-outline-primary">
-              <i class="bi bi-cash-coin me-1"></i> Нова транзакція
-            </a>
-          {% endif %}
-          {% with query=request.GET.urlencode %}
-            <a href="{% url 'orders:balances_excel' %}{% if query %}?{{ query }}{% endif %}" class="btn btn-success btn-sm">
-              <i class="bi bi-download me-1"></i> Експорт балансу (Excel)
-            </a>
-          {% endwith %}
-          {% if balance_page_url %}
-            <a href="{{ balance_page_url }}" target="_blank" class="btn btn-outline-primary btn-sm">
-              <i class="bi bi-link-45deg me-1"></i> Експорт балансу (сторінка)
-            </a>
-          {% endif %}
         </div>
       </form>
     </div>
@@ -109,9 +138,35 @@
 
 {% block body_extra %}
   {{ block.super }}
+  <div class="modal fade" id="paymentListModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Оплата замовлення</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-0" id="paymentListModalText" style="white-space: pre-wrap;"></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" id="paymentListCancelBtn">Не відправляти</button>
+          <button type="button" class="btn btn-success" id="paymentListConfirmBtn">Відправити</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', function () {
+      const paymentMessageText = "{{ payment_message_text|default:''|escapejs }}";
+      const paymentShortageMap = {{ payment_shortage_json|default:"{}"|safe }};
+      const modalEl = document.getElementById('paymentListModal');
+      const modalText = document.getElementById('paymentListModalText');
+      const confirmBtn = document.getElementById('paymentListConfirmBtn');
+      const cancelBtn = document.getElementById('paymentListCancelBtn');
+      let pendingForm = null;
+      let modal = null;
+
       const $customer = $('#balancesCustomerFilter');
       if ($customer.length) {
         $customer.select2({
@@ -170,6 +225,96 @@
           });
         });
       }
+
+      if (modalEl) {
+        modal = new bootstrap.Modal(modalEl);
+      }
+
+      const submitStatusFormAjax = async (form) => {
+        const row = form.closest('[data-order-row]');
+        if (!row) {
+          form.submit();
+          return;
+        }
+        const statusCell = row.querySelector('[data-order-status-cell]');
+        const controls = row.querySelector('[data-order-controls]');
+        const formData = new FormData(form);
+        const submitBtn = form.querySelector('button[type="submit"]');
+        if (submitBtn) submitBtn.disabled = true;
+        row.classList.add('opacity-75');
+        try {
+          const response = await fetch(form.action, {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            body: formData,
+            credentials: 'same-origin',
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) {
+            if (data && data.redirect_url) {
+              window.location.href = data.redirect_url;
+              return;
+            }
+            throw new Error((data && data.message) || 'Не вдалося змінити статус.');
+          }
+          if (statusCell && data.status_html) {
+            statusCell.innerHTML = data.status_html;
+          }
+          if (controls && data.controls_html !== undefined) {
+            controls.innerHTML = data.controls_html;
+          }
+        } catch (error) {
+          alert(error.message || 'Не вдалося змінити статус.');
+        } finally {
+          row.classList.remove('opacity-75');
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      };
+
+      document.addEventListener('click', function (e) {
+        const btn = e.target.closest('button[data-payment-check]');
+        if (!btn || !modal || !modalText) return;
+        const orderId = btn.getAttribute('data-order-id');
+        const entry = orderId && paymentShortageMap ? paymentShortageMap[orderId] : null;
+        if (!paymentMessageText && !entry) return;
+        const shortage = entry ? (entry.shortage || '') : '';
+        const orders = entry && Array.isArray(entry.orders) ? entry.orders : [];
+        const suffix = shortage
+          ? (orders.length
+              ? `\n\nЗамовлення №${orders.join(', №')} на суму ${shortage} грн`
+              : `\n\nСума ${shortage} грн`)
+          : '';
+        modalText.textContent = `Обов'язково вкажіть у платежі в полі «Призначення платежу» наступний текст:\n\n${paymentMessageText}${suffix}`;
+        pendingForm = btn.closest('form');
+        e.preventDefault();
+        modal.show();
+      });
+
+      if (confirmBtn) {
+        confirmBtn.addEventListener('click', function () {
+          if (modal) modal.hide();
+          if (pendingForm) submitStatusFormAjax(pendingForm);
+          pendingForm = null;
+        });
+      }
+
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', function () {
+          if (modal) modal.hide();
+          pendingForm = null;
+        });
+      }
+
+      document.addEventListener('submit', function (e) {
+        const form = e.target.closest('form.js-status-form');
+        if (!form) return;
+        const paymentBtn = form.querySelector('button[data-payment-check]');
+        if (paymentBtn) {
+          return;
+        }
+        e.preventDefault();
+        submitStatusFormAjax(form);
+      });
     });
   </script>
 {% endblock %}

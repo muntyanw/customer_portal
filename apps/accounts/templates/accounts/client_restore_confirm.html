@@ -1,0 +1,28 @@
+{% extends "core/dashboard_base.html" %}
+
+{% block dashboard_title %}Відновлення клієнта{% endblock %}
+{% block dashboard_heading %}Відновлення клієнта{% endblock %}
+
+{% block dashboard_content %}
+  <div class="row justify-content-center">
+    <div class="col-12 col-lg-6">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body p-4">
+          <h2 class="h5 mb-3">Підтвердьте відновлення</h2>
+          <p class="mb-3">
+            Ви дійсно хочете відновити кабінет клієнта
+            <strong>{% firstof profile.company_name profile.full_name target_user.email %}</strong>?
+          </p>
+          {% if profile.full_name and profile.full_name != profile.company_name %}
+            <div class="text-muted mb-3">Контактна особа: {{ profile.full_name }}</div>
+          {% endif %}
+          <form method="post" class="d-flex gap-2">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-primary">Відновити</button>
+            <a href="{% url 'accounts:clients_trash' %}" class="btn btn-outline-secondary">Скасувати</a>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

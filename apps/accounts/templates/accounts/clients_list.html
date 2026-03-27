@@ -24,6 +24,11 @@
       <a href="{% url 'accounts:clients_list' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
     </form>
     <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
+      {% if request.user.is_superuser %}
+        <a href="{% url 'accounts:clients_trash' %}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-trash me-1"></i>Кошик
+        </a>
+      {% endif %}
       <div class="btn-group btn-group-sm" role="group" aria-label="Сортування">
         <a class="btn btn-outline-primary {% if sort == 'full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=full_name">Ім'я</a>
         <a class="btn btn-outline-primary {% if sort == '-full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-full_name">Ім'я ↓</a>
@@ -48,6 +53,7 @@
     <div class="card-body p-0">
       <div class="d-none d-md-block border-bottom bg-light">
         <div class="row g-2 align-items-center px-3 py-2 text-uppercase small fw-semibold text-muted">
+          <div class="col-12 col-md-auto" style="width: 56px;">ID</div>
           <div class="col-12 col-md-1"></div>
           <div class="col-12 col-md">Назва компанії</div>
           <div class="col-12 col-md"><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'full_name' %}-full_name{% else %}full_name{% endif %}">ПІБ</a></div>
@@ -64,12 +70,15 @@
       {% for u in clients %}
         <div class="border-bottom">
           <div class="row g-3 align-items-center px-3 py-3">
+            <div class="col-12 col-md-auto" style="width: 56px;">
+              <div class="fw-semibold">{{ u.id }}</div>
+            </div>
             <div class="col-12 col-md-1 d-flex justify-content-start justify-content-md-center">
               {% if u.customerprofile.avatar %}
                 <img src="{{ u.customerprofile.avatar.url }}" alt="avatar" class="rounded-circle" width="40" height="40">
               {% else %}
                 <div class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center" style="width:40px; height:40px;">
-                  <span class="fw-bold">{{ u.email|default:"?"|slice:":1"|upper }}</span>
+                  <span class="fw-bold">{% firstof u.customerprofile.company_name|slice:":1"|upper u.customerprofile.full_name|slice:":1"|upper u.email|slice:":1"|upper "?" %}</span>
                 </div>
               {% endif %}
             </div>
@@ -140,8 +149,12 @@
             <div class="col-12 col-md-3">
               <div class="d-flex flex-wrap gap-2">
                 <a href="{% url 'accounts:profile_other' u.id %}" class="btn btn-sm btn-secondary">Переглянути</a>
+                <a href="{% url 'orders:balances' %}?customer={{ u.id }}" class="btn btn-sm btn-primary">Вивантаження оберту</a>
                 {% if request.user.is_superuser %}
                   <a href="{% url 'accounts:profile_password_change' u.id %}" class="btn btn-sm btn-warning text-dark">Змінити пароль</a>
+                  {% if u.id != request.user.id %}
+                    <a href="{% url 'accounts:profile_delete' u.id %}" class="btn btn-sm btn-danger">Видалити</a>
+                  {% endif %}
                 {% endif %}
                 <a href="{% url 'orders:transaction_create' %}?customer={{ u.id }}" class="btn btn-sm btn-success">Створити транзакцію</a>
               </div>

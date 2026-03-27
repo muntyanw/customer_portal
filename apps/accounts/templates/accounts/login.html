@@ -22,7 +22,12 @@
           </div>
           <div class="mb-3">
             {{ form.password.label_tag }}
-            {{ form.password|add_class:"form-control form-control-lg" }}
+            <div class="input-group input-group-lg">
+              {{ form.password|add_class:"form-control" }}
+              <button type="button" class="btn btn-outline-secondary" id="togglePasswordVisibility" aria-label="Показати пароль">
+                <i class="bi bi-eye"></i>
+              </button>
+            </div>
           </div>
 
           <div class="d-grid mt-4">
@@ -50,6 +55,10 @@
         return parts.join('-');
       }
       const loginInput = document.getElementById('id_login');
+      const passwordInput = document.getElementById('id_password');
+      const togglePasswordBtn = document.getElementById('togglePasswordVisibility');
+      const togglePasswordIcon = togglePasswordBtn ? togglePasswordBtn.querySelector('i') : null;
+
       if (loginInput) {
         loginInput.addEventListener('input', function () {
           const raw = this.value || '';
@@ -57,6 +66,22 @@
           this.value = formatPhone(raw);
         });
       }
+
+      if (togglePasswordBtn && passwordInput) {
+        togglePasswordBtn.addEventListener('click', function () {
+          const isHidden = passwordInput.type === 'password';
+          passwordInput.type = isHidden ? 'text' : 'password';
+          togglePasswordBtn.setAttribute('aria-label', isHidden ? 'Сховати пароль' : 'Показати пароль');
+          if (togglePasswordIcon) {
+            togglePasswordIcon.className = isHidden ? 'bi bi-eye-slash' : 'bi bi-eye';
+          }
+        });
+      }
     })();
   </script>
+{% endblock %}
+
+{% block head_extra %}
+  {{ block.super }}
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 {% endblock %}

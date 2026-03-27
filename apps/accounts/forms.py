@@ -1,9 +1,24 @@
 import re
 from decimal import Decimal, InvalidOperation
+from uuid import uuid4
 from django import forms
 from django.contrib.auth import authenticate
 from .models import User
-from apps.customers.models import CustomerProfile
+from apps.customers.models import CustomerProfile, CustomerContact
+
+INTERNAL_LOGIN_EMAIL_DOMAIN = "no-email.local.invalid"
+
+
+def _is_internal_login_email(value):
+    value = (value or "").strip().lower()
+    return value.endswith(f"@{INTERNAL_LOGIN_EMAIL_DOMAIN}")
+
+
+def _generate_internal_login_email():
+    while True:
+        candidate = f"user-{uuid4().hex[:12]}@{INTERNAL_LOGIN_EMAIL_DOMAIN}"
+        if not User.objects.filter(email=candidate).exists():
+            return candidate
 
 class RegisterForm(forms.ModelForm):
     password = forms.CharField(widget=forms.PasswordInput)
@@ -21,11 +36,12 @@ class RegisterForm(forms.ModelForm):
 
 
 class ProfileForm(forms.Form):
-    email = forms.EmailField(label="Email (логін)")
+    email = forms.EmailField(label="Email (логін)", required=False)
     company_name = forms.CharField(label="Назва компанії", required=True)
     full_name = forms.CharField(label="ПІБ", required=False)
     phone = forms.CharField(label="Телефон", required=True)
     contact_email = forms.EmailField(label="Email (контактний)", required=False)
+    website = forms.URLField(label="Сайт", required=False)
     trade_address = forms.CharField(label="Адреса торгової точки", required=False)
     delivery_method = forms.ChoiceField(label="Спосіб доставки", required=True, choices=CustomerProfile.DELIVERY_CHOICES)
     delivery_branch = forms.CharField(label="Вантажне відділення (від 200кг)", required=False)
@@ -48,11 +64,15 @@ class ProfileForm(forms.Form):
         if self.creating:
             self.fields["password"] = forms.CharField(label="Пароль", widget=forms.PasswordInput, required=True)
             self.fields["password2"] = forms.CharField(label="Підтвердити пароль", widget=forms.PasswordInput, required=True)
-        self.fields["email"].initial = self.user_instance.email
+        email_initial = self.user_instance.email
+        if _is_internal_login_email(email_initial):
+            email_initial = ""
+        self.fields["email"].initial = email_initial
         self.fields["company_name"].initial = self.profile_instance.company_name
         self.fields["full_name"].initial = self.profile_instance.full_name
         self.fields["phone"].initial = self.profile_instance.phone
         self.fields["contact_email"].initial = self.profile_instance.contact_email
+        self.fields["website"].initial = self.profile_instance.website
         self.fields["trade_address"].initial = self.profile_instance.trade_address
         self.fields["delivery_method"].initial = self.profile_instance.delivery_method
         self.fields["delivery_branch"].initial = self.profile_instance.delivery_branch
@@ -83,8 +103,16 @@ class ProfileForm(forms.Form):
                     field.widget.attrs.update({"class": "form-control"})
 
     def save(self):
-        self.user_instance.email = self.cleaned_data["email"]
-        self.user_instance.username = self.cleaned_data["email"]
+        email = (self.cleaned_data.get("email") or "").strip()
+        if email:
+            login_email = email
+        elif self.creating or not self.user_instance.email or _is_internal_login_email(self.user_instance.email):
+            login_email = _generate_internal_login_email()
+        else:
+            login_email = self.user_instance.email
+
+        self.user_instance.email = login_email
+        self.user_instance.username = login_email
         is_new = self.user_instance.pk is None
         if "is_manager" in self.cleaned_data:
             self.user_instance.is_manager = bool(self.cleaned_data.get("is_manager", False))
@@ -110,6 +138,7 @@ class ProfileForm(forms.Form):
         self.profile_instance.full_name = self.cleaned_data.get("full_name", "")
         self.profile_instance.phone = self.cleaned_data.get("phone", "")
         self.profile_instance.contact_email = self.cleaned_data.get("contact_email", "")
+        self.profile_instance.website = self.cleaned_data.get("website", "")
         self.profile_instance.trade_address = self.cleaned_data.get("trade_address", "")
         self.profile_instance.delivery_method = self.cleaned_data.get("delivery_method", "")
         self.profile_instance.delivery_branch = self.cleaned_data.get("delivery_branch", "")
@@ -127,6 +156,13 @@ class ProfileForm(forms.Form):
 
     def clean(self):
         cleaned = super().clean()
+        email = (cleaned.get("email") or "").strip()
+        if email:
+            existing = User.objects.filter(email__iexact=email)
+            if self.user_instance.pk:
+                existing = existing.exclude(pk=self.user_instance.pk)
+            if existing.exists():
+                self.add_error("email", "Користувач з таким email вже існує.")
         if self.creating:
             if cleaned.get("password") != cleaned.get("password2"):
                 self.add_error("password2", "Паролі не співпадають")
@@ -162,7 +198,12 @@ class LoginForm(forms.Form):
     password = forms.CharField(widget=forms.PasswordInput, label="Пароль")
 
     def _normalize_phone(self, value: str) -> str:
-        return re.sub(r"\D", "", value or "")
+        digits = re.sub(r"\D", "", value or "")
+        if len(digits) == 12 and digits.startswith("380"):
+            return "0" + digits[3:]
+        if len(digits) == 9:
+            return "0" + digits
+        return digits
 
     def clean(self):
         cleaned = super().clean()
@@ -173,18 +214,20 @@ class LoginForm(forms.Form):
         auth_user = None
 
         if "@" in login_value:
-            user = User.objects.filter(email__iexact=login_value).first()
+            user = User.objects.filter(email__iexact=login_value, is_active=True).first()
         else:
             norm = self._normalize_phone(login_value)
             if len(norm) != 10:
                 raise forms.ValidationError("Введіть телефон у форматі 063-435-00-81.")
-            profile = None
-            for p in CustomerProfile.objects.filter(phone__isnull=False).select_related("user"):
+            for p in CustomerProfile.objects.filter(phone__isnull=False, user__is_active=True).select_related("user"):
                 if self._normalize_phone(p.phone) == norm:
-                    profile = p
+                    user = p.user
                     break
-            if profile:
-                user = profile.user
+            if not user:
+                for contact in CustomerContact.objects.filter(phone__isnull=False, profile__user__is_active=True).select_related("profile__user"):
+                    if self._normalize_phone(contact.phone) == norm:
+                        user = contact.profile.user
+                        break
 
         if user:
             auth_user = authenticate(username=user.username, password=password)

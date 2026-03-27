@@ -12,6 +12,14 @@ from apps.accounts.roles import is_manager
 from apps.orders.views import compute_balance
 
 
+def _customer_ordering_fields(prefix="customerprofile__"):
+    return [
+        f"{prefix}company_name",
+        f"{prefix}full_name",
+        "email",
+    ]
+
+
 class AdminSetPasswordForm(django_forms.Form):
     password = django_forms.CharField(label="Новий пароль", widget=django_forms.PasswordInput, min_length=6)
     password2 = django_forms.CharField(label="Підтвердження пароля", widget=django_forms.PasswordInput, min_length=6)
@@ -202,7 +210,7 @@ def clients_list_view(request):
             messages.error(request, "Вкажіть коректне значення знижки (0-100).")
         return redirect("accounts:clients_list")
 
-    sort = request.GET.get("sort", "full_name")
+    sort = request.GET.get("sort", "company")
     direction = ""
     if sort.startswith("-"):
         direction = "-"
@@ -215,14 +223,14 @@ def clients_list_view(request):
         "phone": "customerprofile__phone",
         "company": "customerprofile__company_name",
     }
-    order_field = allowed_sorts.get(sort_field, "email")
+    order_field = allowed_sorts.get(sort_field, "customerprofile__company_name")
     ordering = f"{direction}{order_field}"
 
     q = request.GET.get("q", "").strip()
     customer_id = (request.GET.get("customer") or "").strip()
 
     users_qs = (
-        User.objects.filter(is_customer=True)
+        User.objects.filter(is_customer=True, is_active=True)
         .select_related("customerprofile")
     )
     if customer_id:
@@ -260,9 +268,9 @@ def clients_list_view(request):
         "q": q,
         "customer_filter": customer_id,
         "customer_options": list(
-            User.objects.filter(is_customer=True)
+            User.objects.filter(is_customer=True, is_active=True)
             .select_related("customerprofile")
-            .order_by("customerprofile__full_name", "email")
+            .order_by(*_customer_ordering_fields())
         ),
         "next_sort": lambda field: (f"-{field}" if sort == field else field),
     }
@@ -370,5 +378,79 @@ def client_password_change_view(request, pk):
         {
             "form": form,
             "target_user": target_user,
+        },
+    )
+
+
+@login_required
+def client_delete_view(request, pk):
+    if not request.user.is_superuser:
+        messages.error(request, "Доступ лише для адміністратора.")
+        return redirect("accounts:clients_list")
+
+    target_user = get_object_or_404(User.objects.select_related("customerprofile"), pk=pk, is_customer=True, is_active=True)
+    if target_user.pk == request.user.pk:
+        messages.error(request, "Неможливо видалити власний акаунт.")
+        return redirect("accounts:clients_list")
+
+    if request.method == "POST":
+        display_name = (
+            getattr(getattr(target_user, "customerprofile", None), "company_name", "")
+            or getattr(getattr(target_user, "customerprofile", None), "full_name", "")
+            or target_user.email
+        )
+        target_user.is_active = False
+        target_user.save(update_fields=["is_active"])
+        messages.success(request, f"Користувача {display_name} переміщено до кошика.")
+        return redirect("accounts:clients_list")
+
+    return render(
+        request,
+        "accounts/client_delete_confirm.html",
+        {
+            "target_user": target_user,
+            "profile": getattr(target_user, "customerprofile", None),
+        },
+    )
+
+
+@login_required
+def clients_trash_view(request):
+    if not request.user.is_superuser:
+        messages.error(request, "Доступ лише для адміністратора.")
+        return redirect("accounts:clients_list")
+
+    clients = (
+        User.objects.filter(is_customer=True, is_active=False)
+        .select_related("customerprofile")
+        .order_by("customerprofile__company_name", "customerprofile__full_name", "email")
+    )
+    return render(request, "accounts/clients_trash.html", {"clients": clients})
+
+
+@login_required
+def client_restore_view(request, pk):
+    if not request.user.is_superuser:
+        messages.error(request, "Доступ лише для адміністратора.")
+        return redirect("accounts:clients_list")
+
+    target_user = get_object_or_404(User.objects.select_related("customerprofile"), pk=pk, is_customer=True, is_active=False)
+    if request.method == "POST":
+        target_user.is_active = True
+        target_user.save(update_fields=["is_active"])
+        display_name = (
+            getattr(getattr(target_user, "customerprofile", None), "company_name", "")
+            or getattr(getattr(target_user, "customerprofile", None), "full_name", "")
+            or target_user.email
+        )
+        messages.success(request, f"Користувача {display_name} відновлено.")
+        return redirect("accounts:clients_trash")
+
+    return render(
+        request,
+        "accounts/client_restore_confirm.html",
+        {
+            "target_user": target_user,
+            "profile": getattr(target_user, "customerprofile", None),
         },
     )

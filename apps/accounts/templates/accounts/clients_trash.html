@@ -1,0 +1,39 @@
+{% extends "core/dashboard_base.html" %}
+
+{% block dashboard_title %}Кошик{% endblock %}
+{% block dashboard_heading %}Кошик{% endblock %}
+
+{% block dashboard_content %}
+  <div class="d-flex justify-content-end mb-3">
+    <a href="{% url 'accounts:clients_list' %}" class="btn btn-outline-secondary btn-sm">До списку клієнтів</a>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-body p-0">
+      <div class="border-bottom bg-light px-3 py-2 small text-uppercase fw-semibold text-muted">
+        Видалені користувачі
+      </div>
+      {% for u in clients %}
+        {% with profile=u.customerprofile %}
+          <div class="border-bottom">
+            <div class="row g-3 align-items-center px-3 py-3">
+              <div class="col-12 col-md">
+                <div class="fw-semibold">{% firstof profile.company_name profile.organization.name profile.full_name u.email %}</div>
+                {% if profile.full_name and profile.full_name != profile.company_name %}
+                  <div class="text-muted small">{{ profile.full_name }}</div>
+                {% endif %}
+              </div>
+              <div class="col-12 col-md">{{ u.email|default:"—" }}</div>
+              <div class="col-12 col-md">{{ profile.phone|default:"—" }}</div>
+              <div class="col-12 col-md-auto text-md-end">
+                <a href="{% url 'accounts:profile_restore' u.id %}" class="btn btn-sm btn-primary">Відновити</a>
+              </div>
+            </div>
+          </div>
+        {% endwith %}
+      {% empty %}
+        <div class="text-center text-muted py-4">Кошик порожній.</div>
+      {% endfor %}
+    </div>
+  </div>
+{% endblock %}
