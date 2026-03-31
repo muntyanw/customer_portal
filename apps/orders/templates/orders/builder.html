@@ -1213,16 +1213,19 @@
 
       setEventsFromGabarits($card)
       let preSelectsPriceOptions = {}
-      priceOptionsConfig.forEach((option, index) => {
-          let price = $card.find(`.${option.key} .price`).text() //item[option.key]
+      priceOptionsConfig.forEach((option) => {
+          let price = item[option.key]
           let qty = item[option.key.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")]
-          if(qty){
+          if (price !== undefined && price !== null) {
             preSelectsPriceOptions[option.key] = price
+          }
+          if(qty){
             preSelectsPriceOptions[option.key.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")] = qty
           }
       });
 
       preSelectsPriceOptions.base_price_eur = item.base_price_eur
+      preSelectsPriceOptions.surcharge_height_eur = item.surcharge_height_eur
       preSelectsPriceOptions.comment_system_red = item.comment_system_red
       preSelectsPriceOptions.comment_system_green = item.comment_system_green
       preSelectsPriceOptions.gb_width_mm = item.gb_width_mm
@@ -1507,13 +1510,14 @@
         })
 
         const discountedSum = sum * discountMultiplier
+        const roundedDiscountedSum = Number(money(discountedSum))
         console.log(discountMultiplier)
 
         // subtotal по позиции
-        $card.find('.subtotal-input').text(money(discountedSum)).val(money(discountedSum))
-        $card.find('.subtotal-uah').text(eurToUah(discountedSum))
+        $card.find('.subtotal-input').text(money(roundedDiscountedSum)).val(money(roundedDiscountedSum))
+        $card.find('.subtotal-uah').text(eurToUah(roundedDiscountedSum))
 
-        sumTotal += discountedSum
+        sumTotal += roundedDiscountedSum
       })
 
       const markupPercent = Number($('#orderMarkup').val() || 0)
@@ -1676,7 +1680,7 @@
     }
 
 
-   function renderOnePriceOption($card, optionPrice, option, commonQty, preSelectoptionQty) {
+   function renderOnePriceOption($card, optionPrice, option, commonQty, preSelectoptionQty, useSavedTotal = false) {
       const optionName = option.key
       const optionQtyName = optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
       if (!optionPrice) return
@@ -1688,6 +1692,15 @@
         optionQty = Number($card.find(`[name="${optionQtyName}"]`).val() || 0)
       }
       if (Number.isNaN(optionQty)) optionQty = 0
+      const gbWidthMm = Number($card.find('.gb_width_mm').val() || 0)
+      let optionUnitPrice = Number(optionPrice)
+      if (useSavedTotal && optionQty > 0) {
+        optionUnitPrice = Number(optionPrice) / optionQty
+        if (optionName.includes("_mp") && gbWidthMm > 0) {
+          optionUnitPrice = optionUnitPrice / (gbWidthMm / 1000)
+        }
+      }
+      if (Number.isNaN(optionUnitPrice)) optionUnitPrice = Number(optionPrice) || 0
 
       {% comment %} const gb = Number($card.find('.gb_width_mm').val() || 0)
       const unitEur = calcOptionUnitEur(optionName, optionPrice, gb)
@@ -1704,20 +1717,20 @@
 
       if ($card.find('.' + optionName).length === 0) {
         let htmlPriceOption =
-          `<div class="op-card ${optionName} price-option-card border rounded-3 mb-2 bg-light-subtle" data-unit-eur="${optionPrice}">`
+          `<div class="op-card ${optionName} price-option-card border rounded-3 mb-2 bg-light-subtle" data-unit-eur="${optionUnitPrice}">`
           + `<div class="d-flex align-items-center justify-content-between gap-2">`
           +   `<div class="d-flex align-items-center gap-2">`
           +     `<input class="form-check-input price-option mt-0" type="checkbox"`
-          +       ` onchange="checkPriceOption(this, '${optionName}', '${optionPrice}')" ${checkedAttr} />`
+          +       ` onchange="checkPriceOption(this, '${optionName}', '${optionUnitPrice}')" ${checkedAttr} />`
           +     `<div class="d-flex flex-column">`
           +       `<span class="fw-semibold option-title">${option.label}</span>`
           +     `</div>`
           +   `</div>`
           +   `<div class="text-end">`
           +     `<span class="badge rounded-pill text-bg-primary">`
-          +       `<span class="price" style="display:none;">${optionPrice}</span>`
+          +       `<span class="price" style="display:none;">${optionUnitPrice}</span>`
           +       `&nbsp;&nbsp;`
-          +       `<span class="price-uah">${eurToUah(optionPrice)}</span>`
+          +       `<span class="price-uah">${eurToUah(optionUnitPrice)}</span>`
           +     `</span>`
           +   `</div>`
           + `</div>`
@@ -1727,12 +1740,12 @@
             `<div class="d-flex align-items-center justify-content-between mt-2">`
             + `<div class="btn-group btn-group-sm" role="group" aria-label="Кількість">`
             +   `<button type="button" class="btn btn-outline-secondary qty-button qty-minus"`
-            +     ` onclick="javascript:changeQty(this, '${optionName}', ${optionPrice}, 0, -1)" ${disabledAttr}>`
+            +     ` onclick="javascript:changeQty(this, '${optionName}', ${optionUnitPrice}, 0, -1)" ${disabledAttr}>`
             +     `<i class="bi bi-dash"></i>`
             +   `</button>`
             +   `<span class="option-qty-value px-2">${optionQty}</span>`
             +   `<button type="button" class="btn btn-outline-secondary qty-button qty-plus"`
-            +     ` onclick="javascript:changeQty(this, '${optionName}', ${optionPrice}, 0, 1)" ${disabledAttr}>`
+            +     ` onclick="javascript:changeQty(this, '${optionName}', ${optionUnitPrice}, 0, 1)" ${disabledAttr}>`
             +     `<i class="bi bi-plus"></i>`
             +   `</button>`
             + `</div>`
@@ -1743,12 +1756,12 @@
 
         $card.find('.op-card-list').append(htmlPriceOption)
       } else {
-        $card.find('.' + optionName).attr('data-unit-eur', optionPrice)
+        $card.find('.' + optionName).attr('data-unit-eur', optionUnitPrice)
       }
 
       // если у нас уже есть qty > 0 (редактирование заказа) — сразу создаём строку в таблице
       if (optionQty > 0) {
-        setOneOption($card, optionName, optionQty, optionPrice, 0)
+        setOneOption($card, optionName, optionQty, optionUnitPrice, 0)
       }
     }
 
@@ -1837,8 +1850,12 @@
         $card.find('.item-note').val(preSelectsPriceOptions.note)
       }
 
-      const baseOne = Number(data?.base_price_eur || preSelectsPriceOptions.base_price_eur || 0)
-      const surchargeOne = Number(data?.surcharge_height_eur || preSelectsPriceOptions.surcharge_height_eur || 0)
+      const hasSavedBase = Object.prototype.hasOwnProperty.call(preSelectsPriceOptions, 'base_price_eur')
+      const hasSavedSurcharge = Object.prototype.hasOwnProperty.call(preSelectsPriceOptions, 'surcharge_height_eur')
+      const savedBaseTotal = Number(preSelectsPriceOptions.base_price_eur || 0)
+      const savedSurchargeTotal = Number(preSelectsPriceOptions.surcharge_height_eur || 0)
+      const baseOne = hasSavedBase && qty > 0 ? (savedBaseTotal / qty) : Number(data?.base_price_eur || 0)
+      const surchargeOne = hasSavedSurcharge && qty > 0 ? (savedSurchargeTotal / qty) : Number(data?.surcharge_height_eur || 0)
       const baseTotal = baseOne * qty
       const surchargeTotal = surchargeOne * qty
       const displayTotal = baseTotal + surchargeTotal
@@ -1864,7 +1881,8 @@
       const availableOptionNames = new Set()
       priceOptionsConfig.forEach((option) => {
         const optionName = option.key
-        const price = preSelectsPriceOptions[optionName] ?? (data ? data[optionName] : undefined)
+        const hasSavedOptionPrice = Object.prototype.hasOwnProperty.call(preSelectsPriceOptions, optionName)
+        const price = hasSavedOptionPrice ? preSelectsPriceOptions[optionName] : (data ? data[optionName] : undefined)
         if (Number(price || 0) > 0) {
           availableOptionNames.add(optionName)
         }
@@ -1883,8 +1901,9 @@
       priceOptionsConfig.forEach((option) => {
         const optionName = option.key
         const optionQtyName = optionName.replace("_price_eur_mp", "_qty").replace("_price_eur", "_qty")
-        const price = preSelectsPriceOptions[optionName] ?? (data ? data[optionName]:undefined)
-        renderOnePriceOption($card, price, option, commonQty, preSelectsPriceOptions[optionQtyName]);
+        const hasSavedOptionPrice = Object.prototype.hasOwnProperty.call(preSelectsPriceOptions, optionName)
+        const price = hasSavedOptionPrice ? preSelectsPriceOptions[optionName] : (data ? data[optionName] : undefined)
+        renderOnePriceOption($card, price, option, commonQty, preSelectsPriceOptions[optionQtyName], hasSavedOptionPrice);
       })
 
       recalcPrice()

@@ -16,6 +16,8 @@ urlpatterns = [
     path("balances/export/", views.balances_excel, name="balances_excel"),
     path("balances/page/<str:token>/", views.balance_public_page, name="balance_public"),
     path("balances/users/", views.balances_users, name="balances_users"),
+    path("turnover/", views.turnover_report, name="turnover"),
+    path("turnover/export/", views.turnover_excel, name="turnover_excel"),
     path("export/", views.order_list_excel, name="orders_excel"),
 
     # білдер ролетів

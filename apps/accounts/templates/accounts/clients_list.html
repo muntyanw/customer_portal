@@ -15,7 +15,7 @@
         <option value="">Усі клієнти</option>
         {% for c in customer_options %}
           <option value="{{ c.id }}" {% if customer_filter|add:'0' == c.id|add:'0' %}selected{% endif %}>
-            {% if c.customerprofile.full_name %}{{ c.customerprofile.full_name }}{% else %}{{ c }}{% endif %}
+            {% if c.customerprofile.company_name %}{{ c.customerprofile.company_name }}{% elif c.customerprofile.organization and c.customerprofile.organization.name %}{{ c.customerprofile.organization.name }}{% elif c.customerprofile.full_name %}{{ c.customerprofile.full_name }}{% else %}{{ c }}{% endif %}
           </option>
         {% endfor %}
       </select>
@@ -149,7 +149,7 @@
             <div class="col-12 col-md-3">
               <div class="d-flex flex-wrap gap-2">
                 <a href="{% url 'accounts:profile_other' u.id %}" class="btn btn-sm btn-secondary">Переглянути</a>
-                <a href="{% url 'orders:balances' %}?customer={{ u.id }}" class="btn btn-sm btn-primary">Вивантаження оберту</a>
+                <a href="{% url 'orders:turnover' %}?customer={{ u.id }}" class="btn btn-sm btn-primary">Вивантаження оберту</a>
                 {% if request.user.is_superuser %}
                   <a href="{% url 'accounts:profile_password_change' u.id %}" class="btn btn-sm btn-warning text-dark">Змінити пароль</a>
                   {% if u.id != request.user.id %}

@@ -1,11 +1,14 @@
 from django import forms
 from django.contrib.auth.decorators import login_required, user_passes_test
+from django.contrib import messages
+from django.db import OperationalError, ProgrammingError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 from pathlib import Path
+from urllib.parse import urlparse, parse_qs
 
 from apps.accounts.roles import is_manager
-from .models import News, NewsAcknowledgement
+from .models import News, NewsAcknowledgement, ResourceLink
 from .link_data.resource_links import TECHNICAL_INFO_LINKS, VIDEO_LINKS
 
 
@@ -18,6 +21,27 @@ class NewsForm(forms.ModelForm):
             "body": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
             "is_active": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }
+
+
+class ResourceLinkForm(forms.ModelForm):
+    class Meta:
+        model = ResourceLink
+        fields = ["title", "url", "attachment", "description", "sort_order"]
+        widgets = {
+            "title": forms.TextInput(attrs={"class": "form-control", "placeholder": "Назва"}),
+            "url": forms.URLInput(attrs={"class": "form-control", "placeholder": "https://..."}),
+            "attachment": forms.ClearableFileInput(attrs={"class": "form-control"}),
+            "description": forms.Textarea(attrs={"class": "form-control", "rows": 2, "placeholder": "Короткий опис"}),
+            "sort_order": forms.NumberInput(attrs={"class": "form-control", "min": 0}),
+        }
+
+    def clean(self):
+        cleaned = super().clean()
+        url = cleaned.get("url")
+        attachment = cleaned.get("attachment")
+        if not url and not (attachment or getattr(self.instance, "attachment", None)):
+            raise forms.ValidationError("Вкажіть посилання або завантажте файл.")
+        return cleaned
 
 
 @login_required
@@ -93,33 +117,135 @@ def news_acknowledge(request, pk: int):
     return redirect("core:dashboard")
 
 
+def _youtube_video_id(url: str) -> str:
+    parsed = urlparse((url or "").strip())
+    host = (parsed.netloc or "").lower()
+    path = (parsed.path or "").strip("/")
+    if "youtu.be" in host:
+        return path
+    if "youtube.com" in host:
+        if path == "watch":
+            return (parse_qs(parsed.query).get("v") or [""])[0]
+        if path.startswith("embed/"):
+            return path.split("/", 1)[1]
+        if path.startswith("shorts/"):
+            return path.split("/", 1)[1]
+    return ""
+
+
+def _resource_page_context(resource_type: str, page_title: str):
+    try:
+        links = list(ResourceLink.objects.filter(resource_type=resource_type, is_active=True))
+    except (ProgrammingError, OperationalError):
+        links = []
+    if not links:
+        fallback_source = TECHNICAL_INFO_LINKS if resource_type == ResourceLink.TYPE_TECHNICAL else VIDEO_LINKS
+        links = [
+            {
+                "title": (item.get("title") or "").strip(),
+                "url": (item.get("url") or "").strip(),
+                "description": (item.get("description") or "").strip(),
+                "attachment_url": "",
+                "video_id": _youtube_video_id((item.get("url") or "").strip()) if resource_type == ResourceLink.TYPE_VIDEO else "",
+            }
+            for item in fallback_source
+            if (item.get("url") or "").strip()
+        ]
+    else:
+        for item in links:
+            item.video_id = _youtube_video_id(item.url) if resource_type == ResourceLink.TYPE_VIDEO else ""
+
+    return {
+        "page_title": page_title,
+        "page_heading": page_title,
+        "resource_type": resource_type,
+        "links": links,
+        "is_video_page": resource_type == ResourceLink.TYPE_VIDEO,
+    }
+
+
 @login_required
 def technical_info_links(request):
-    links_file = Path(__file__).resolve().parent / "link_data" / "resource_links.py"
+    can_manage = request.user.is_superuser
+    edit_id = (request.GET.get("edit") or request.POST.get("edit_id") or "").strip()
+    edit_obj = None
+    if edit_id and can_manage:
+        try:
+            edit_obj = ResourceLink.objects.get(pk=edit_id, resource_type=ResourceLink.TYPE_TECHNICAL)
+        except (ResourceLink.DoesNotExist, ProgrammingError, OperationalError):
+            edit_obj = None
+    form = ResourceLinkForm(request.POST or None, request.FILES or None, instance=edit_obj)
+    if request.method == "POST":
+        if not can_manage:
+            messages.error(request, "Доступ заборонено.")
+            return redirect("core:technical_info")
+        if form.is_valid():
+            obj = form.save(commit=False)
+            obj.resource_type = ResourceLink.TYPE_TECHNICAL
+            obj.is_active = True
+            obj.save()
+            messages.success(request, "Посилання оновлено." if edit_obj else "Посилання додано.")
+            return redirect("core:technical_info")
+
+    context = _resource_page_context(ResourceLink.TYPE_TECHNICAL, "Технічна інформація")
+    context.update({
+        "can_manage_links": can_manage,
+        "form": form,
+        "edit_obj": edit_obj,
+    })
     return render(
         request,
         "core/resource_links.html",
-        {
-            "page_title": "Технічна інформація",
-            "page_heading": "Технічна інформація",
-            "links": TECHNICAL_INFO_LINKS,
-            "links_file_path": str(links_file),
-            "links_var_name": "TECHNICAL_INFO_LINKS",
-        },
+        context,
     )
 
 
 @login_required
 def video_links(request):
-    links_file = Path(__file__).resolve().parent / "link_data" / "resource_links.py"
+    can_manage = request.user.is_superuser
+    edit_id = (request.GET.get("edit") or request.POST.get("edit_id") or "").strip()
+    edit_obj = None
+    if edit_id and can_manage:
+        try:
+            edit_obj = ResourceLink.objects.get(pk=edit_id, resource_type=ResourceLink.TYPE_VIDEO)
+        except (ResourceLink.DoesNotExist, ProgrammingError, OperationalError):
+            edit_obj = None
+    form = ResourceLinkForm(request.POST or None, request.FILES or None, instance=edit_obj)
+    if request.method == "POST":
+        if not can_manage:
+            messages.error(request, "Доступ заборонено.")
+            return redirect("core:videos")
+        if form.is_valid():
+            obj = form.save(commit=False)
+            obj.resource_type = ResourceLink.TYPE_VIDEO
+            obj.is_active = True
+            obj.save()
+            messages.success(request, "Посилання оновлено." if edit_obj else "Посилання додано.")
+            return redirect("core:videos")
+
+    context = _resource_page_context(ResourceLink.TYPE_VIDEO, "Відео")
+    context.update({
+        "can_manage_links": can_manage,
+        "form": form,
+        "edit_obj": edit_obj,
+    })
     return render(
         request,
         "core/resource_links.html",
-        {
-            "page_title": "Відео",
-            "page_heading": "Відео",
-            "links": VIDEO_LINKS,
-            "links_file_path": str(links_file),
-            "links_var_name": "VIDEO_LINKS",
-        },
+        context,
     )
+
+
+@login_required
+@require_POST
+def resource_link_delete(request, pk: int):
+    if not request.user.is_superuser:
+        messages.error(request, "Доступ заборонено.")
+        return redirect("core:dashboard")
+    link = get_object_or_404(ResourceLink, pk=pk)
+    resource_type = link.resource_type
+    link.delete()
+    messages.success(request, "Посилання видалено.")
+    if resource_type == ResourceLink.TYPE_VIDEO:
+        return redirect("core:videos")
+    return redirect("core:technical_info")

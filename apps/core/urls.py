@@ -12,4 +12,5 @@ urlpatterns = [
     path("news/<int:pk>/ack/", views.news_acknowledge, name="news_ack"),
     path("technical-info/", views.technical_info_links, name="technical_info"),
     path("videos/", views.video_links, name="videos"),
+    path("resource-links/<int:pk>/delete/", views.resource_link_delete, name="resource_link_delete"),
 ]

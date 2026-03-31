@@ -8,10 +8,9 @@ TECHNICAL_INFO_LINKS = [
 
 
 VIDEO_LINKS = [
-    # Приклад:
-    # {
-    #     "title": "Назва відео",
-    #     "url": "https://www.youtube.com/watch?v=...",
-    #     "description": "Короткий опис відео.",
-    # },
+    {
+        "title": "Відео",
+        "url": "https://youtu.be/d5rzc9Y40uw",
+        "description": "",
+    },
 ]

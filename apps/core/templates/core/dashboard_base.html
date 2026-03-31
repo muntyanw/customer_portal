@@ -91,18 +91,18 @@
         {# Комплектующие #}
         <a class="nav-link text-white {% if request.resolver_match.url_name == 'components_list' %}active{% endif %}"
           href="{% url 'orders:components_list' %}">
-          <i class="bi bi-tools me-2"></i>Комплектуючі до тк. рол.
+          <i class="bi bi-tools me-2"></i>Компл-ючі до тк. рол.
         </a>
         <a class="nav-link text-white {% if request.resolver_match.url_name == 'fabrics_list' %}active{% endif %}"
           href="{% url 'orders:fabrics_list' %}">
           <i class="bi bi-scissors me-2"></i>Тканина
         </a>
-        <a class="nav-link text-white"
-          href="{{ technical_info_url|default:'#' }}" target="_blank" rel="noopener noreferrer">
+        <a class="nav-link text-white {% if request.resolver_match.url_name == 'technical_info' %}active{% endif %}"
+          href="{% url 'core:technical_info' %}">
           <i class="bi bi-file-earmark-text me-2"></i>Технічна інформація
         </a>
-        <a class="nav-link text-white"
-          href="{{ video_url|default:'#' }}" target="_blank" rel="noopener noreferrer">
+        <a class="nav-link text-white {% if request.resolver_match.url_name == 'videos' %}active{% endif %}"
+          href="{% url 'core:videos' %}">
           <i class="bi bi-play-btn me-2"></i>Відео
         </a>
         {% if is_manager %}

@@ -22,6 +22,7 @@ from .models import (
     CurrencyAutoUpdateSettings,
 )
 from apps.customers.models import CustomerProfile
+from apps.customers.selectors import customer_ordering_fields, customer_profiles_queryset, customer_users_queryset
 from apps.accounts.roles import is_manager
 import json
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -129,11 +130,7 @@ def _proposal_logo_fallback_text(profile, user=None):
 
 
 def _customer_ordering_fields(prefix="customerprofile__"):
-    return [
-        f"{prefix}company_name",
-        f"{prefix}full_name",
-        "email",
-    ]
+    return customer_ordering_fields(prefix)
 
 
 def _normalize_website_url(value):
@@ -367,7 +364,7 @@ def _order_product_category(order):
 def _order_product_category_label(order):
     category = _order_product_category(order)
     if category == "components":
-        return "Комплектуючі до тк. рол."
+        return "Компл-ючі до тк. рол."
     if category == "fabrics":
         return "Тканина"
     return "Ролети"
@@ -737,12 +734,14 @@ def _build_order_workbook(
         return float(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
     row = 1
+    company_name = getattr(profile, "company_name", "") or str(order.customer)
     full_name = getattr(profile, "full_name", "") or str(order.customer)
     phone = getattr(profile, "phone", "") or ""
     delivery_info = _customer_delivery_text(profile)
     website = getattr(profile, "website", "") or ""
     website_url = _normalize_website_url(website)
-    add_workbook_logo()
+    if client_info_mode == "proposal":
+        add_workbook_logo()
     # Keep the top client-info block merged row-by-row.
     if client_info_mode == "proposal":
         # In proposal we don't show "Клієнт" and "Примітки до замовлення".
@@ -755,7 +754,7 @@ def _build_order_workbook(
         ]
     else:
         client_info = [
-            ("Клієнт", full_name),
+            ("Клієнт", company_name),
             ("Тел.", phone),
             ("ПІБ.", full_name),
             ("Отримання", delivery_info),
@@ -971,7 +970,7 @@ def _build_order_workbook(
         total_order_uah += total_item_uah
 
     if order.component_items.exists():
-        ws.append(["", "Комплектуючі до тк. рол."])
+        ws.append(["", "Компл-ючі до тк. рол."])
         ws.append(["", "Найменування", "Колір", "Од. вим", "К-сть", "Ціна, грн"])
         for comp in order.component_items.all():
             price_uah_val = price_uah(comp.price_eur, comp.quantity)
@@ -1241,9 +1240,7 @@ class TransactionForm(forms.ModelForm):
         self.current_rate = rate_decimal.quantize(Decimal("0.0001")) if rate_decimal else rate_decimal
         User = get_user_model()
         self.fields["customer"].queryset = (
-            User.objects.filter(is_customer=True, is_active=True)
-            .select_related("customerprofile")
-            .order_by(*_customer_ordering_fields())
+            customer_users_queryset()
         )
 
         def _label(u):
@@ -1403,10 +1400,7 @@ def order_list(request):
         orders_qs = orders_qs.filter(pk__icontains=q)
 
     customers_filter_list = (
-        User.objects.filter(orders__isnull=False, is_customer=True, is_active=True)
-        .select_related("customerprofile")
-        .distinct()
-        .order_by(*_customer_ordering_fields())
+        customer_users_queryset(with_orders=True)
         if is_manager(request.user) else []
     )
     current_rate = get_current_eur_rate()
@@ -1490,10 +1484,7 @@ def order_components_list(request):
         qs = qs.filter(pk__icontains=q)
 
     customers_filter_list = (
-        User.objects.filter(orders__isnull=False, is_customer=True, is_active=True)
-        .select_related("customerprofile")
-        .distinct()
-        .order_by(*_customer_ordering_fields())
+        customer_users_queryset(with_orders=True)
         if is_manager(request.user) else []
     )
     current_rate = get_current_eur_rate()
@@ -1573,10 +1564,7 @@ def order_fabrics_list(request):
         qs = qs.filter(pk__icontains=q)
 
     customers_filter_list = (
-        User.objects.filter(orders__isnull=False, is_customer=True, is_active=True)
-        .select_related("customerprofile")
-        .distinct()
-        .order_by(*_customer_ordering_fields())
+        customer_users_queryset(with_orders=True)
         if is_manager(request.user) else []
     )
     current_rate = get_current_eur_rate()
@@ -1663,10 +1651,7 @@ def order_all_list(request):
         qs = qs.filter(pk__icontains=q)
 
     customers_filter_list = (
-        User.objects.filter(orders__isnull=False, is_customer=True, is_active=True)
-        .select_related("customerprofile")
-        .distinct()
-        .order_by(*_customer_ordering_fields())
+        customer_users_queryset(with_orders=True)
         if is_manager(request.user) else []
     )
     current_rate = get_current_eur_rate()
@@ -2104,9 +2089,7 @@ def order_builder(request, pk=None):
     customers_filter_list = []
     if is_manager(request.user) or request.user.is_staff or request.user.is_superuser:
         customers_filter_list = list(
-            CustomerProfile.objects.select_related("user")
-            .filter(user__is_active=True, user__is_customer=True)
-            .order_by("company_name", "full_name", "user__email")
+            customer_profiles_queryset()
         )
 
     # Если новый заказ
@@ -2444,10 +2427,7 @@ def balances_history(request):
         tx_qs = tx_qs.filter(customer=balance_user)
 
     customers_filter_list = (
-        User.objects.filter(orders__isnull=False, is_customer=True, is_active=True)
-        .select_related("customerprofile")
-        .distinct()
-        .order_by(*_customer_ordering_fields())
+        customer_users_queryset(with_orders=True)
         if is_manager(request.user) else []
     )
 
@@ -2570,10 +2550,7 @@ def balances_excel(request):
         tx_qs = tx_qs.filter(customer=balance_user)
 
     customers_filter_list = (
-        User.objects.filter(orders__isnull=False, is_customer=True, is_active=True)
-        .select_related("customerprofile")
-        .distinct()
-        .order_by(*_customer_ordering_fields())
+        customer_users_queryset(with_orders=True)
         if is_manager(request.user) else []
     )
 
@@ -2652,6 +2629,157 @@ def balances_excel(request):
         name_parts.append(f"category-{category_filter}")
     if negative_only:
         name_parts.append("negative")
+    if date_from_str:
+        name_parts.append(f"from-{date_from_str}")
+    if date_to_str:
+        name_parts.append(f"to-{date_to_str}")
+    filename = "_".join(name_parts) + ".xlsx"
+
+    response = HttpResponse(
+        output.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+@login_required
+def turnover_report(request):
+    User = get_user_model()
+    customer_filter = request.GET.get("customer") or ""
+    category_filter = request.GET.get("category") or ""
+    date_from_str = (request.GET.get("date_from") or "").strip()
+    date_to_str = (request.GET.get("date_to") or "").strip()
+    date_from = _parse_optional_flexible_date(date_from_str)
+    date_to = _parse_optional_flexible_date(date_to_str)
+    turnover_user = request.user
+
+    orders_qs = (
+        _orders_scope(request.user)
+        .select_related("customer", "customer__customerprofile")
+        .annotate(last_status_at=Coalesce(Max("status_logs__created_at"), "created_at"))
+        .prefetch_related("status_logs", "component_items", "fabric_items")
+        .exclude(status=Order.STATUS_QUOTE)
+        .order_by("-created_at", "-id")
+    )
+
+    if date_from:
+        orders_qs = orders_qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        orders_qs = orders_qs.filter(created_at__date__lte=date_to)
+    orders_qs = _filter_orders_by_product_category(orders_qs, category_filter)
+
+    if customer_filter and is_manager(request.user):
+        turnover_user = get_object_or_404(User, pk=customer_filter)
+        orders_qs = orders_qs.filter(customer=turnover_user)
+
+    customers_filter_list = (
+        customer_users_queryset(with_orders=True)
+        if is_manager(request.user) else []
+    )
+
+    current_rate = get_current_eur_rate()
+    orders_qs = _set_order_totals_uah(orders_qs, current_rate)
+    turnover_total = _orders_total_uah_base(orders_qs, current_rate)
+    proposal_tokens = {o.id: _proposal_token(o) for o in orders_qs}
+    proposal_page_urls = {oid: reverse("orders:proposal_page", args=[tok]) for oid, tok in proposal_tokens.items()}
+    proposal_excel_urls = {oid: reverse("orders:proposal_excel", args=[tok]) for oid, tok in proposal_tokens.items()}
+
+    context = {
+        "orders": orders_qs,
+        "customer_filter": customer_filter,
+        "category_filter": category_filter,
+        "date_from": date_from_str,
+        "date_to": date_to_str,
+        "customer_options": customers_filter_list,
+        "turnover_total": turnover_total,
+        "turnover_user": turnover_user,
+        "status_badges": STATUS_BADGES,
+        "status_labels": STATUS_LABELS,
+        "proposal_page_urls": proposal_page_urls,
+        "proposal_excel_urls": proposal_excel_urls,
+    }
+    return render(request, "orders/turnover_report.html", context)
+
+
+@login_required
+def turnover_excel(request):
+    User = get_user_model()
+    customer_filter = request.GET.get("customer") or ""
+    category_filter = request.GET.get("category") or ""
+    date_from_str = (request.GET.get("date_from") or "").strip()
+    date_to_str = (request.GET.get("date_to") or "").strip()
+    date_from = _parse_optional_flexible_date(date_from_str)
+    date_to = _parse_optional_flexible_date(date_to_str)
+    turnover_user = request.user
+
+    orders_qs = (
+        _orders_scope(request.user)
+        .select_related("customer", "customer__customerprofile")
+        .exclude(status=Order.STATUS_QUOTE)
+        .order_by("-created_at", "-id")
+    )
+
+    if date_from:
+        orders_qs = orders_qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        orders_qs = orders_qs.filter(created_at__date__lte=date_to)
+    orders_qs = _filter_orders_by_product_category(orders_qs, category_filter)
+
+    if customer_filter and is_manager(request.user):
+        turnover_user = get_object_or_404(User, pk=customer_filter)
+        orders_qs = orders_qs.filter(customer=turnover_user)
+
+    current_rate = get_current_eur_rate()
+    orders_qs = _set_order_totals_uah(orders_qs, current_rate)
+    turnover_total = _orders_total_uah_base(orders_qs, current_rate)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Оберт"
+
+    headers = ["Дата", "№ замовлення", "Клієнт", "Категорія", "Статус", "Сума, грн"]
+    ws.append(headers)
+    bold = Font(bold=True)
+    for col in range(1, len(headers) + 1):
+        ws.cell(row=1, column=col).font = bold
+
+    for o in orders_qs:
+        profile = getattr(o.customer, "customerprofile", None)
+        customer_name = (
+            getattr(profile, "company_name", "")
+            or getattr(profile, "full_name", "")
+            or getattr(o.customer, "email", "")
+        )
+        created_at = o.created_at
+        if hasattr(created_at, "tzinfo") and created_at.tzinfo:
+            created_at = timezone.localtime(created_at).replace(tzinfo=None)
+        ws.append([
+            created_at,
+            o.id,
+            customer_name,
+            _order_product_category_label(o),
+            o.get_status_display(),
+            float(o.total_uah_display or 0),
+        ])
+
+    total_row = ws.max_row + 1
+    ws.cell(row=total_row, column=1, value="Разом").font = bold
+    ws.cell(row=total_row, column=6, value=float(turnover_total)).font = bold
+
+    for col_letter, width in {"A": 20, "B": 14, "C": 30, "D": 22, "E": 18, "F": 16}.items():
+        ws.column_dimensions[col_letter].width = width
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    stamp = timezone.localtime(timezone.now()).strftime("%Y-%m-%d")
+    name_parts = ["turnover", stamp]
+    if customer_filter:
+        name_parts.append(f"customer-{customer_filter}")
+    if category_filter:
+        name_parts.append(f"category-{category_filter}")
     if date_from_str:
         name_parts.append(f"from-{date_from_str}")
     if date_to_str:
@@ -2749,7 +2877,7 @@ def order_list_excel(request):
         )
         phone = getattr(profile, "phone", "") if profile else ""
         if o.component_items.exists():
-            order_type = "Комплектуючі до тк. рол."
+            order_type = "Компл-ючі до тк. рол."
         elif o.fabric_items.exists():
             order_type = "Тканина"
         else:
@@ -2915,9 +3043,7 @@ def balances_users(request):
         "q": q,
         "customer_filter": customer_id,
         "customer_options": list(
-            User.objects.filter(is_customer=True, is_active=True)
-            .select_related("customerprofile")
-            .order_by(*_customer_ordering_fields())
+            customer_users_queryset()
         ),
         "sort": sort,
         "balance_tokens": {u.id: _balance_token(u.id) for u in clients},
@@ -3079,9 +3205,7 @@ def order_components_builder(request, pk):
         "proposal_page_url": proposal_page_url,
         "proposal_excel_url": proposal_excel_url,
         "customers_filter_list": list(
-            CustomerProfile.objects.select_related("user")
-            .filter(user__is_active=True, user__is_customer=True)
-            .order_by("company_name", "full_name", "user__email")
+            customer_profiles_queryset()
         ) if is_manager(request.user) else [],
         "can_view_financial_controls": _can_view_financial_controls(request.user, order.customer),
     }
@@ -3269,9 +3393,7 @@ def order_fabric_builder(request, pk):
         "proposal_excel_url": proposal_excel_url,
         "customer_discount_percent_js": customer_discount_percent_js,
         "customers_filter_list": list(
-            CustomerProfile.objects.select_related("user")
-            .filter(user__is_active=True, user__is_customer=True)
-            .order_by("company_name", "full_name", "user__email")
+            customer_profiles_queryset()
         ) if is_manager(request.user) else [],
         "can_view_financial_controls": _can_view_financial_controls(request.user, order.customer),
     }

@@ -8,16 +8,13 @@ from decimal import Decimal, InvalidOperation
 from .forms import RegisterForm, LoginForm, ProfileForm, ContactFormSet
 from .models import User
 from apps.customers.models import CustomerProfile, CustomerContact
+from apps.customers.selectors import customer_ordering_fields, customer_users_queryset
 from apps.accounts.roles import is_manager
 from apps.orders.views import compute_balance
 
 
 def _customer_ordering_fields(prefix="customerprofile__"):
-    return [
-        f"{prefix}company_name",
-        f"{prefix}full_name",
-        "email",
-    ]
+    return customer_ordering_fields(prefix)
 
 
 class AdminSetPasswordForm(django_forms.Form):
@@ -230,8 +227,7 @@ def clients_list_view(request):
     customer_id = (request.GET.get("customer") or "").strip()
 
     users_qs = (
-        User.objects.filter(is_customer=True, is_active=True)
-        .select_related("customerprofile")
+        customer_users_queryset()
     )
     if customer_id:
         users_qs = users_qs.filter(id=customer_id)
@@ -268,9 +264,7 @@ def clients_list_view(request):
         "q": q,
         "customer_filter": customer_id,
         "customer_options": list(
-            User.objects.filter(is_customer=True, is_active=True)
-            .select_related("customerprofile")
-            .order_by(*_customer_ordering_fields())
+            customer_users_queryset()
         ),
         "next_sort": lambda field: (f"-{field}" if sort == field else field),
     }
