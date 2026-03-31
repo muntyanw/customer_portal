@@ -41,15 +41,18 @@
           <div class="col-12 col-lg-4">
             <label class="form-label mb-1" for="{{ form.title.id_for_label }}">Назва</label>
             {{ form.title }}
+            {{ form.title.errors }}
           </div>
           <div class="col-12 col-lg-4">
             <label class="form-label mb-1" for="{{ form.url.id_for_label }}">Посилання</label>
             {{ form.url }}
+            {{ form.url.errors }}
           </div>
           {% if not is_video_page %}
             <div class="col-12">
               <label class="form-label mb-1" for="{{ form.attachment.id_for_label }}">Файл</label>
               {{ form.attachment }}
+              {{ form.attachment.errors }}
             </div>
           {% endif %}
           <div class="col-12 col-lg-2">
@@ -63,10 +66,10 @@
             <label class="form-label mb-1" for="{{ form.description.id_for_label }}">Опис</label>
             {{ form.description }}
           </div>
-          {% if form.errors %}
+          {% if form.non_field_errors %}
             <div class="col-12">
               <div class="alert alert-danger py-2 mb-0">
-                {{ form.errors }}
+                {{ form.non_field_errors }}
               </div>
             </div>
           {% endif %}

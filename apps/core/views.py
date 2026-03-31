@@ -35,6 +35,11 @@ class ResourceLinkForm(forms.ModelForm):
             "sort_order": forms.NumberInput(attrs={"class": "form-control", "min": 0}),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["url"].required = False
+        self.fields["attachment"].required = False
+
     def clean(self):
         cleaned = super().clean()
         url = cleaned.get("url")
