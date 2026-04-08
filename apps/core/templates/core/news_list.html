@@ -54,7 +54,15 @@
               </div>
               {% if can_manage %}
                 <div class="col-12 col-md-2 text-md-end">
-                  <a class="btn btn-sm btn-outline-primary" href="{% url 'core:news_edit' item.id %}">Редагувати</a>
+                  <div class="d-flex justify-content-md-end gap-2">
+                    <a class="btn btn-sm btn-outline-primary" href="{% url 'core:news_edit' item.id %}">Редагувати</a>
+                    {% if request.user.is_superuser %}
+                      <form method="post" action="{% url 'core:news_delete' item.id %}" class="d-inline">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm btn-danger">Видалити</button>
+                      </form>
+                    {% endif %}
+                  </div>
                 </div>
               {% endif %}
             </div>

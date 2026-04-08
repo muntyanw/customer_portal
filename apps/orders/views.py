@@ -25,6 +25,7 @@ from apps.customers.models import CustomerProfile
 from apps.customers.selectors import customer_ordering_fields, customer_profiles_queryset, customer_users_queryset
 from apps.accounts.roles import is_manager
 import json
+import html
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 from django.contrib.admin.views.decorators import staff_member_required
@@ -510,6 +511,12 @@ def _round_uah_total(value: Decimal) -> Decimal:
     return Decimal(value or 0).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
 
+def _excel_plain_text(value) -> str:
+    if value in (None, ""):
+        return ""
+    return html.unescape(str(value))
+
+
 def _order_base_total(order) -> Decimal:
     """
     Return stored total (без націнки). Якщо відсутнє/нульове, рахуємо по items.
@@ -734,11 +741,11 @@ def _build_order_workbook(
         return float(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
     row = 1
-    company_name = getattr(profile, "company_name", "") or str(order.customer)
-    full_name = getattr(profile, "full_name", "") or str(order.customer)
-    phone = getattr(profile, "phone", "") or ""
-    delivery_info = _customer_delivery_text(profile)
-    website = getattr(profile, "website", "") or ""
+    company_name = _excel_plain_text(getattr(profile, "company_name", "") or str(order.customer))
+    full_name = _excel_plain_text(getattr(profile, "full_name", "") or str(order.customer))
+    phone = _excel_plain_text(getattr(profile, "phone", "") or "")
+    delivery_info = _excel_plain_text(_customer_delivery_text(profile))
+    website = _excel_plain_text(getattr(profile, "website", "") or "")
     website_url = _normalize_website_url(website)
     if client_info_mode == "proposal":
         add_workbook_logo()
@@ -750,7 +757,7 @@ def _build_order_workbook(
             ("Тел.", phone),
             ("ПІБ.", full_name),
             ("Отримання", delivery_info),
-            ("Прмітка", order.note or ""),
+            ("Прмітка", _excel_plain_text(order.note or "")),
         ]
     else:
         client_info = [
@@ -758,7 +765,7 @@ def _build_order_workbook(
             ("Тел.", phone),
             ("ПІБ.", full_name),
             ("Отримання", delivery_info),
-            ("Примітки до замовлення", order.note or ""),
+            ("Примітки до замовлення", _excel_plain_text(order.note or "")),
         ]
     for label, val in client_info:
         ws.append(["", label, val])
@@ -789,7 +796,7 @@ def _build_order_workbook(
         extra_service_label = (getattr(order, "extra_service_label", "") or "").strip()
         extra_service_uah = Decimal(getattr(order, "extra_service_amount_uah", 0) or 0)
         ws.cell(row=header_aux_row, column=2).value = "Додаткова послуга"
-        ws.cell(row=header_aux_row, column=3).value = extra_service_label
+        ws.cell(row=header_aux_row, column=3).value = _excel_plain_text(extra_service_label)
         ws.cell(row=header_aux_row, column=12).value = float(extra_service_uah)
 
     total_order_uah = Decimal("0")
@@ -895,10 +902,10 @@ def _build_order_workbook(
 
         ws.append([
             "",
-            it.system_sheet,
-            system_color(it.table_section),
-            it.fabric_name,
-            it.fabric_color_code,
+            _excel_plain_text(it.system_sheet),
+            _excel_plain_text(system_color(it.table_section)),
+            _excel_plain_text(it.fabric_name),
+            _excel_plain_text(it.fabric_color_code),
             it.width_fabric_mm,
             # "Знач. Шир.": gabarit flag means user entered gabarit width.
             # If the system has a non-zero gabarit diff and flag is off, treat width as fabric width.
@@ -927,7 +934,7 @@ def _build_order_workbook(
                 # опция: название в C-K, цена в L
                 ws.merge_cells(start_row=cur_row, start_column=3, end_row=cur_row, end_column=11)
                 label_cell = ws.cell(row=cur_row, column=3)
-                label_cell.value = f"{label} ({qty_val})" if qty_val not in ("", None) else label
+                label_cell.value = _excel_plain_text(f"{label} ({qty_val})" if qty_val not in ("", None) else label)
                 label_cell.alignment = Alignment(vertical="center")
                 for c in range(2, 13):
                     ws.cell(row=cur_row, column=c).border = border_all
@@ -948,12 +955,12 @@ def _build_order_workbook(
             item_total_rows.append(ws.max_row)
 
         if it.note:
-            ws.append(["", "Примітки до виробу", it.note] + [""] * 9)
+            ws.append(["", "Примітки до виробу", _excel_plain_text(it.note)] + [""] * 9)
             note_row = ws.max_row
             ws.merge_cells(start_row=note_row, start_column=3, end_row=note_row, end_column=12)
             ws.cell(row=note_row, column=3).alignment = center_align
         if it.gabarit_width_flag:
-            gabarit_note = it.roll_height_info or "Габаритна ширина"
+            gabarit_note = _excel_plain_text(it.roll_height_info or "Габаритна ширина")
             ws.append(["", "Примітка габаритної ширини", gabarit_note] + [""] * 9)
             gabarit_row = ws.max_row
             ws.merge_cells(start_row=gabarit_row, start_column=3, end_row=gabarit_row, end_column=12)
@@ -974,7 +981,7 @@ def _build_order_workbook(
         ws.append(["", "Найменування", "Колір", "Од. вим", "К-сть", "Ціна, грн"])
         for comp in order.component_items.all():
             price_uah_val = price_uah(comp.price_eur, comp.quantity)
-            ws.append(["", comp.name, comp.color, comp.unit, float(comp.quantity or 0), price_uah_val])
+            ws.append(["", _excel_plain_text(comp.name), _excel_plain_text(comp.color), _excel_plain_text(comp.unit), float(comp.quantity or 0), price_uah_val])
             total_order_uah += Decimal(price_uah_val)
         ws.append([])
 
@@ -986,8 +993,8 @@ def _build_order_workbook(
             ws.append(
                 [
                     "",
-                    fab.fabric_name,
-                    fab.fabric_color_code or "",
+                    _excel_plain_text(fab.fabric_name),
+                    _excel_plain_text(fab.fabric_color_code or ""),
                     fab.roll_width_mm or "",
                     fab.width_mm or "",
                     fab.height_mm or "",

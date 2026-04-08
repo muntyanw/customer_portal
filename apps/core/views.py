@@ -116,6 +116,18 @@ def news_edit(request, pk: int):
 
 @login_required
 @require_POST
+def news_delete(request, pk: int):
+    if not request.user.is_superuser:
+        messages.error(request, "Доступ заборонено.")
+        return redirect("core:news_list")
+    news = get_object_or_404(News, pk=pk)
+    news.delete()
+    messages.success(request, "Новину видалено.")
+    return redirect("core:news_list")
+
+
+@login_required
+@require_POST
 def news_acknowledge(request, pk: int):
     news = get_object_or_404(News, pk=pk, is_active=True)
     NewsAcknowledgement.objects.get_or_create(news=news, user=request.user)
