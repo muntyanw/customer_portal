@@ -977,3 +977,288 @@ def parse_fabrics_sheet(
         "extra_cut_price_eur": str(extra_cut_price or Q("0.00")),
         "info_lines": info_lines,
     }
+
+
+def _mosquito_min_area_for_product(product_type: str) -> Q:
+    name = (product_type or "").strip().lower()
+    if "плісе двочаст" in name:
+        return Q("4.0")
+    if "дверні" in name or "посилені" in name or "плісе" in name:
+        return Q("1.2")
+    return Q("0.7")
+
+
+def _mosquito_dimension_labels_for_product(product_type: str) -> Dict[str, str]:
+    name = (product_type or "").strip().lower()
+    if "анвіс" in name or "внутр. кріпл" in name:
+        return {
+            "width": "Ширина отвору",
+            "height": "Висота отвору",
+        }
+    return {
+        "width": "Ширина габаритна",
+        "height": "Висота габаритна",
+    }
+
+
+def _mosquito_product_group(product_type: str) -> str:
+    name = (product_type or "").strip().lower()
+    if "внутрішні 10*30" in name:
+        return "Внутрішні 10*30"
+    if "зовнішні 10*20" in name:
+        return "Зовнішні 10*20"
+    if "дверні посилені" in name:
+        return "Дверні посилені 14*40"
+    if "дверні 17*25" in name:
+        return "Дверні 17*25"
+    if "ролетні внутр." in name:
+        return "Ролетні внутрішнього кріплення"
+    if "ролетні" in name:
+        return "Ролетні"
+    if "плісе двочаст" in name:
+        return "Плісе двочастні"
+    if "плісе одночаст" in name:
+        return "Плісе одночастні"
+    return product_type.strip()
+
+
+def _mosquito_height_range_for_product(product_type: str):
+    name = (product_type or "").strip().lower()
+    if "до 1600" in name:
+        return 0, 1600
+    if "від 1600" in name and "до 2300" in name:
+        return 1601, 2300
+    return None, None
+
+
+def select_mosquito_catalog_product(
+    products: List[Dict[str, Any]],
+    product_type: str,
+    color: str,
+    height_mm: int,
+):
+    candidates = [
+        row for row in (products or [])
+        if (
+            (row.get("product_type") or "").strip().lower() == (product_type or "").strip().lower()
+            or (row.get("raw_product_type") or "").strip().lower() == (product_type or "").strip().lower()
+        )
+        and (row.get("color") or "").strip().lower() == (color or "").strip().lower()
+    ]
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    height_val = int(height_mm or 0)
+    for row in candidates:
+        min_h = row.get("height_range_min")
+        max_h = row.get("height_range_max")
+        if min_h is None and max_h is None:
+            return row
+        if min_h is not None and height_val < int(min_h):
+            continue
+        if max_h is not None and height_val > int(max_h):
+            continue
+        return row
+    return candidates[-1]
+
+
+def parse_mosquito_price_sheet(
+    google_sheet_url: str,
+    sheet_name: str = "Прайс",
+    *,
+    force_refresh: bool = False,
+) -> Dict[str, Any]:
+    wb = _download_workbook(google_sheet_url, force_refresh=force_refresh)
+    if sheet_name not in wb.sheetnames:
+        raise ValueError(f"Sheet '{sheet_name}' not found in workbook")
+
+    ws = wb[sheet_name]
+    info_lines: List[str] = []
+    for r in range(1, 6):
+        vals = _row_values(ws, r)
+        text = " ".join([str(v) for v in vals if v]).strip()
+        if text:
+            info_lines.append(text)
+
+    header_vals = _row_values(ws, 6)
+    mesh_headers = [str(v).strip() for v in header_vals[2:6] if v]
+    if len(mesh_headers) < 1:
+        raise RuntimeError("Не знайдено заголовки полотен у прайсі москітних сіток.")
+
+    products: List[Dict[str, Any]] = []
+    current_product_type = ""
+    for r in range(7, ws.max_row + 1):
+        vals = _row_values(ws, r)
+        if not any(vals):
+            break
+        product_type = (vals[0] or "").strip() if len(vals) > 0 and vals[0] else ""
+        color = (vals[1] or "").strip() if len(vals) > 1 and vals[1] else ""
+        if product_type:
+            current_product_type = product_type
+        if not current_product_type or not color:
+            continue
+
+        mesh_prices: Dict[str, str] = {}
+        available_mesh_types: List[str] = []
+        for idx, mesh_name in enumerate(mesh_headers, start=2):
+            price = _to_decimal(vals[idx]) if len(vals) > idx else None
+            if price is None:
+                continue
+            mesh_prices[mesh_name] = str(price)
+            available_mesh_types.append(mesh_name)
+
+        products.append(
+            {
+                "product_type": _mosquito_product_group(current_product_type),
+                "raw_product_type": current_product_type,
+                "color": color,
+                "mesh_prices_usd_sqm": mesh_prices,
+                "available_mesh_types": available_mesh_types,
+                "min_area_sqm": str(_mosquito_min_area_for_product(current_product_type)),
+                "dimension_labels": _mosquito_dimension_labels_for_product(current_product_type),
+                "fiberglass_only": "ролетні" in current_product_type.lower(),
+                "requires_sliding_side": "плісе" in current_product_type.lower(),
+                "height_range_min": _mosquito_height_range_for_product(current_product_type)[0],
+                "height_range_max": _mosquito_height_range_for_product(current_product_type)[1],
+            }
+        )
+
+    options: List[Dict[str, Any]] = []
+    for r in range(39, ws.max_row + 1):
+        vals = _row_values(ws, r)
+        if not any(vals):
+            break
+        name = (vals[0] or "").strip() if len(vals) > 0 else ""
+        unit = (vals[4] or "").strip() if len(vals) > 4 else ""
+        price = _to_decimal(vals[5]) if len(vals) > 5 else None
+        if not name or price is None:
+            continue
+        options.append(
+            {
+                "name": name,
+                "unit": unit,
+                "price_usd": str(price),
+            }
+        )
+
+    product_types = sorted({item["product_type"] for item in products})
+    colors_by_product: Dict[str, List[str]] = {}
+    mesh_by_product: Dict[str, List[str]] = {}
+    for item in products:
+        colors_by_product.setdefault(item["product_type"], [])
+        if item["color"] not in colors_by_product[item["product_type"]]:
+            colors_by_product[item["product_type"]].append(item["color"])
+        mesh_by_product.setdefault(item["product_type"], [])
+        for mesh in item["available_mesh_types"]:
+            if mesh not in mesh_by_product[item["product_type"]]:
+                mesh_by_product[item["product_type"]].append(mesh)
+
+    return {
+        "sheet_name": sheet_name,
+        "info_lines": info_lines,
+        "mesh_types": mesh_headers,
+        "product_types": product_types,
+        "products": products,
+        "colors_by_product": colors_by_product,
+        "mesh_types_by_product": mesh_by_product,
+        "options": options,
+    }
+
+
+def parse_mosquito_components_sheet(
+    google_sheet_url: str,
+    sheet_name: str = "Комплектація",
+    *,
+    force_refresh: bool = False,
+) -> Dict[str, Any]:
+    def _component_group(name: str) -> str:
+        lowered = (name or "").strip().lower()
+        if "рол мс" in lowered or "ролет" in lowered:
+            return "Ролетні"
+        if "10*30" in lowered or "анвіс" in lowered or "внутр." in lowered:
+            return "Внутрішні 10*30"
+        if "10*20" in lowered or "зовніш" in lowered:
+            return "Зовнішні 10*20"
+        if "дверн" in lowered and ("17*25" in lowered or "посилен" not in lowered):
+            return "Дверні 17*25"
+        if "посилен" in lowered or "14*40" in lowered or "17*40" in lowered:
+            return "Дверні посилені 14*40"
+        if "плісе" in lowered:
+            return "Плісе"
+        return "Усі"
+
+    parsed = parse_components_sheet(
+        google_sheet_url=google_sheet_url,
+        sheet_name=sheet_name,
+        force_refresh=force_refresh,
+    )
+    items = []
+    groups = set()
+    names_by_group: Dict[str, List[str]] = {}
+    for item in parsed.get("items") or []:
+        group = _component_group(item.get("name") or "")
+        groups.add(group)
+        names_by_group.setdefault(group, [])
+        if (item.get("name") or "") not in names_by_group[group]:
+            names_by_group[group].append(item.get("name") or "")
+        items.append(
+            {
+                "name": item.get("name") or "",
+                "color": item.get("color") or "",
+                "unit": item.get("unit") or "",
+                "price_usd": item.get("price_eur") or "0",
+                "product_group": group,
+            }
+        )
+    return {
+        "sheet_name": parsed.get("sheet_name") or sheet_name,
+        "items": items,
+        "product_groups": sorted(groups),
+        "names_by_group": names_by_group,
+        "names": parsed.get("names") or [],
+        "units": parsed.get("units") or [],
+        "colors": parsed.get("colors") or [],
+    }
+
+
+def build_mosquito_warnings(
+    product_type: str,
+    mesh_type: str,
+    width_mm: int,
+    height_mm: int,
+    area_sqm,
+) -> List[str]:
+    name = (product_type or "").strip().lower()
+    mesh = (mesh_type or "").strip().lower()
+    max_side = max(int(width_mm or 0), int(height_mm or 0))
+    warnings: List[str] = []
+
+    if ("10*30" in name or "10*20" in name):
+        if "антикіт" in mesh:
+            if max_side > 1400:
+                warnings.append("Негарантійний виріб, рекомендується встановлення імпоста")
+        elif max_side > 1700:
+            warnings.append("Негарантійний виріб, рекомендується встановлення імпоста")
+
+    if "17*25" in name:
+        if "антикіт" in mesh:
+            if max_side > 1600:
+                warnings.append("Негарантійний виріб, рекомендується встановлення імпоста")
+        elif max_side > 2000:
+            warnings.append("Негарантійний виріб, рекомендується встановлення імпоста")
+
+    if "ролетні" in name:
+        if int(width_mm or 0) > 1500:
+            warnings.append("Негарантійний виріб, рекомендується ширина до 1500мм")
+        try:
+            area_val = Q(str(area_sqm or 0))
+        except Exception:
+            area_val = Q("0")
+        if area_val > Q("2.5"):
+            warnings.append("Негарантійний виріб, рекомендується квадратура до 2,5 м.кв.")
+
+    if "плісе" in name and "двочаст" not in name and int(width_mm or 0) >= 3000:
+        warnings.append("Оберіть двочасну сітку")
+
+    return warnings

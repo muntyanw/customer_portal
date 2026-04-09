@@ -553,6 +553,59 @@ class OrderFabricItem(models.Model):
         return f"{self.fabric_name} – {self.quantity} шт"
 
 
+class OrderMosquitoItem(models.Model):
+    order = models.ForeignKey(
+        "orders.Order",
+        on_delete=models.CASCADE,
+        related_name="mosquito_items",
+    )
+    product_type = models.CharField(max_length=255)
+    profile_color = models.CharField(max_length=100, blank=True, default="")
+    mesh_type = models.CharField(max_length=100, blank=True, default="")
+    width_mm = models.PositiveIntegerField(default=0)
+    height_mm = models.PositiveIntegerField(default=0)
+    quantity = models.PositiveIntegerField(default=1)
+    area_sqm = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    min_area_sqm = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    price_usd_sqm = models.DecimalField(max_digits=12, decimal_places=4, default=0)
+    options_total_usd = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    subtotal_usd = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    options_data = models.JSONField(default=dict, blank=True)
+    sliding_side = models.CharField(max_length=16, blank=True, default="")
+    warning_text = models.TextField(blank=True, default="")
+    note = models.TextField(blank=True, default="")
+
+    class Meta:
+        verbose_name = "Москітна сітка в замовленні"
+        verbose_name_plural = "Москітні сітки в замовленні"
+
+    def __str__(self) -> str:
+        return f"{self.product_type} – {self.quantity} шт"
+
+
+class OrderMosquitoComponentItem(models.Model):
+    order = models.ForeignKey(
+        "orders.Order",
+        on_delete=models.CASCADE,
+        related_name="mosquito_component_items",
+    )
+    name = models.CharField(max_length=255)
+    color = models.CharField(max_length=100, blank=True, default="")
+    unit = models.CharField(max_length=32, blank=True, default="")
+    length_mm = models.PositiveIntegerField(default=0)
+    quantity = models.DecimalField(max_digits=9, decimal_places=3, default=1)
+    price_usd = models.DecimalField(max_digits=12, decimal_places=4, default=0)
+    subtotal_usd = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    note = models.TextField(blank=True, default="")
+
+    class Meta:
+        verbose_name = "Комплектуюча до москітних сіток в замовленні"
+        verbose_name_plural = "Комплектуючі до москітних сіток в замовленні"
+
+    def __str__(self) -> str:
+        return f"{self.name} – {self.quantity} {self.unit}".strip()
+
+
 class OrderStatusLog(models.Model):
     order = models.ForeignKey(
         "orders.Order",
@@ -701,7 +754,7 @@ class CurrencyRate(models.Model):
 
     CURRENCY_CHOICES = [
         ("EUR", "Euro"),
-        # за потреби можна додати інші валюти
+        ("USD", "US Dollar"),
     ]
 
     currency = models.CharField(

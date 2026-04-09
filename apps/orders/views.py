@@ -16,6 +16,8 @@ from .models import (
     PaymentMessage,
     OrderComponentItem,
     OrderFabricItem,
+    OrderMosquitoItem,
+    OrderMosquitoComponentItem,
     CurrencyRate,
     CurrencyRateHistory,
     OrderDeletionHistory,
@@ -41,13 +43,24 @@ from django.utils import timezone
 import datetime
 from .utils_components import parse_components_from_post
 from django.urls import reverse
-from .services_currency import get_current_eur_rate, update_eur_rate_from_nbu
+from .services_currency import (
+    get_current_currency_rate,
+    get_current_eur_rate,
+    get_current_usd_rate,
+    update_currency_rate_from_privatbank,
+    update_eur_rate_from_nbu,
+    update_usd_rate_from_nbu,
+)
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse, Http404, HttpResponse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.html import format_html, format_html_join, conditional_escape
 from django.middleware.csrf import get_token
 from django.utils.safestring import mark_safe
+from apps.integrations.google_sheets import parse_mosquito_price_sheet
+from apps.integrations.google_sheets import parse_mosquito_components_sheet
+from apps.integrations.google_sheets import build_mosquito_warnings
+from apps.integrations.google_sheets import select_mosquito_catalog_product
 
         
 def _get(lst, idx, default=""):
@@ -359,6 +372,10 @@ def _order_product_category(order):
         return "components"
     if getattr(order, "fabric_items", None) and order.fabric_items.exists():
         return "fabrics"
+    if getattr(order, "mosquito_items", None) and order.mosquito_items.exists():
+        return "mosquitoes"
+    if getattr(order, "mosquito_component_items", None) and order.mosquito_component_items.exists():
+        return "mosquito_components"
     return "rollers"
 
 
@@ -368,6 +385,10 @@ def _order_product_category_label(order):
         return "Компл-ючі до тк. рол."
     if category == "fabrics":
         return "Тканина"
+    if category == "mosquitoes":
+        return "Москітні сітки"
+    if category == "mosquito_components":
+        return "Комплектуючі до мос. сіток"
     return "Ролети"
 
 
@@ -376,8 +397,17 @@ def _filter_orders_by_product_category(qs, category_filter):
         return qs.filter(component_items__isnull=False)
     if category_filter == "fabrics":
         return qs.filter(fabric_items__isnull=False)
+    if category_filter == "mosquitoes":
+        return qs.filter(mosquito_items__isnull=False)
+    if category_filter == "mosquito_components":
+        return qs.filter(mosquito_component_items__isnull=False)
     if category_filter == "rollers":
-        return qs.exclude(component_items__isnull=False).exclude(fabric_items__isnull=False)
+        return (
+            qs.exclude(component_items__isnull=False)
+            .exclude(fabric_items__isnull=False)
+            .exclude(mosquito_items__isnull=False)
+            .exclude(mosquito_component_items__isnull=False)
+        )
     return qs
 
 
@@ -389,8 +419,17 @@ def _filter_transactions_by_product_category(qs, category_filter):
         return qs.filter(order__component_items__isnull=False)
     if category_filter == "fabrics":
         return qs.filter(order__fabric_items__isnull=False)
+    if category_filter == "mosquitoes":
+        return qs.filter(order__mosquito_items__isnull=False)
+    if category_filter == "mosquito_components":
+        return qs.filter(order__mosquito_component_items__isnull=False)
     if category_filter == "rollers":
-        return qs.exclude(order__component_items__isnull=False).exclude(order__fabric_items__isnull=False)
+        return (
+            qs.exclude(order__component_items__isnull=False)
+            .exclude(order__fabric_items__isnull=False)
+            .exclude(order__mosquito_items__isnull=False)
+            .exclude(order__mosquito_component_items__isnull=False)
+        )
     return qs
 
 
@@ -504,6 +543,9 @@ def _order_rate(order, current_rate: Decimal) -> Decimal:
     """
     if order.status != Order.STATUS_QUOTE and order.eur_rate:
         return Decimal(order.eur_rate)
+    category = _order_product_category(order)
+    if category in ("mosquitoes", "mosquito_components"):
+        return get_current_usd_rate()
     return Decimal(current_rate or 0)
 
 def _round_uah_total(value: Decimal) -> Decimal:
@@ -524,6 +566,12 @@ def _order_base_total(order) -> Decimal:
     stored = Decimal(order.total_eur or 0)
     if stored > 0:
         return stored
+    mosquito_total = order.mosquito_items.aggregate(total=Sum("subtotal_usd")).get("total") or Decimal("0")
+    if mosquito_total > 0:
+        return mosquito_total
+    mosquito_components_total = order.mosquito_component_items.aggregate(total=Sum("subtotal_usd")).get("total") or Decimal("0")
+    if mosquito_components_total > 0:
+        return mosquito_components_total
     # subtotal_eur already includes quantity from the builder UI
     agg = order.items.aggregate(
         total=Sum("subtotal_eur")
@@ -549,6 +597,109 @@ def _customer_delivery_text(profile) -> str:
     if method:
         return method
     return branch or address
+
+
+MOSQUITO_OPTION_LABELS = {
+    "replacement_mount": "Заміна кріплення з 9*32",
+    "extra_mount_9": "Додаткове кріплення 9*32",
+    "extra_mount_15": "Додаткове кріплення 15*32",
+    "extra_mount_21": "Додаткове кріплення 21*32",
+    "impost_qty": "Додатковий імпост",
+    "impost_heights": "Висоти імпостів від низу, мм",
+    "door_impost_height": "Висота імпоста від низу, мм",
+    "door_no_impost": "Без імпоста",
+    "door_extra_impost_qty": "Додатковий імпост",
+    "door_extra_impost_heights": "Висоти додаткових імпостів від низу, мм",
+    "hinge_regular_qty": "Петлі звичайні",
+    "hinge_spring_qty": "Петлі з пружиною",
+    "latch_qty": "Защіпка пластикова",
+    "magnet_qty": "Магніт",
+    "aluminum_mount_kit": "Кріплення для алюмінєвих рам",
+    "brake_qty": "Механізм гальмування",
+}
+
+
+def _mosquito_sliding_side_label(value):
+    if value == "left":
+        return "Ліва"
+    if value == "right":
+        return "Права"
+    return ""
+
+
+def _collect_mosquito_option_lines(item, rate: Decimal, markup_multiplier: Decimal = Decimal("1"), discount_pct: Decimal = Decimal("0")):
+    option_prices = {
+        (opt.get("name") or "").strip(): _to_decimal(opt.get("price_usd"), default="0")
+        for opt in (parse_mosquito_price_sheet(MOSQUITO_PRICE_SHEET_URL).get("options") or [])
+    }
+    discount_multiplier = (Decimal("100") - _normalize_discount_percent(discount_pct)) / Decimal("100")
+    data = item.options_data or {}
+    product_name = (item.product_type or "").lower()
+    quantity = Decimal(item.quantity or 1)
+    rows = []
+
+    def add_line(label, count, option_name, *, multiply_by_order_qty=True):
+        if not count:
+            return
+        base_price = option_prices.get(option_name, Decimal("0")) * discount_multiplier
+        line_count = Decimal(str(count))
+        charge_multiplier = quantity if multiply_by_order_qty else Decimal("1")
+        total_usd = (base_price * line_count * charge_multiplier).quantize(Decimal("0.01"))
+        if total_usd <= 0:
+            return
+        rows.append(
+            {
+                "label": label,
+                "qty": line_count,
+                "total_uah": _round_uah_total(total_usd * rate * markup_multiplier),
+            }
+        )
+
+    replacement = (data.get("replacement_mount") or "").strip()
+    if replacement == "15*32":
+        add_line("Заміна кріплення з 9*32 на 15*32", 1, "Заміна кріплення з 9*32 на 15*32")
+    elif replacement == "21*32":
+        add_line("Заміна кріплення з 9*32 на 21*32", 1, "Заміна кріплення з 9*32 на 21*32")
+
+    if "10*30" in product_name:
+        add_line("Додаткове кріплення 9*32", data.get("extra_mount_9"), "Додаткове кріплення 9*32 (стандарт)")
+        add_line("Додаткове кріплення 15*32", data.get("extra_mount_15"), "Додаткове кріплення 15*32")
+        add_line("Додаткове кріплення 21*32", data.get("extra_mount_21"), "Додаткове кріплення 21*32")
+        add_line("Додатковий імпост", data.get("impost_qty"), "Додатковий імпост для внутрішніх сіток 10*30")
+    elif "10*20" in product_name:
+        add_line("Кріплення 9*32", data.get("extra_mount_9"), "Додаткове кріплення 9*32 (стандарт)")
+        add_line("Кріплення 15*32", data.get("extra_mount_15"), "Додаткове кріплення 15*32")
+        add_line("Кріплення 21*32", data.get("extra_mount_21"), "Додаткове кріплення 21*32")
+        add_line("Кріплення для алюмінєвих рам", data.get("aluminum_mount_kit"), "Кріплення для алюмінєвих рам")
+        add_line("Додатковий імпост", data.get("impost_qty"), "Додотковий імпост для зовнішніх сіток 10*20")
+    elif "дверні 17*25" in product_name:
+        add_line("Додатковий імпост", data.get("door_extra_impost_qty"), "Додатковий імпост для дверних сіток 17*25")
+        add_line("Петлі звичайні", data.get("hinge_regular_qty"), "Петля ПВХ звичайна")
+        add_line("Петлі з пружиною", data.get("hinge_spring_qty"), "Петля з пружиною")
+        add_line("Защіпка пластикова", data.get("latch_qty"), "Защіпка пластикова")
+        add_line("Магніт", data.get("magnet_qty"), "Магніт")
+        add_line("Кріплення для алюмінєвих рам", data.get("aluminum_mount_kit"), "Кріплення для алюмінєвих рам")
+    elif "посилені" in product_name:
+        add_line("Петлі звичайні", data.get("hinge_regular_qty"), "Петля ПВХ звичайна")
+        add_line("Петлі з пружиною", data.get("hinge_spring_qty"), "Петля з пружиною")
+        add_line("Защіпка пластикова", data.get("latch_qty"), "Защіпка пластикова")
+        add_line("Магніт", data.get("magnet_qty"), "Магніт")
+    elif "ролетні" in product_name:
+        add_line("Механізм гальмування", data.get("brake_qty"), "Механізм гальмування")
+        if "внутр. кріпл" in product_name:
+            add_line("Додаткове кріплення 9*32", data.get("extra_mount_9"), "Додаткове кріплення 9*32 (стандарт)")
+            add_line("Додаткове кріплення 15*32", data.get("extra_mount_15"), "Додаткове кріплення 15*32")
+            add_line("Додаткове кріплення 21*32", data.get("extra_mount_21"), "Додаткове кріплення 21*32")
+
+    extras = []
+    for key, value in data.items():
+        if key in {"replacement_mount", "extra_mount_9", "extra_mount_15", "extra_mount_21", "impost_qty", "door_extra_impost_qty", "hinge_regular_qty", "hinge_spring_qty", "latch_qty", "magnet_qty", "aluminum_mount_kit", "brake_qty"}:
+            continue
+        if value in ("", None, False, 0, "0"):
+            continue
+        extras.append({"label": MOSQUITO_OPTION_LABELS.get(key, key), "qty": value, "total_uah": None})
+
+    return rows, extras
 
 STATUS_LABELS = dict(Order.STATUS_CHOICES)
 STATUS_BADGES = {
@@ -1005,6 +1156,65 @@ def _build_order_workbook(
             total_order_uah += Decimal(price_uah_val)
         ws.append([])
 
+    if order.mosquito_items.exists():
+        ws.append(["", "Москітні сітки"])
+        ws.append(["", "Виріб", "Колір профілю", "Полотно", "Ширина, мм", "Висота, мм", "Площа, м²", "Сторона зсуву", "К-сть", "Вартість, грн"])
+        for idx, mos in enumerate(order.mosquito_items.all(), start=1):
+            options_rows, extra_rows = _collect_mosquito_option_lines(
+                mos,
+                rate,
+                markup_multiplier,
+                Decimal(order.discount_percent or 0),
+            )
+            base_uah = _round_uah_total((Decimal(mos.subtotal_usd or 0) - Decimal(mos.options_total_usd or 0)) * rate * markup_multiplier)
+            total_uah = _round_uah_total(Decimal(mos.subtotal_usd or 0) * rate * markup_multiplier)
+            ws.append(
+                [
+                    "",
+                    _excel_plain_text(mos.product_type),
+                    _excel_plain_text(mos.profile_color),
+                    _excel_plain_text(mos.mesh_type),
+                    mos.width_mm or "",
+                    mos.height_mm or "",
+                    float(Decimal(mos.area_sqm or 0)),
+                    _excel_plain_text(_mosquito_sliding_side_label(mos.sliding_side)),
+                    mos.quantity or "",
+                    float(base_uah),
+                ]
+            )
+            for line in options_rows:
+                ws.append(["", f"  + {line['label']}", "", "", "", "", "", "", line["qty"], float(line["total_uah"])])
+            for line in extra_rows:
+                ws.append(["", f"  * {line['label']}", _excel_plain_text(line['qty']), "", "", "", "", "", "", ""])
+            if mos.warning_text:
+                ws.append(["", "Попередження", _excel_plain_text(mos.warning_text)] + [""] * 7)
+            if mos.note:
+                ws.append(["", "Примітка", _excel_plain_text(mos.note)] + [""] * 7)
+            ws.append(["", "", "", "", "", "", "", "Всього:", mos.quantity or "", float(total_uah)])
+            total_order_uah += total_uah
+        ws.append([])
+
+    if order.mosquito_component_items.exists():
+        ws.append(["", "Комплектуючі до мос. сіток"])
+        ws.append(["", "Найменування", "Колір", "Од. вим.", "Довжина, мм", "К-сть", "Ціна, грн"])
+        for comp in order.mosquito_component_items.all():
+            price_uah_val = _round_uah_total(Decimal(comp.subtotal_usd or 0) * rate * markup_multiplier)
+            ws.append(
+                [
+                    "",
+                    _excel_plain_text(comp.name),
+                    _excel_plain_text(comp.color),
+                    _excel_plain_text(comp.unit),
+                    comp.length_mm or "",
+                    float(comp.quantity or 0),
+                    float(price_uah_val),
+                ]
+            )
+            if comp.note:
+                ws.append(["", "Примітка", _excel_plain_text(comp.note)] + [""] * 9)
+            total_order_uah += price_uah_val
+        ws.append([])
+
     # Grand total must match order/balance math:
     # round once from the order-level total in EUR, not from a sum of already-rounded rows.
     canonical_total_uah = Decimal(_order_base_total(order) or 0) * rate * markup_multiplier
@@ -1389,6 +1599,8 @@ def order_list(request):
         .prefetch_related("status_logs")
         .exclude(component_items__isnull=False)  # exclude component orders from rollers list
         .exclude(fabric_items__isnull=False)
+        .exclude(mosquito_items__isnull=False)
+        .exclude(mosquito_component_items__isnull=False)
         .order_by("-id")
         .distinct()
     )
@@ -1620,6 +1832,140 @@ def order_fabrics_list(request):
 
 
 @login_required
+def order_mosquito_list(request):
+    User = get_user_model()
+    status_filter = request.GET.get("status") or ""
+    customer_filter = request.GET.get("customer") or ""
+    q = (request.GET.get("q") or "").strip()
+    date_from, date_to, date_from_str, date_to_str, date_mode = _parse_date_range(request.GET)
+    balance_user = request.user
+
+    qs = (
+        _orders_scope(request.user)
+        .select_related("customer", "customer__customerprofile")
+        .annotate(last_status_at=Coalesce(Max("status_logs__created_at"), "created_at"))
+        .prefetch_related("status_logs")
+        .filter(mosquito_items__isnull=False)
+        .distinct()
+        .order_by("-id")
+    )
+
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+    if customer_filter and is_manager(request.user):
+        balance_user = get_object_or_404(User, pk=customer_filter)
+        qs = qs.filter(customer=balance_user)
+    if q:
+        qs = qs.filter(pk__icontains=q)
+
+    customers_filter_list = customer_users_queryset(with_orders=True) if is_manager(request.user) else []
+    current_rate = get_current_eur_rate()
+    qs = _set_order_totals_uah(qs, current_rate)
+    quote_orders_count = qs.filter(status=Order.STATUS_QUOTE).count()
+    show_bulk_select = quote_orders_count > 1
+    payment_message_text = _get_payment_message_text() or ""
+    payment_shortage_map = {}
+    proposal_tokens = {o.id: _proposal_token(o) for o in qs}
+    proposal_page_urls = {oid: reverse("orders:proposal_page", args=[tok]) for oid, tok in proposal_tokens.items()}
+    proposal_excel_urls = {oid: reverse("orders:proposal_excel", args=[tok]) for oid, tok in proposal_tokens.items()}
+
+    context = {
+        "orders": qs,
+        "list_mode": "mosquitoes",
+        "statuses": Order.STATUS_CHOICES,
+        "status_filter": status_filter,
+        "customer_filter": customer_filter,
+        "date_from": date_from_str,
+        "date_to": date_to_str,
+        "date_mode": date_mode,
+        "customer_options": customers_filter_list,
+        "status_badges": STATUS_BADGES,
+        "status_labels": STATUS_LABELS,
+        "quote_orders_count": quote_orders_count,
+        "show_bulk_select": show_bulk_select,
+        "q": q,
+        "payment_message_text": payment_message_text,
+        "payment_shortage_map": payment_shortage_map,
+        "payment_shortage_json": json.dumps(payment_shortage_map),
+        "user_balance": compute_balance(balance_user),
+        "proposal_page_urls": proposal_page_urls,
+        "proposal_excel_urls": proposal_excel_urls,
+    }
+    return render(request, "orders/order_list.html", context)
+
+
+@login_required
+def order_mosquito_components_list(request):
+    User = get_user_model()
+    status_filter = request.GET.get("status") or ""
+    customer_filter = request.GET.get("customer") or ""
+    q = (request.GET.get("q") or "").strip()
+    date_from, date_to, date_from_str, date_to_str, date_mode = _parse_date_range(request.GET)
+    balance_user = request.user
+
+    qs = (
+        _orders_scope(request.user)
+        .select_related("customer", "customer__customerprofile")
+        .annotate(last_status_at=Coalesce(Max("status_logs__created_at"), "created_at"))
+        .prefetch_related("status_logs")
+        .filter(mosquito_component_items__isnull=False)
+        .distinct()
+        .order_by("-id")
+    )
+
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+    if customer_filter and is_manager(request.user):
+        balance_user = get_object_or_404(User, pk=customer_filter)
+        qs = qs.filter(customer=balance_user)
+    if q:
+        qs = qs.filter(pk__icontains=q)
+
+    customers_filter_list = customer_users_queryset(with_orders=True) if is_manager(request.user) else []
+    current_rate = get_current_eur_rate()
+    qs = _set_order_totals_uah(qs, current_rate)
+    quote_orders_count = qs.filter(status=Order.STATUS_QUOTE).count()
+    show_bulk_select = quote_orders_count > 1
+    payment_message_text = _get_payment_message_text() or ""
+    payment_shortage_map = {}
+    proposal_tokens = {o.id: _proposal_token(o) for o in qs}
+    proposal_page_urls = {oid: reverse("orders:proposal_page", args=[tok]) for oid, tok in proposal_tokens.items()}
+    proposal_excel_urls = {oid: reverse("orders:proposal_excel", args=[tok]) for oid, tok in proposal_tokens.items()}
+
+    context = {
+        "orders": qs,
+        "list_mode": "mosquito_components",
+        "statuses": Order.STATUS_CHOICES,
+        "status_filter": status_filter,
+        "customer_filter": customer_filter,
+        "date_from": date_from_str,
+        "date_to": date_to_str,
+        "date_mode": date_mode,
+        "customer_options": customers_filter_list,
+        "status_badges": STATUS_BADGES,
+        "status_labels": STATUS_LABELS,
+        "quote_orders_count": quote_orders_count,
+        "show_bulk_select": show_bulk_select,
+        "q": q,
+        "payment_message_text": payment_message_text,
+        "payment_shortage_map": payment_shortage_map,
+        "payment_shortage_json": json.dumps(payment_shortage_map),
+        "user_balance": compute_balance(balance_user),
+        "proposal_page_urls": proposal_page_urls,
+        "proposal_excel_urls": proposal_excel_urls,
+    }
+    return render(request, "orders/order_list.html", context)
+
+
+@login_required
 def order_all_list(request):
     """
     EN: Unified list of all order types.
@@ -1639,6 +1985,8 @@ def order_all_list(request):
             last_status_at=Coalesce(Max("status_logs__created_at"), "created_at"),
             has_components=Exists(OrderComponentItem.objects.filter(order_id=OuterRef("pk"))),
             has_fabrics=Exists(OrderFabricItem.objects.filter(order_id=OuterRef("pk"))),
+            has_mosquitoes=Exists(OrderMosquitoItem.objects.filter(order_id=OuterRef("pk"))),
+            has_mosquito_components=Exists(OrderMosquitoComponentItem.objects.filter(order_id=OuterRef("pk"))),
         )
         .prefetch_related("status_logs")
         .distinct()
@@ -1690,6 +2038,12 @@ def order_all_list(request):
         elif getattr(o, "has_fabrics", False):
             order_kind = "fabrics"
             order_view_urls[o.id] = reverse("orders:order_fabric_builder", args=[o.id])
+        elif getattr(o, "has_mosquitoes", False):
+            order_kind = "mosquitoes"
+            order_view_urls[o.id] = reverse("orders:order_mosquito_builder", args=[o.id])
+        elif getattr(o, "has_mosquito_components", False):
+            order_kind = "mosquito_components"
+            order_view_urls[o.id] = reverse("orders:order_mosquito_components_builder", args=[o.id])
         else:
             order_kind = "rollers"
             order_view_urls[o.id] = reverse("orders:builder_edit", args=[o.id])
@@ -1818,6 +2172,8 @@ def order_update(request, pk: int):
 
 
 PRICE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1vjwqhZ0-9SWcN-u8Oa-T6ciNmHfMeHU-c2RTv6axqHs/edit?gid=0#gid=0"
+MOSQUITO_PRICE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1rte4e5hTae33bAB89GDMR3nZGnNCVHjlZXG2H9KSSyM/edit?gid=0#gid=0"
+MOSQUITO_COMPONENTS_PRICE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1rte4e5hTae33bAB89GDMR3nZGnNCVHjlZXG2H9KSSyM/edit?gid=2116478350#gid=2116478350"
 
 
 @login_required
@@ -2231,6 +2587,10 @@ def order_delete(request, pk: int):
         fallback_redirect = "orders:components_list"
     elif order.fabric_items.exists():
         fallback_redirect = "orders:fabrics_list"
+    elif order.mosquito_items.exists():
+        fallback_redirect = "orders:mosquito_list"
+    elif order.mosquito_component_items.exists():
+        fallback_redirect = "orders:mosquito_components_list"
 
     next_url = (request.POST.get("next_url") or request.GET.get("next") or "").strip()
     if next_url and not url_has_allowed_host_and_scheme(
@@ -2837,8 +3197,17 @@ def order_list_excel(request):
         qs = qs.filter(component_items__isnull=False)
     elif list_mode == "fabrics":
         qs = qs.filter(fabric_items__isnull=False)
+    elif list_mode == "mosquitoes":
+        qs = qs.filter(mosquito_items__isnull=False)
+    elif list_mode == "mosquito_components":
+        qs = qs.filter(mosquito_component_items__isnull=False)
     elif list_mode == "rollers":
-        qs = qs.exclude(component_items__isnull=False).exclude(fabric_items__isnull=False)
+        qs = (
+            qs.exclude(component_items__isnull=False)
+            .exclude(fabric_items__isnull=False)
+            .exclude(mosquito_items__isnull=False)
+            .exclude(mosquito_component_items__isnull=False)
+        )
 
     if status_filter:
         qs = qs.filter(status=status_filter)
@@ -2887,6 +3256,10 @@ def order_list_excel(request):
             order_type = "Компл-ючі до тк. рол."
         elif o.fabric_items.exists():
             order_type = "Тканина"
+        elif o.mosquito_items.exists():
+            order_type = "Москітні сітки"
+        elif o.mosquito_component_items.exists():
+            order_type = "Комплектуючі до мос. сіток"
         else:
             order_type = "Ролети"
         created_at = o.created_at
@@ -3057,6 +3430,600 @@ def balances_users(request):
     }
     return render(request, "orders/balances_users.html", context)
 
+def _create_blank_order_for_builder(user, title):
+    _, discount_pct_val = _customer_discount_multiplier(user)
+    current_rate = get_current_eur_rate()
+    return Order.objects.create(
+        customer=user,
+        title=title,
+        description="",
+        status=Order.STATUS_QUOTE,
+        eur_rate_at_creation=current_rate,
+        eur_rate=current_rate,
+        markup_percent=Decimal("0"),
+        total_eur=Decimal("0"),
+        discount_percent=discount_pct_val,
+    )
+
+
+def _save_order_header_only(request, order):
+    chosen_customer = None
+    can_pick_customer = is_manager(request.user) or request.user.is_staff or request.user.is_superuser
+    if can_pick_customer:
+        cust_id = request.POST.get("customer_id")
+        if cust_id:
+            try:
+                chosen_customer = get_user_model().objects.get(pk=cust_id)
+            except get_user_model().DoesNotExist:
+                chosen_customer = None
+        if chosen_customer is None:
+            messages.error(request, "Оберіть клієнта для замовлення.")
+            return False
+        order.customer = chosen_customer
+    target_customer = chosen_customer or order.customer
+    can_edit_financial = _can_view_financial_controls(request.user, target_customer)
+    order.note = (request.POST.get("note") or "").strip()
+    if can_edit_financial:
+        order.extra_service_label = (request.POST.get("extra_service_label") or "").strip()
+        order.extra_service_amount_uah = _to_decimal(
+            request.POST.get("extra_service_amount_uah"),
+            default="0",
+        ).quantize(Decimal("0.01"))
+        order.markup_percent = _to_decimal(
+            request.POST.get("markup_percent"),
+            default=str(order.markup_percent or "0"),
+        ).quantize(Decimal("0.01"))
+    order.discount_percent = _customer_discount_multiplier(target_customer)[1]
+    update_fields = ["customer", "note", "discount_percent"]
+    if can_edit_financial:
+        update_fields.extend(["extra_service_label", "extra_service_amount_uah", "markup_percent"])
+    order.save(update_fields=update_fields)
+    return True
+
+
+def _parse_mosquito_items_from_post(post):
+    product_types = post.getlist("product_type")
+    profile_colors = post.getlist("profile_color")
+    mesh_types = post.getlist("mesh_type")
+    width_values = post.getlist("width_mm")
+    height_values = post.getlist("height_mm")
+    quantity_values = post.getlist("quantity")
+    sliding_sides = post.getlist("sliding_side")
+    options_values = post.getlist("options_json")
+    notes = post.getlist("item_note")
+    payload = []
+    for idx, product_type in enumerate(product_types):
+        product_type = (product_type or "").strip()
+        if not product_type:
+            continue
+        raw_options = _get(options_values, idx, "{}").strip() or "{}"
+        try:
+            options_data = json.loads(raw_options)
+            if not isinstance(options_data, dict):
+                options_data = {}
+        except Exception:
+            options_data = {}
+        payload.append(
+            {
+                "product_type": product_type,
+                "profile_color": _get(profile_colors, idx, "").strip(),
+                "mesh_type": _get(mesh_types, idx, "").strip(),
+                "width_mm": _to_int(_get(width_values, idx, "0"), 0),
+                "height_mm": _to_int(_get(height_values, idx, "0"), 0),
+                "quantity": max(_to_int(_get(quantity_values, idx, "1"), 1), 1),
+                "sliding_side": _get(sliding_sides, idx, "").strip(),
+                "options_data": options_data,
+                "note": _get(notes, idx, "").strip(),
+            }
+        )
+    return payload
+
+
+def _mosquito_option_price_map():
+    catalog = parse_mosquito_price_sheet(MOSQUITO_PRICE_SHEET_URL)
+    return {
+        (item.get("name") or "").strip(): _to_decimal(item.get("price_usd"), default="0")
+        for item in (catalog.get("options") or [])
+    }
+
+
+def _mosquito_note_with_auto_warning(product_type, base_note, warning_text, options_data):
+    product_name = (product_type or "").lower()
+    text = (warning_text or "").strip()
+    note = (base_note or "").strip()
+    needs_impost = any(key in product_name for key in ("10*30", "10*20", "17*25"))
+    no_impost = False
+    if "17*25" in product_name:
+        no_impost = bool((options_data or {}).get("door_no_impost"))
+        if not no_impost and _to_int((options_data or {}).get("door_extra_impost_qty", 0), 0) > 0:
+            no_impost = False
+        elif not no_impost and (options_data or {}).get("door_impost_height"):
+            no_impost = False
+    else:
+        no_impost = _to_int((options_data or {}).get("impost_qty", 0), 0) <= 0
+
+    auto_warning = ""
+    if needs_impost and text and no_impost and "імпоста" in text.lower():
+        auto_warning = "Негарантійний виріб, рекомендується встановлення імпоста"
+    elif "оберіть двочасну сітку" in text.lower():
+        auto_warning = "Оберіть двочасну сітку"
+
+    if not auto_warning:
+        return note
+    if note.startswith(auto_warning):
+        return note
+    return f"{auto_warning}. {note}".strip()
+
+
+def _validate_mosquito_item_options(item):
+    product_name = (item.get("product_type") or "").lower()
+    options_data = item.get("options_data") or {}
+    def _heights_count(value):
+        parts = [part.strip() for part in re.split(r"[,\n;]+", str(value or "")) if part.strip()]
+        return len(parts)
+    if "10*30" in product_name or "10*20" in product_name:
+        impost_qty = _to_int(options_data.get("impost_qty", 0), 0)
+        impost_heights = str(options_data.get("impost_heights") or "").strip()
+        if impost_qty > 0 and not impost_heights:
+            raise ValueError(f"Для {item['product_type']} потрібно вказати висоти імпостів.")
+        if impost_qty > 0 and _heights_count(impost_heights) != impost_qty:
+            raise ValueError(f"Для {item['product_type']} кількість висот імпостів має відповідати кількості імпостів.")
+    if "дверні 17*25" in product_name or "посилені" in product_name:
+        no_impost = bool(options_data.get("door_no_impost"))
+        door_impost_height = str(options_data.get("door_impost_height") or "").strip()
+        if not no_impost and not door_impost_height:
+            raise ValueError(f"Для {item['product_type']} потрібно вказати висоту імпоста від низу або обрати 'без імпоста'.")
+        extra_impost_qty = _to_int(options_data.get("door_extra_impost_qty", 0), 0)
+        extra_impost_heights = str(options_data.get("door_extra_impost_heights") or "").strip()
+        if extra_impost_qty > 0 and not extra_impost_heights:
+            raise ValueError(f"Для {item['product_type']} потрібно вказати висоти додаткових імпостів.")
+        if extra_impost_qty > 0 and _heights_count(extra_impost_heights) != extra_impost_qty:
+            raise ValueError(f"Для {item['product_type']} кількість висот додаткових імпостів має відповідати кількості додаткових імпостів.")
+
+
+def _calculate_mosquito_options_total(product_type, quantity, options_data, option_prices):
+    name = (product_type or "").lower()
+    qty = Decimal(max(int(quantity or 1), 1))
+    data = options_data or {}
+    total = Decimal("0")
+
+    def count_value(key):
+        return Decimal(str(max(_to_int(data.get(key), 0), 0)))
+
+    def add_named(option_name, count, *, multiply_by_order_qty=True):
+        nonlocal total
+        price = option_prices.get(option_name, Decimal("0"))
+        multiplier = qty if multiply_by_order_qty else Decimal("1")
+        total += price * Decimal(str(count)) * multiplier
+
+    if "10*30" in name:
+        replacement = (data.get("replacement_mount") or "").strip()
+        if replacement == "15*32":
+            add_named("Заміна кріплення з 9*32 на 15*32", 1)
+        elif replacement == "21*32":
+            add_named("Заміна кріплення з 9*32 на 21*32", 1)
+        add_named("Додаткове кріплення 9*32 (стандарт)", count_value("extra_mount_9"))
+        add_named("Додаткове кріплення 15*32", count_value("extra_mount_15"))
+        add_named("Додаткове кріплення 21*32", count_value("extra_mount_21"))
+        add_named("Додатковий імпост для внутрішніх сіток 10*30", count_value("impost_qty"))
+    elif "10*20" in name:
+        add_named("Додаткове кріплення 9*32 (стандарт)", count_value("extra_mount_9"))
+        add_named("Додаткове кріплення 15*32", count_value("extra_mount_15"))
+        add_named("Додаткове кріплення 21*32", count_value("extra_mount_21"))
+        add_named("Кріплення для алюмінєвих рам", count_value("aluminum_mount_kit"))
+        add_named("Додотковий імпост для зовнішніх сіток 10*20", count_value("impost_qty"))
+    elif "17*25" in name:
+        add_named("Додатковий імпост для дверних сіток 17*25", count_value("door_extra_impost_qty"))
+        add_named("Петля ПВХ звичайна", count_value("hinge_regular_qty"))
+        add_named("Петля з пружиною", count_value("hinge_spring_qty"))
+        add_named("Защіпка пластикова", count_value("latch_qty"))
+        add_named("Магніт", count_value("magnet_qty"))
+        add_named("Кріплення для алюмінєвих рам", count_value("aluminum_mount_kit"))
+    elif "посилені 14*40" in name or "посилені 17*40" in name:
+        add_named("Петля ПВХ звичайна", count_value("hinge_regular_qty"))
+        add_named("Петля з пружиною", count_value("hinge_spring_qty"))
+        add_named("Защіпка пластикова", count_value("latch_qty"))
+        add_named("Магніт", count_value("magnet_qty"))
+    elif "ролетні" in name:
+        add_named("Механізм гальмування", count_value("brake_qty"))
+        if "внутр. кріпл" in name:
+            replacement = (data.get("replacement_mount") or "").strip()
+            if replacement == "15*32":
+                add_named("Заміна кріплення з 9*32 на 15*32", 1)
+            elif replacement == "21*32":
+                add_named("Заміна кріплення з 9*32 на 21*32", 1)
+            add_named("Додаткове кріплення 9*32 (стандарт)", count_value("extra_mount_9"))
+            add_named("Додаткове кріплення 15*32", count_value("extra_mount_15"))
+            add_named("Додаткове кріплення 21*32", count_value("extra_mount_21"))
+
+    return total.quantize(Decimal("0.01"))
+
+
+def _recalculate_mosquito_items(raw_items, discount_multiplier):
+    catalog = parse_mosquito_price_sheet(MOSQUITO_PRICE_SHEET_URL)
+    products = catalog.get("products") or []
+    option_prices = {
+        (item.get("name") or "").strip(): _to_decimal(item.get("price_usd"), default="0")
+        for item in (catalog.get("options") or [])
+    }
+    recalculated = []
+    total_usd = Decimal("0")
+    for item in raw_items:
+        product = select_mosquito_catalog_product(
+            products,
+            item["product_type"],
+            item["profile_color"],
+            item["height_mm"],
+        )
+        if not product:
+            raise ValueError(f"Не знайдено виріб у прайсі: {item['product_type']} / {item['profile_color']}")
+        mesh_prices = product.get("mesh_prices_usd_sqm") or {}
+        price_usd_sqm = _to_decimal(mesh_prices.get(item["mesh_type"]))
+        if price_usd_sqm is None:
+            raise ValueError(f"Для {item['product_type']} немає ціни по полотну {item['mesh_type']}")
+        actual_area = (Decimal(item["width_mm"]) * Decimal(item["height_mm"])) / Decimal("1000000")
+        min_area = _to_decimal(product.get("min_area_sqm"), default="0")
+        calc_area = actual_area if actual_area >= min_area else min_area
+        base_subtotal_usd = (calc_area * price_usd_sqm * Decimal(item["quantity"]) * discount_multiplier).quantize(Decimal("0.01"))
+        options_total_usd = _calculate_mosquito_options_total(
+            item["product_type"],
+            item["quantity"],
+            item.get("options_data") or {},
+            option_prices,
+        )
+        subtotal_usd = (base_subtotal_usd + options_total_usd).quantize(Decimal("0.01"))
+        warnings = build_mosquito_warnings(
+            product_type=item["product_type"],
+            mesh_type=item["mesh_type"],
+            width_mm=item["width_mm"],
+            height_mm=item["height_mm"],
+            area_sqm=calc_area,
+        )
+        total_usd += subtotal_usd
+        recalculated.append(
+            {
+                **item,
+                "area_sqm": actual_area.quantize(Decimal("0.0001")),
+                "min_area_sqm": min_area.quantize(Decimal("0.0001")),
+                "price_usd_sqm": price_usd_sqm.quantize(Decimal("0.0001")),
+                "options_total_usd": options_total_usd,
+                "subtotal_usd": subtotal_usd,
+                "warning_text": "\n".join(warnings),
+                "note": _mosquito_note_with_auto_warning(
+                    item["product_type"],
+                    item.get("note", ""),
+                    "\n".join(warnings),
+                    item.get("options_data") or {},
+                ),
+                "dimension_labels": product.get("dimension_labels") or {},
+                "fiberglass_only": bool(product.get("fiberglass_only")),
+                "requires_sliding_side": bool(product.get("requires_sliding_side")),
+            }
+        )
+    return recalculated, total_usd.quantize(Decimal("0.01"))
+
+
+def _render_mosquito_builder_page(
+    request,
+    order,
+    *,
+    template_name,
+    price_sheet_url,
+    technical_info_url,
+    title,
+    stage_message,
+):
+    readonly = bool(order and (not is_manager(request.user) and order.status != Order.STATUS_QUOTE))
+    proposal_token = _proposal_token(order) if order else None
+    proposal_page_url = reverse("orders:proposal_page", args=[proposal_token]) if proposal_token else None
+    proposal_excel_url = reverse("orders:proposal_excel", args=[proposal_token]) if proposal_token else None
+    if order:
+        items_payload = [
+            {
+                "product_type": item.product_type,
+                "profile_color": item.profile_color,
+                "mesh_type": item.mesh_type,
+                "width_mm": item.width_mm,
+                "height_mm": item.height_mm,
+                "quantity": item.quantity,
+                "area_sqm": str(item.area_sqm),
+                "min_area_sqm": str(item.min_area_sqm),
+                "price_usd_sqm": str(item.price_usd_sqm),
+                "options_total_usd": str(item.options_total_usd),
+                "subtotal_usd": str(item.subtotal_usd),
+                "sliding_side": item.sliding_side,
+                "warning_text": item.warning_text,
+                "options_data": item.options_data or {},
+                "note": item.note,
+            }
+            for item in order.mosquito_items.all().order_by("id")
+        ]
+    else:
+        items_payload = []
+    context = {
+        "order": order,
+        "PRICE_SHEET_URL": price_sheet_url,
+        "TECHNICAL_INFO_URL": technical_info_url,
+        "readonly": readonly,
+        "status_logs": order.status_logs.all() if order else [],
+        "next_status_label": STATUS_LABELS.get(order.next_status()) if order and order.next_status() else None,
+        "builder_rate": (order.eur_rate if order and order.status != Order.STATUS_QUOTE and order.eur_rate else get_current_usd_rate()),
+        "proposal_page_url": proposal_page_url,
+        "proposal_excel_url": proposal_excel_url,
+        "customers_filter_list": list(customer_profiles_queryset()) if is_manager(request.user) else [],
+        "can_view_financial_controls": _can_view_financial_controls(
+            request.user,
+            order.customer if order else request.user,
+        ),
+        "stage_message": stage_message,
+        "mosquito_builder_title": title,
+        "mosquito_items_json": json.dumps(items_payload, ensure_ascii=False),
+        "customer_discount_percent_js": format(_normalize_discount_percent(getattr(order, "discount_percent", Decimal("0")) if order else getattr(getattr(request.user, "customerprofile", None), "discount_percent", Decimal("0"))), "f"),
+    }
+    return render(request, template_name, context)
+
+
+@login_required
+def order_mosquito_builder(request, pk):
+    order = get_object_or_404(Order, pk=pk, deleted=False)
+    readonly = bool(order and (not is_manager(request.user) and order.status != Order.STATUS_QUOTE))
+    if request.method == "POST":
+        if readonly:
+            messages.warning(request, "Це замовлення можна лише переглядати.")
+            return redirect("orders:order_mosquito_builder", pk=order.pk)
+        if not _save_order_header_only(request, order):
+            return redirect("orders:order_mosquito_builder", pk=order.pk)
+        raw_items = _parse_mosquito_items_from_post(request.POST)
+        if not raw_items:
+            messages.error(request, "Додайте хоча б одну позицію перед збереженням.")
+            return redirect("orders:order_mosquito_builder", pk=order.pk)
+        try:
+            discount_multiplier, discount_pct = _customer_discount_multiplier(order.customer)
+            recalculated_items, total_usd = _recalculate_mosquito_items(raw_items, discount_multiplier)
+        except Exception as exc:
+            messages.error(request, str(exc))
+            return redirect("orders:order_mosquito_builder", pk=order.pk)
+
+        for item in recalculated_items:
+            if item.get("requires_sliding_side") and item.get("sliding_side") not in ("left", "right"):
+                messages.error(request, f"Для {item['product_type']} потрібно обрати сторону зсуву.")
+                return redirect("orders:order_mosquito_builder", pk=order.pk)
+            try:
+                _validate_mosquito_item_options(item)
+            except ValueError as exc:
+                messages.error(request, str(exc))
+                return redirect("orders:order_mosquito_builder", pk=order.pk)
+
+        OrderMosquitoItem.objects.filter(order=order).delete()
+        OrderMosquitoItem.objects.bulk_create(
+            [
+                OrderMosquitoItem(
+                    order=order,
+                    product_type=item["product_type"],
+                    profile_color=item["profile_color"],
+                    mesh_type=item["mesh_type"],
+                    width_mm=item["width_mm"],
+                    height_mm=item["height_mm"],
+                    quantity=item["quantity"],
+                    area_sqm=item["area_sqm"],
+                    min_area_sqm=item["min_area_sqm"],
+                    price_usd_sqm=item["price_usd_sqm"],
+                    options_total_usd=item.get("options_total_usd", Decimal("0")),
+                    subtotal_usd=item["subtotal_usd"],
+                    options_data=item.get("options_data") or {},
+                    sliding_side=item.get("sliding_side", ""),
+                    warning_text=item.get("warning_text", ""),
+                    note=item["note"],
+                )
+                for item in recalculated_items
+            ]
+        )
+        order.total_eur = total_usd
+        order.eur_rate = get_current_usd_rate()
+        if not order.eur_rate_at_creation:
+            order.eur_rate_at_creation = order.eur_rate
+        order.discount_percent = discount_pct
+        order.save(update_fields=["total_eur", "eur_rate", "eur_rate_at_creation", "discount_percent"])
+        messages.success(request, "Замовлення москітних сіток збережено.")
+        return redirect("orders:order_mosquito_builder", pk=order.pk)
+    return _render_mosquito_builder_page(
+        request,
+        order,
+        template_name="orders/mosquito_builder.html",
+        price_sheet_url=MOSQUITO_PRICE_SHEET_URL,
+        technical_info_url=reverse("core:technical_info"),
+        title="Москітні сітки",
+        stage_message="Замовлення москітних сіток уже рахується по прайсу одним довідковим запитом. Підтримуються попередження по розмірах і обов'язкова сторона зсуву для плісе. На наступному етапі будуть додані спеціальні опції по типах виробу.",
+    )
+
+
+@login_required
+def order_mosquito_builder_new(request):
+    chosen_customer = request.user
+    can_pick_customer = is_manager(request.user) or request.user.is_staff or request.user.is_superuser
+    if can_pick_customer:
+        cust_id = request.GET.get("customer") or request.POST.get("customer_id")
+        if cust_id:
+            try:
+                chosen_customer = get_user_model().objects.get(pk=cust_id)
+            except get_user_model().DoesNotExist:
+                chosen_customer = request.user
+    order = _create_blank_order_for_builder(chosen_customer, "Замовлення (москітні сітки)")
+    return redirect("orders:order_mosquito_builder", pk=order.pk)
+
+
+def _parse_mosquito_component_items_from_post(post):
+    names = post.getlist("component_name")
+    colors = post.getlist("component_color")
+    units = post.getlist("component_unit")
+    lengths = post.getlist("length_mm")
+    quantities = post.getlist("quantity")
+    notes = post.getlist("item_note")
+    payload = []
+    for idx, name in enumerate(names):
+        name = (name or "").strip()
+        if not name:
+            continue
+        payload.append(
+            {
+                "name": name,
+                "color": _get(colors, idx, "").strip(),
+                "unit": _get(units, idx, "").strip(),
+                "length_mm": max(_to_int(_get(lengths, idx, "0"), 0), 0),
+                "quantity": _to_decimal(_get(quantities, idx, "0"), default="0"),
+                "note": _get(notes, idx, "").strip(),
+            }
+        )
+    return payload
+
+
+def _recalculate_mosquito_component_items(raw_items, discount_multiplier):
+    catalog = parse_mosquito_components_sheet(MOSQUITO_COMPONENTS_PRICE_SHEET_URL)
+    price_rows = catalog.get("items") or []
+    recalculated = []
+    total_usd = Decimal("0")
+    for item in raw_items:
+        matched = next(
+            (
+                row for row in price_rows
+                if (row.get("name") or "").strip().lower() == item["name"].strip().lower()
+                and (row.get("color") or "").strip().lower() == item["color"].strip().lower()
+                and (row.get("unit") or "").strip().lower() == item["unit"].strip().lower()
+            ),
+            None,
+        )
+        if not matched:
+            raise ValueError(f"Не знайдено комплектуючу у прайсі: {item['name']} / {item['color']} / {item['unit']}")
+        quantity = _to_decimal(item.get("quantity"), default="0")
+        if quantity <= 0:
+            raise ValueError(f"Для {item['name']} потрібно вказати кількість більше нуля.")
+        base_price_usd = _to_decimal(matched.get("price_usd"), default="0")
+        price_usd = (base_price_usd * discount_multiplier).quantize(Decimal("0.0001"))
+        unit_name = (item["unit"] or "").strip().lower()
+        if "м.п" in unit_name:
+            if int(item["length_mm"] or 0) <= 0:
+                raise ValueError(f"Для {item['name']} потрібно вказати довжину, мм.")
+            line_qty = (Decimal(int(item["length_mm"])) / Decimal("1000")) * quantity
+        else:
+            line_qty = quantity
+        subtotal_usd = (line_qty * price_usd).quantize(Decimal("0.01"))
+        total_usd += subtotal_usd
+        recalculated.append(
+            {
+                **item,
+                "quantity": quantity.quantize(Decimal("0.001")),
+                "price_usd": price_usd,
+                "subtotal_usd": subtotal_usd,
+            }
+        )
+    return recalculated, total_usd.quantize(Decimal("0.01"))
+
+
+def _render_mosquito_components_builder_page(request, order):
+    readonly = bool(order and (not is_manager(request.user) and order.status != Order.STATUS_QUOTE))
+    proposal_token = _proposal_token(order) if order else None
+    proposal_page_url = reverse("orders:proposal_page", args=[proposal_token]) if proposal_token else None
+    proposal_excel_url = reverse("orders:proposal_excel", args=[proposal_token]) if proposal_token else None
+    if order:
+        items_payload = [
+            {
+                "name": item.name,
+                "color": item.color,
+                "unit": item.unit,
+                "length_mm": item.length_mm,
+                "quantity": str(item.quantity),
+                "price_usd": str(item.price_usd),
+                "subtotal_usd": str(item.subtotal_usd),
+                "note": item.note,
+            }
+            for item in order.mosquito_component_items.all().order_by("id")
+        ]
+    else:
+        items_payload = []
+    context = {
+        "order": order,
+        "PRICE_SHEET_URL": MOSQUITO_COMPONENTS_PRICE_SHEET_URL,
+        "TECHNICAL_INFO_URL": reverse("core:technical_info"),
+        "readonly": readonly,
+        "status_logs": order.status_logs.all() if order else [],
+        "next_status_label": STATUS_LABELS.get(order.next_status()) if order and order.next_status() else None,
+        "builder_rate": (order.eur_rate if order and order.status != Order.STATUS_QUOTE and order.eur_rate else get_current_usd_rate()),
+        "proposal_page_url": proposal_page_url,
+        "proposal_excel_url": proposal_excel_url,
+        "customers_filter_list": list(customer_profiles_queryset()) if is_manager(request.user) else [],
+        "can_view_financial_controls": _can_view_financial_controls(
+            request.user,
+            order.customer if order else request.user,
+        ),
+        "stage_message": "Комплектуючі до москітних сіток рахуються по другій вкладці прайсу одним довідковим запитом. Розрахунок іде по м.п. або по шт./компл. залежно від одиниці виміру.",
+        "mosquito_component_items_json": json.dumps(items_payload, ensure_ascii=False),
+        "customer_discount_percent_js": format(_normalize_discount_percent(getattr(order, "discount_percent", Decimal("0")) if order else getattr(getattr(request.user, "customerprofile", None), "discount_percent", Decimal("0"))), "f"),
+    }
+    return render(request, "orders/mosquito_components_builder.html", context)
+
+
+@login_required
+def order_mosquito_components_builder(request, pk):
+    order = get_object_or_404(Order, pk=pk, deleted=False)
+    readonly = bool(order and (not is_manager(request.user) and order.status != Order.STATUS_QUOTE))
+    if request.method == "POST":
+        if readonly:
+            messages.warning(request, "Це замовлення можна лише переглядати.")
+            return redirect("orders:order_mosquito_components_builder", pk=order.pk)
+        if not _save_order_header_only(request, order):
+            return redirect("orders:order_mosquito_components_builder", pk=order.pk)
+        raw_items = _parse_mosquito_component_items_from_post(request.POST)
+        if not raw_items:
+            messages.error(request, "Додайте хоча б одну комплектуючу перед збереженням.")
+            return redirect("orders:order_mosquito_components_builder", pk=order.pk)
+        try:
+            discount_multiplier, discount_pct = _customer_discount_multiplier(order.customer)
+            recalculated_items, total_usd = _recalculate_mosquito_component_items(raw_items, discount_multiplier)
+        except Exception as exc:
+            messages.error(request, str(exc))
+            return redirect("orders:order_mosquito_components_builder", pk=order.pk)
+
+        OrderMosquitoComponentItem.objects.filter(order=order).delete()
+        OrderMosquitoComponentItem.objects.bulk_create(
+            [
+                OrderMosquitoComponentItem(
+                    order=order,
+                    name=item["name"],
+                    color=item["color"],
+                    unit=item["unit"],
+                    length_mm=item["length_mm"],
+                    quantity=item["quantity"],
+                    price_usd=item["price_usd"],
+                    subtotal_usd=item["subtotal_usd"],
+                    note=item["note"],
+                )
+                for item in recalculated_items
+            ]
+        )
+        order.total_eur = total_usd
+        order.eur_rate = get_current_usd_rate()
+        if not order.eur_rate_at_creation:
+            order.eur_rate_at_creation = order.eur_rate
+        order.discount_percent = discount_pct
+        order.save(update_fields=["total_eur", "eur_rate", "eur_rate_at_creation", "discount_percent"])
+        messages.success(request, "Замовлення комплектуючих до москітних сіток збережено.")
+        return redirect("orders:order_mosquito_components_builder", pk=order.pk)
+    return _render_mosquito_components_builder_page(request, order)
+
+
+@login_required
+def order_mosquito_components_builder_new(request):
+    chosen_customer = request.user
+    can_pick_customer = is_manager(request.user) or request.user.is_staff or request.user.is_superuser
+    if can_pick_customer:
+        cust_id = request.GET.get("customer") or request.POST.get("customer_id")
+        if cust_id:
+            try:
+                chosen_customer = get_user_model().objects.get(pk=cust_id)
+            except get_user_model().DoesNotExist:
+                chosen_customer = request.user
+    order = _create_blank_order_for_builder(chosen_customer, "Замовлення (комплектуючі до москітних сіток)")
+    return redirect("orders:order_mosquito_components_builder", pk=order.pk)
 
 
 @login_required
@@ -3513,6 +4480,14 @@ def update_status_preview(request, pk):
                     if wants_json:
                         return json_error("Потрібне підтвердження оплати.", redirect_url=reverse("orders:order_fabric_builder", kwargs={"pk": order.pk}))
                     return redirect("orders:order_fabric_builder", pk=order.pk)
+                if order.mosquito_items.exists():
+                    if wants_json:
+                        return json_error("Потрібне підтвердження оплати.", redirect_url=reverse("orders:order_mosquito_builder", kwargs={"pk": order.pk}))
+                    return redirect("orders:order_mosquito_builder", pk=order.pk)
+                if order.mosquito_component_items.exists():
+                    if wants_json:
+                        return json_error("Потрібне підтвердження оплати.", redirect_url=reverse("orders:order_mosquito_components_builder", kwargs={"pk": order.pk}))
+                    return redirect("orders:order_mosquito_components_builder", pk=order.pk)
                 if wants_json:
                     return json_error("Потрібне підтвердження оплати.", redirect_url=reverse("orders:builder_edit", kwargs={"pk": order.pk}))
                 return redirect("orders:builder_edit", pk=order.pk)
@@ -3688,6 +4663,48 @@ def order_proposal_page(request, token: str):
             }
         )
 
+    mosquito_items_payload = []
+    for idx, mos in enumerate(order.mosquito_items.all(), start=1):
+        option_lines, extra_lines = _collect_mosquito_option_lines(
+            mos,
+            rate,
+            markup_multiplier,
+            Decimal(order.discount_percent or 0),
+        )
+        mosquito_items_payload.append(
+            {
+                "index": idx,
+                "product_type": mos.product_type,
+                "profile_color": mos.profile_color,
+                "mesh_type": mos.mesh_type,
+                "width_mm": mos.width_mm,
+                "height_mm": mos.height_mm,
+                "area_sqm": mos.area_sqm,
+                "quantity": mos.quantity,
+                "sliding_side_label": _mosquito_sliding_side_label(mos.sliding_side),
+                "warning_text": mos.warning_text,
+                "note": mos.note,
+                "base_total_uah": _round_uah_total((Decimal(mos.subtotal_usd or 0) - Decimal(mos.options_total_usd or 0)) * rate_with_markup),
+                "total_uah": _round_uah_total(Decimal(mos.subtotal_usd or 0) * rate_with_markup),
+                "options": option_lines,
+                "option_meta": extra_lines,
+            }
+        )
+
+    mosquito_components_payload = []
+    for comp in order.mosquito_component_items.all():
+        mosquito_components_payload.append(
+            {
+                "name": comp.name,
+                "color": comp.color,
+                "unit": comp.unit,
+                "length_mm": comp.length_mm,
+                "quantity": comp.quantity,
+                "total_uah": _round_uah_total(Decimal(comp.subtotal_usd or 0) * rate_with_markup),
+                "note": comp.note,
+            }
+        )
+
     proposal_excel_url = reverse("orders:proposal_excel", args=[token])
     proposal_logo_url = ""
     avatar = getattr(profile, "avatar", None)
@@ -3716,6 +4733,8 @@ def order_proposal_page(request, token: str):
         "items": items_payload,
         "components": components_payload,
         "fabrics": fabrics_payload,
+        "mosquito_items": mosquito_items_payload,
+        "mosquito_components": mosquito_components_payload,
         "proposal_excel_url": proposal_excel_url,
         "proposal_logo_url": proposal_logo_url,
         "proposal_logo_fallback_text": _proposal_logo_fallback_text(profile, order.customer),
@@ -3767,14 +4786,22 @@ def order_components_builder_new(request):
     return redirect("orders:order_components_builder", pk=order.pk)
 
 
-@staff_member_required  # EN: only staff can update; UA: тільки staff-користувачі можуть оновлювати
+@staff_member_required
 @require_POST
 def update_eur_rate_view(request):
-    """
-    EN: Update EUR rate from NBU and redirect back.
-    UA: Оновлює курс EUR з НБУ та повертає назад.
-    """
+    return update_currency_rate_view(request, "EUR")
+
+
+@staff_member_required
+@require_POST
+def update_usd_rate_view(request):
+    return update_currency_rate_view(request, "USD")
+
+
+def update_currency_rate_view(request, currency: str):
+    currency = (currency or "EUR").upper()
     mode = request.POST.get("mode") or "online"
+    obj = None
     if mode == "manual":
         rate = request.POST.get("rate")
         try:
@@ -3782,29 +4809,22 @@ def update_eur_rate_view(request):
             if rate_val <= 0:
                 raise InvalidOperation
             obj, _ = CurrencyRate.objects.update_or_create(
-                currency="EUR",
+                currency=currency,
                 defaults={"rate_uah": rate_val, "source": "manual"},
             )
-            messages.success(
-                request,
-                f"Курс EUR збережено вручну: {obj.rate_uah} грн",
-            )
+            messages.success(request, f"Курс {currency} збережено вручну: {obj.rate_uah} грн")
         except Exception:
-            messages.error(request, "Введіть коректний курс EUR (приклад: 39.50)")
+            messages.error(request, f"Введіть коректний курс {currency} (приклад: 39.50)")
     else:
         try:
-            obj = update_eur_rate_from_nbu()
+            obj = update_currency_rate_from_privatbank(currency)
             messages.success(
                 request,
-                f"Курс EUR оновлено: {obj.rate_uah} грн (джерело: {obj.source})"
+                f"Курс {currency} оновлено: {obj.rate_uah} грн (джерело: {obj.source})",
             )
         except Exception as e:
-            messages.error(
-                request,
-                f"Не вдалося оновити курс EUR: {e}"
-            )
-    # Log history if we have an object and no errors were raised
-    if "obj" in locals():
+            messages.error(request, f"Не вдалося оновити курс {currency}: {e}")
+    if obj is not None:
         CurrencyRateHistory.objects.create(
             currency=obj.currency,
             rate_uah=obj.rate_uah,
@@ -3812,8 +4832,6 @@ def update_eur_rate_view(request):
             source=obj.source,
             user=request.user if request.user.is_authenticated else None,
         )
-
-    # EN: redirect back where user came from; UA: повертаємось туди, звідки прийшли
     next_url = request.META.get("HTTP_REFERER") or reverse("core:dashboard")
     return redirect(next_url)
 

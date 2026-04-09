@@ -12,6 +12,10 @@ from apps.integrations.google_sheets import (
     parse_sheet_price_section,
     parse_components_sheet,
     parse_fabrics_sheet,
+    parse_mosquito_price_sheet,
+    parse_mosquito_components_sheet,
+    build_mosquito_warnings,
+    select_mosquito_catalog_product,
 )
 
 
@@ -21,6 +25,7 @@ from apps.integrations.google_sheets_core import (
     round_money,
     _to_decimal,
 )
+from apps.orders.services_currency import get_current_usd_rate
 
 import logging
 logger = logging.getLogger("app")
@@ -360,3 +365,124 @@ def fabric_preview(request):
         },
         status=status.HTTP_200_OK,
     )
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def mosquito_products_list(request):
+    url = request.query_params.get("url")
+    if not url:
+        return Response({"detail": "Missing url"}, status=status.HTTP_400_BAD_REQUEST)
+    sheet = (request.query_params.get("sheet") or "Прайс").strip()
+    force = _flag(request.query_params.get("force_refresh"))
+    try:
+        parsed = parse_mosquito_price_sheet(
+            google_sheet_url=url,
+            sheet_name=sheet,
+            force_refresh=force,
+        )
+        parsed["usd_rate"] = str(get_current_usd_rate())
+        return Response(parsed, status=status.HTTP_200_OK)
+    except Exception as e:
+        logger.error("mosquito_products_list failed: %s", e, exc_info=True)
+        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def mosquito_preview(request):
+    data = request.data or {}
+    url = data.get("url")
+    sheet = (data.get("sheet") or "Прайс").strip()
+    product_type = (data.get("product_type") or "").strip()
+    color = (data.get("color") or "").strip()
+    mesh_type = (data.get("mesh_type") or "").strip()
+    width_mm = data.get("width_mm")
+    height_mm = data.get("height_mm")
+    quantity = data.get("quantity") or 1
+
+    try:
+        width_mm = int(width_mm)
+        height_mm = int(height_mm)
+        quantity = int(quantity)
+    except Exception:
+        return Response(
+            {"detail": "width_mm, height_mm, quantity мають бути цілими числами."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not url or not product_type or not color or not mesh_type:
+        return Response(
+            {"detail": "Потрібні параметри: url, product_type, color, mesh_type."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if width_mm <= 0 or height_mm <= 0 or quantity <= 0:
+        return Response(
+            {"detail": "Ширина/висота/кількість мають бути > 0."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    parsed = parse_mosquito_price_sheet(google_sheet_url=url, sheet_name=sheet, force_refresh=False)
+    product = select_mosquito_catalog_product(parsed.get("products") or [], product_type, color, height_mm)
+    if not product:
+        return Response({"detail": "Виріб або колір не знайдено у прайсі."}, status=status.HTTP_400_BAD_REQUEST)
+
+    price_usd_sqm = _to_decimal((product.get("mesh_prices_usd_sqm") or {}).get(mesh_type))
+    if price_usd_sqm is None:
+        return Response({"detail": "Для цього виробу немає ціни по вибраному полотну."}, status=status.HTTP_400_BAD_REQUEST)
+
+    actual_area = Q(str(width_mm)) * Q(str(height_mm)) / Q("1000000")
+    min_area = _to_decimal(product.get("min_area_sqm") or "0") or Q("0")
+    calc_area = actual_area if actual_area >= min_area else min_area
+    subtotal_usd = round_money(calc_area * price_usd_sqm * Q(str(quantity)))
+    usd_rate = get_current_usd_rate()
+    total_uah = round_money(subtotal_usd * Q(str(usd_rate or 0)))
+    warnings = build_mosquito_warnings(
+        product_type=product_type,
+        mesh_type=mesh_type,
+        width_mm=width_mm,
+        height_mm=height_mm,
+        area_sqm=calc_area,
+    )
+
+    return Response(
+        {
+            "product_type": product_type,
+            "color": color,
+            "mesh_type": mesh_type,
+            "price_usd_sqm": str(price_usd_sqm),
+            "actual_area_sqm": str(round_money(actual_area)),
+            "min_area_sqm": str(min_area),
+            "calc_area_sqm": str(round_money(calc_area)),
+            "quantity": quantity,
+            "subtotal_usd": str(subtotal_usd),
+            "usd_rate": str(usd_rate),
+            "total_uah": str(total_uah),
+            "dimension_labels": product.get("dimension_labels") or {},
+            "fiberglass_only": bool(product.get("fiberglass_only")),
+            "requires_sliding_side": bool(product.get("requires_sliding_side")),
+            "warnings": warnings,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def mosquito_components_list(request):
+    url = request.query_params.get("url")
+    if not url:
+        return Response({"detail": "Missing url"}, status=status.HTTP_400_BAD_REQUEST)
+    sheet = (request.query_params.get("sheet") or "Комплектація").strip()
+    force = _flag(request.query_params.get("force_refresh"))
+    try:
+        parsed = parse_mosquito_components_sheet(
+            google_sheet_url=url,
+            sheet_name=sheet,
+            force_refresh=force,
+        )
+        parsed["usd_rate"] = str(get_current_usd_rate())
+        return Response(parsed, status=status.HTTP_200_OK)
+    except Exception as e:
+        logger.error("mosquito_components_list failed: %s", e, exc_info=True)
+        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)

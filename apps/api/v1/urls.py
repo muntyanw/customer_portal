@@ -11,6 +11,9 @@ from .pricing_views import (
     components_list,
     fabrics_list,
     fabric_preview,
+    mosquito_products_list,
+    mosquito_preview,
+    mosquito_components_list,
 )
 
 router = DefaultRouter()
@@ -32,6 +35,9 @@ urlpatterns = [
     ),
     path("pricing/fabrics-list", fabrics_list, name="pricing-fabrics-list"),
     path("pricing/fabric-preview", fabric_preview, name="pricing-fabric-preview"),
+    path("pricing/mosquito-products", mosquito_products_list, name="pricing-mosquito-products"),
+    path("pricing/mosquito-preview", mosquito_preview, name="pricing-mosquito-preview"),
+    path("pricing/mosquito-components", mosquito_components_list, name="pricing-mosquito-components"),
 
 
 ]

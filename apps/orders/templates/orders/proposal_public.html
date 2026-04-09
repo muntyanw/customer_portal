@@ -231,6 +231,123 @@
         </div>
       {% endif %}
 
+      {% if mosquito_items %}
+        <h5 class="mt-4 mb-3">Москітні сітки</h5>
+        <div class="d-flex flex-column gap-3">
+          {% for it in mosquito_items %}
+            <div class="card shadow-sm">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                  <div class="fw-semibold">Позиція {{ it.index }}</div>
+                  <div class="text-muted small">К-сть: {{ it.quantity }}</div>
+                </div>
+                <div class="small">
+                  <div class="d-flex justify-content-between border-bottom py-1">
+                    <span class="text-muted">Виріб</span>
+                    <span class="fw-semibold text-end">{{ it.product_type }}</span>
+                  </div>
+                  <div class="d-flex justify-content-between border-bottom py-1">
+                    <span class="text-muted">Колір профілю</span>
+                    <span class="fw-semibold text-end">{{ it.profile_color }}</span>
+                  </div>
+                  <div class="d-flex justify-content-between border-bottom py-1">
+                    <span class="text-muted">Полотно</span>
+                    <span class="fw-semibold text-end">{{ it.mesh_type }}</span>
+                  </div>
+                  <div class="d-flex justify-content-between border-bottom py-1">
+                    <span class="text-muted">Ширина, мм</span>
+                    <span class="fw-semibold text-end">{{ it.width_mm }}</span>
+                  </div>
+                  <div class="d-flex justify-content-between border-bottom py-1">
+                    <span class="text-muted">Висота, мм</span>
+                    <span class="fw-semibold text-end">{{ it.height_mm }}</span>
+                  </div>
+                  <div class="d-flex justify-content-between border-bottom py-1">
+                    <span class="text-muted">Площа, м²</span>
+                    <span class="fw-semibold text-end">{{ it.area_sqm }}</span>
+                  </div>
+                  {% if it.sliding_side_label %}
+                    <div class="d-flex justify-content-between border-bottom py-1">
+                      <span class="text-muted">Сторона зсуву</span>
+                      <span class="fw-semibold text-end">{{ it.sliding_side_label }}</span>
+                    </div>
+                  {% endif %}
+                  <div class="d-flex justify-content-between py-1">
+                    <span class="text-muted">Вартість</span>
+                    <span class="fw-semibold text-end">{{ it.total_uah|floatformat:0 }} грн</span>
+                  </div>
+                  {% if it.warning_text %}
+                    <div class="border-top pt-2 text-danger fw-semibold">{{ it.warning_text|linebreaksbr }}</div>
+                  {% endif %}
+                  {% if it.note %}
+                    <div class="d-flex justify-content-between border-top pt-1">
+                      <span class="text-muted">Примітка</span>
+                      <span class="text-end">{{ it.note }}</span>
+                    </div>
+                  {% endif %}
+                </div>
+
+                {% if it.options or it.option_meta %}
+                  <div class="mt-3">
+                    <div class="small text-muted mb-1">Додаткові опції</div>
+                    <ul class="list-unstyled mb-0">
+                      {% for opt in it.options %}
+                        <li>
+                          <span class="fw-semibold">{{ opt.label }}</span>
+                          {% if opt.qty %} · {{ opt.qty }}{% endif %}
+                          — {{ opt.total_uah|floatformat:0 }} грн
+                        </li>
+                      {% endfor %}
+                      {% for extra in it.option_meta %}
+                        <li>
+                          <span class="fw-semibold">{{ extra.label }}</span>
+                          {% if extra.qty %} · {{ extra.qty }}{% endif %}
+                        </li>
+                      {% endfor %}
+                    </ul>
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% if mosquito_components %}
+        <h5 class="mt-4 mb-3">Комплектуючі до мос. сіток</h5>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr class="text-muted">
+                <th>Найменування</th>
+                <th>Колір</th>
+                <th>Од. вим.</th>
+                <th class="text-end">Довжина, мм</th>
+                <th class="text-end">К-сть</th>
+                <th class="text-end">Сума, грн</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for comp in mosquito_components %}
+                <tr>
+                  <td>{{ comp.name }}</td>
+                  <td>{{ comp.color }}</td>
+                  <td>{{ comp.unit }}</td>
+                  <td class="text-end">{{ comp.length_mm|default:"—" }}</td>
+                  <td class="text-end">{{ comp.quantity }}</td>
+                  <td class="text-end">{{ comp.total_uah|floatformat:0 }}</td>
+                </tr>
+                {% if comp.note %}
+                  <tr>
+                    <td colspan="6" class="small text-muted">Примітка: {{ comp.note }}</td>
+                  </tr>
+                {% endif %}
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+
       {% if order.note %}
         <div class="card shadow-sm mt-3">
           <div class="card-body">

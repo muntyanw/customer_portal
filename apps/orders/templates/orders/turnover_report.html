@@ -42,6 +42,8 @@
             <option value="rollers" {% if category_filter == 'rollers' %}selected{% endif %}>Ролети</option>
             <option value="components" {% if category_filter == 'components' %}selected{% endif %}>Компл-ючі до тк. рол.</option>
             <option value="fabrics" {% if category_filter == 'fabrics' %}selected{% endif %}>Тканина</option>
+            <option value="mosquitoes" {% if category_filter == 'mosquitoes' %}selected{% endif %}>Москітні сітки</option>
+            <option value="mosquito_components" {% if category_filter == 'mosquito_components' %}selected{% endif %}>Комплектуючі до мос. сіток</option>
           </select>
         </div>
         <div class="col-12 col-md-6 col-xl-2">
@@ -74,6 +76,10 @@
           {% url 'orders:order_components_builder' o.id as order_view_url %}
         {% elif o.fabric_items.all|length %}
           {% url 'orders:order_fabric_builder' o.id as order_view_url %}
+        {% elif o.mosquito_items.all|length %}
+          {% url 'orders:order_mosquito_builder' o.id as order_view_url %}
+        {% elif o.mosquito_component_items.all|length %}
+          {% url 'orders:order_mosquito_components_builder' o.id as order_view_url %}
         {% else %}
           {% url 'orders:builder_edit' o.id as order_view_url %}
         {% endif %}

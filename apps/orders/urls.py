@@ -12,6 +12,8 @@ urlpatterns = [
     # список замовлень з комплектуючими
     path("components/", views.order_components_list, name="components_list"),
     path("fabrics/", views.order_fabrics_list, name="fabrics_list"),
+    path("mosquitoes/", views.order_mosquito_list, name="mosquito_list"),
+    path("mosquito-components/", views.order_mosquito_components_list, name="mosquito_components_list"),
     path("balances/", views.balances_history, name="balances"),
     path("balances/export/", views.balances_excel, name="balances_excel"),
     path("balances/page/<str:token>/", views.balance_public_page, name="balance_public"),
@@ -37,6 +39,16 @@ urlpatterns = [
         views.order_fabric_builder_new,
         name="fabrics_builder_create",
     ),
+    path(
+        "mosquitoes/builder/",
+        views.order_mosquito_builder_new,
+        name="mosquito_builder_create",
+    ),
+    path(
+        "mosquito-components/builder/",
+        views.order_mosquito_components_builder_new,
+        name="mosquito_components_builder_create",
+    ),
 
     # 🔹 редагувати комплектуючі для конкретного замовлення
     path(
@@ -48,6 +60,16 @@ urlpatterns = [
         "fabrics/builder/<int:pk>/",
         views.order_fabric_builder,
         name="order_fabric_builder",
+    ),
+    path(
+        "mosquitoes/builder/<int:pk>/",
+        views.order_mosquito_builder,
+        name="order_mosquito_builder",
+    ),
+    path(
+        "mosquito-components/builder/<int:pk>/",
+        views.order_mosquito_components_builder,
+        name="order_mosquito_components_builder",
     ),
 
     # швидкий перевід у роботу з прев'ю
@@ -71,4 +93,5 @@ urlpatterns = [
     path("trash/", views.order_trash_list, name="trash"),
     path("trash/<int:pk>/restore/", views.order_restore, name="restore"),
     path("currency/update-eur/", views.update_eur_rate_view, name="update_eur_rate"),
+    path("currency/update-usd/", views.update_usd_rate_view, name="update_usd_rate"),
 ]

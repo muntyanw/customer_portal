@@ -2,7 +2,19 @@
 {% load form_tags %}
 
 {% block dashboard_title %}
-  {% if list_mode == 'all' %}Всі замовлення{% elif list_mode == 'components' %}Компл-ючі до тк. рол.{% elif list_mode == 'fabrics' %}Тканина{% else %}Замовлення (Тканинні ролети){% endif %}
+  {% if list_mode == 'all' %}
+    Всі замовлення
+  {% elif list_mode == 'components' %}
+    Компл-ючі до тк. рол.
+  {% elif list_mode == 'fabrics' %}
+    Тканина
+  {% elif list_mode == 'mosquitoes' %}
+    Москітні сітки
+  {% elif list_mode == 'mosquito_components' %}
+    Комплектуючі до мос. сіток
+  {% else %}
+    Замовлення (Тканинні ролети)
+  {% endif %}
 {% endblock %}
 
 {% block dashboard_heading %}
@@ -10,6 +22,10 @@
     Компл-ючі до тк. рол., список замовлень
   {% elif list_mode == 'fabrics' %}
     Тканина, список замовлень
+  {% elif list_mode == 'mosquitoes' %}
+    Москітні сітки, список замовлень
+  {% elif list_mode == 'mosquito_components' %}
+    Комплектуючі до мос. сіток, список замовлень
   {% elif list_mode == 'all' %}
     Всі замовлення
   {% else %}
@@ -29,6 +45,12 @@
       <a href="{% url 'orders:fabrics_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center new-order-btn-all">
         <i class="bi bi-scissors me-1"></i> Нове замовлення (Тканина)
       </a>
+      <a href="{% url 'orders:mosquito_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center new-order-btn-all">
+        <i class="bi bi-grid-3x3-gap me-1"></i> Нове замовлення (Москітні сітки)
+      </a>
+      <a href="{% url 'orders:mosquito_components_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center new-order-btn-all">
+        <i class="bi bi-wrench-adjustable me-1"></i> Нове замовлення (Комплектуючі до мос. сіток)
+      </a>
     {% else %}
       {% if list_mode == 'components' %}
         <a href="{% url 'orders:components_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
@@ -37,6 +59,14 @@
       {% elif list_mode == 'fabrics' %}
         <a href="{% url 'orders:fabrics_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
           <i class="bi bi-scissors me-1"></i> Нове замовлення (Тканина)
+        </a>
+      {% elif list_mode == 'mosquitoes' %}
+        <a href="{% url 'orders:mosquito_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
+          <i class="bi bi-grid-3x3-gap me-1"></i> Нове замовлення (Москітні сітки)
+        </a>
+      {% elif list_mode == 'mosquito_components' %}
+        <a href="{% url 'orders:mosquito_components_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
+          <i class="bi bi-wrench-adjustable me-1"></i> Нове замовлення (Комплектуючі до мос. сіток)
         </a>
       {% else %}
         <a href="{% url 'orders:builder' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
@@ -119,6 +149,10 @@
               <a href="{% url 'orders:fabrics_list' %}" class="btn btn-secondary btn-sm js-reset-order-filters">Скинути</a>
             {% elif list_mode == 'all' %}
               <a href="{% url 'orders:all_list' %}" class="btn btn-secondary btn-sm js-reset-order-filters">Скинути</a>
+            {% elif list_mode == 'mosquitoes' %}
+              <a href="{% url 'orders:mosquito_list' %}" class="btn btn-secondary btn-sm js-reset-order-filters">Скинути</a>
+            {% elif list_mode == 'mosquito_components' %}
+              <a href="{% url 'orders:mosquito_components_list' %}" class="btn btn-secondary btn-sm js-reset-order-filters">Скинути</a>
             {% else %}
               <a href="{% url 'orders:list' %}" class="btn btn-secondary btn-sm js-reset-order-filters">Скинути</a>
             {% endif %}
@@ -177,7 +211,7 @@
               {% endif %}
               <td style="min-width: 220px; max-width: 420px;">
                 <div class="fw-semibold mb-1">
-                  <a href="{% if list_mode == 'components' %}{% url 'orders:order_components_builder' o.id %}{% elif list_mode == 'fabrics' %}{% url 'orders:order_fabric_builder' o.id %}{% elif list_mode == 'all' %}{{ order_view_urls|get_item:o.id }}{% else %}{% url 'orders:builder_edit' o.id %}{% endif %}">Замовлення №{{ o.id }}</a>
+                  <a href="{% if list_mode == 'components' %}{% url 'orders:order_components_builder' o.id %}{% elif list_mode == 'fabrics' %}{% url 'orders:order_fabric_builder' o.id %}{% elif list_mode == 'mosquitoes' %}{% url 'orders:order_mosquito_builder' o.id %}{% elif list_mode == 'mosquito_components' %}{% url 'orders:order_mosquito_components_builder' o.id %}{% elif list_mode == 'all' %}{{ order_view_urls|get_item:o.id }}{% else %}{% url 'orders:builder_edit' o.id %}{% endif %}">Замовлення №{{ o.id }}</a>
                 </div>
                 {% if list_mode == 'all' %}
                   {% with order_kind=order_kind_map|get_item:o.id %}
@@ -187,6 +221,10 @@
                         Компл-ючі до тк. рол.
                       {% elif order_kind == 'fabrics' %}
                         Тканина
+                      {% elif order_kind == 'mosquitoes' %}
+                        Москітні сітки
+                      {% elif order_kind == 'mosquito_components' %}
+                        Комплектуючі до мос. сіток
                       {% else %}
                         Ролети
                       {% endif %}
@@ -283,7 +321,7 @@
                     {% endif %}
                   {% endif %}
                   </span>
-                  <a class="btn btn-sm btn-outline-secondary" href="{% if list_mode == 'components' %}{% url 'orders:order_components_builder' o.id %}{% elif list_mode == 'fabrics' %}{% url 'orders:order_fabric_builder' o.id %}{% elif list_mode == 'all' %}{{ order_view_urls|get_item:o.id }}{% else %}{% url 'orders:builder_edit' o.id %}{% endif %}">
+                  <a class="btn btn-sm btn-outline-secondary" href="{% if list_mode == 'components' %}{% url 'orders:order_components_builder' o.id %}{% elif list_mode == 'fabrics' %}{% url 'orders:order_fabric_builder' o.id %}{% elif list_mode == 'mosquitoes' %}{% url 'orders:order_mosquito_builder' o.id %}{% elif list_mode == 'mosquito_components' %}{% url 'orders:order_mosquito_components_builder' o.id %}{% elif list_mode == 'all' %}{{ order_view_urls|get_item:o.id }}{% else %}{% url 'orders:builder_edit' o.id %}{% endif %}">
                     <i class="bi bi-eye me-1"></i> Переглянути
                   </a>
                   {% if request.user.is_manager or request.user.is_superuser %}
@@ -326,6 +364,10 @@
         Поки немає жодного замовлення з комплектуючими.
       {% elif list_mode == 'fabrics' %}
         Поки немає жодного замовлення з тканиною.
+      {% elif list_mode == 'mosquitoes' %}
+        Поки немає жодного замовлення з москітними сітками.
+      {% elif list_mode == 'mosquito_components' %}
+        Поки немає жодного замовлення з комплектуючими до москітних сіток.
       {% elif list_mode == 'all' %}
         Поки немає жодного замовлення.
       {% else %}

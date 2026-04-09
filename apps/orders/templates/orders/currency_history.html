@@ -13,6 +13,7 @@
             <thead class="table-light">
               <tr>
                 <th>Дата та час</th>
+                <th>Валюта</th>
                 <th>Користувач</th>
                 <th>Курс, грн</th>
                 <th>Спосіб</th>
@@ -23,6 +24,7 @@
               {% for item in history %}
                 <tr>
                 <td>{{ item.created_at|date:"d.m.Y H:i" }}</td>
+                <td>{{ item.currency }}</td>
                 <td>
                   {% if item.user %}
                     {% with profile=item.user.customerprofile %}
@@ -42,7 +44,7 @@
                 </tr>
               {% empty %}
                 <tr>
-                  <td colspan="5" class="text-center text-muted py-3">Поки немає записів.</td>
+                  <td colspan="6" class="text-center text-muted py-3">Поки немає записів.</td>
                 </tr>
               {% endfor %}
             </tbody>

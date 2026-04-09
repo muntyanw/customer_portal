@@ -59,10 +59,23 @@
                 Курс EUR:
                 <span class="fw-bold ms-1">{{ eur_rate|default:"0.00" }}</span>
               </span>
+              <span class="badge rounded-pill bg-info text-dark px-3 py-2 portal-rate-badge mt-1">
+                <i class="bi bi-currency-exchange me-1"></i>
+                Курс USD:
+                <span class="fw-bold ms-1">{{ usd_rate|default:"0.00" }}</span>
+              </span>
               <span class="small text-white-50">
                 Оновлено:
                 {% if eur_rate_updated_at %}
                   {{ eur_rate_updated_at|date:"d.m.Y H:i" }}
+                {% else %}
+                  —
+                {% endif %}
+              </span>
+              <span class="small text-white-50">
+                USD:
+                {% if usd_rate_updated_at %}
+                  {{ usd_rate_updated_at|date:"d.m.Y H:i" }}
                 {% else %}
                   —
                 {% endif %}
@@ -94,6 +107,21 @@
                 {% endif %}
               </span>
             </div>
+            <div class="position-relative d-inline-block">
+              <span class="badge rounded-pill bg-info text-dark px-3 py-2">
+                <i class="bi bi-currency-exchange me-1"></i>
+                Курс USD:
+                <span class="fw-bold ms-1">{{ usd_rate|default:"0.00" }}</span>
+              </span>
+              <span class="small text-white-50 position-absolute start-0 top-100 mt-1 text-nowrap">
+                Оновлено:
+                {% if usd_rate_updated_at %}
+                  {{ usd_rate_updated_at|date:"d.m.Y H:i" }}
+                {% else %}
+                  —
+                {% endif %}
+              </span>
+            </div>
             {% if request.user.is_staff %}
               <form action="{% url 'orders:update_eur_rate' %}" method="post" class="d-inline mb-0" onsubmit="return confirm('Оновити курс EUR онлайн?');">
                 {% csrf_token %}
@@ -111,6 +139,24 @@
                 <div class="input-group input-group-sm">
                   <input type="number" step="0.0001" min="0" name="rate" class="form-control form-control-sm" placeholder="Ввести курс">
                   <button class="btn btn-outline-light" type="submit">Зберегти</button>
+                </div>
+              </form>
+              <form action="{% url 'orders:update_usd_rate' %}" method="post" class="d-inline mb-0" onsubmit="return confirm('Оновити курс USD онлайн?');">
+                {% csrf_token %}
+                <input type="hidden" name="mode" value="online">
+                <button type="submit"
+                        class="btn btn-sm btn-outline-light d-flex align-items-center px-3 py-1">
+                  <i class="bi bi-arrow-clockwise me-1"></i>
+                  Оновити USD
+                </button>
+              </form>
+
+              <form action="{% url 'orders:update_usd_rate' %}" method="post" class="d-inline mb-0" onsubmit="return confirm('Зберегти курс USD вручну?');">
+                {% csrf_token %}
+                <input type="hidden" name="mode" value="manual">
+                <div class="input-group input-group-sm">
+                  <input type="number" step="0.0001" min="0" name="rate" class="form-control form-control-sm" placeholder="Ввести курс USD">
+                  <button class="btn btn-outline-light" type="submit">Зберегти USD</button>
                 </div>
               </form>
             {% endif %}

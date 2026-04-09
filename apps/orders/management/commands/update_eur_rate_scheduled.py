@@ -2,11 +2,11 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from apps.orders.models import CurrencyAutoUpdateSettings, CurrencyRateHistory
-from apps.orders.services_currency import update_eur_rate_from_nbu
+from apps.orders.services_currency import update_currency_rate_from_privatbank
 
 
 class Command(BaseCommand):
-    help = "Update EUR rate if auto-update is enabled and scheduled for current time"
+    help = "Update EUR and USD rates if auto-update is enabled and scheduled for current time"
 
     def handle(self, *args, **options):
         settings_obj = CurrencyAutoUpdateSettings.get_solo()
@@ -24,16 +24,17 @@ class Command(BaseCommand):
             self.stdout.write(f"No update scheduled for {current_time}.")
             return
 
-        obj = update_eur_rate_from_nbu()
-        CurrencyRateHistory.objects.create(
-            currency=obj.currency,
-            rate_uah=obj.rate_uah,
-            mode="online",
-            source=obj.source,
-            user=None,
-        )
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Updated EUR rate: {obj.rate_uah} UAH (source={obj.source})"
+        for currency in ("EUR", "USD"):
+            obj = update_currency_rate_from_privatbank(currency)
+            CurrencyRateHistory.objects.create(
+                currency=obj.currency,
+                rate_uah=obj.rate_uah,
+                mode="online",
+                source=obj.source,
+                user=None,
             )
-        )
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Updated {currency} rate: {obj.rate_uah} UAH (source={obj.source})"
+                )
+            )

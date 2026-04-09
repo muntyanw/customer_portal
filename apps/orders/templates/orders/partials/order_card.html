@@ -33,6 +33,10 @@
                 Компл-ючі до тк. рол.
               {% elif order.fabric_items.all|length %}
                 Тканина
+              {% elif order.mosquito_items.all|length %}
+                Москітні сітки
+              {% elif order.mosquito_component_items.all|length %}
+                Комплектуючі до мос. сіток
               {% else %}
                 Ролети
               {% endif %}

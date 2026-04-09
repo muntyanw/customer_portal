@@ -1,0 +1,838 @@
+{% extends 'core/dashboard_base.html' %}
+
+{% block dashboard_title %}Москітні сітки{% endblock %}
+
+{% block dashboard_heading %}
+  Москітні сітки, замовлення №{{ order.id|default:'null' }}
+{% endblock %}
+
+{% block head_extra %}
+  {{ block.super }}
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+  <style>
+    .mosquito-summary-label {
+      font-size: 0.8rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: var(--bs-body-color);
+    }
+    .mosquito-summary-value {
+      font-weight: 700;
+      font-size: 1.35rem;
+      color: var(--bs-body-color);
+    }
+    .mosquito-card .select2-container {
+      width: 100% !important;
+    }
+    .sliding-side-preview img {
+      width: 40px;
+      height: 24px;
+      object-fit: contain;
+      border: 1px solid var(--bs-border-color);
+      border-radius: 0.5rem;
+      background: #fff;
+      padding: 2px;
+    }
+    .mosquito-options {
+      border-top: 1px dashed var(--bs-border-color);
+      padding-top: 0.75rem;
+    }
+    .mosquito-options .form-label {
+      margin-bottom: 0.2rem;
+    }
+    .mosquito-warning-text {
+      white-space: pre-line;
+    }
+  </style>
+{% endblock %}
+
+{% block dashboard_content %}
+  <form method="post" id="mosquitoOrderForm" novalidate>
+    {% csrf_token %}
+    <input type="hidden" id="customerDiscountValue" value="{{ customer_discount_percent_js|default:'0' }}">
+    <fieldset {% if readonly %}disabled{% endif %}>
+      <div class="mb-3">
+        <div class="alert alert-info mb-3">{{ stage_message }}</div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="btn btn-primary btn-sm">
+            <i class="bi bi-file-earmark-spreadsheet me-1"></i> Відкрити прайс
+          </a>
+          <a href="{{ TECHNICAL_INFO_URL }}" target="_blank" class="btn btn-secondary btn-sm text-white">
+            <i class="bi bi-file-earmark-text me-1"></i> Технічні характеристики
+          </a>
+          {% if request.user.is_manager or request.user.is_superuser %}
+            <div class="ms-auto" style="min-width:260px;">
+              <label class="form-label fw-semibold mb-1" for="mosquitoOrderCustomer">Клієнт</label>
+              <select id="mosquitoOrderCustomer" name="customer_id" class="form-select form-select-sm">
+                <option value="">— Оберіть клієнта —</option>
+                {% for c in customers_filter_list %}
+                  <option value="{{ c.user.id }}" data-discount="{{ c.discount_percent|default_if_none:0|stringformat:'0.2f' }}" {% if order and order.customer_id == c.user.id %}selected{% elif not order and request.user.id == c.user.id %}selected{% endif %}>
+                    {% if c.company_name %}{{ c.company_name }}{% elif c.organization and c.organization.name %}{{ c.organization.name }}{% elif c.full_name %}{{ c.full_name }}{% else %}{{ c.user.email }}{% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="row g-3 mb-3">
+        <div class="col-12 col-lg-3">
+          <div class="border rounded-3 p-3 h-100">
+            <div class="mosquito-summary-label mb-1">Статус</div>
+            <div class="fw-semibold">{% if order %}{{ order.get_status_display }}{% else %}Прорахунок{% endif %}</div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-3">
+          <div class="border rounded-3 p-3 h-100">
+            <div class="mosquito-summary-label mb-1">Курс USD</div>
+            <div class="fw-semibold" id="mosquitoUsdRate">{{ builder_rate }}</div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-3">
+          <div class="border rounded-3 p-3 h-100">
+            <div class="mosquito-summary-label mb-1">Всього, грн</div>
+            <div class="mosquito-summary-value" id="mosquitoOrderTotalBaseUah">0</div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-3 financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
+          <div class="border rounded-3 p-3 h-100">
+            <label class="mosquito-summary-label mb-1" for="mosquitoMarkup">Націнка на роздріб, %</label>
+            <input type="number" step="0.01" min="0" class="form-control" id="mosquitoMarkup" name="markup_percent" value="{{ order.markup_percent|default:'0'|floatformat:2 }}">
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-3 mb-3">
+        <div class="col-12 col-lg-8">
+          <label class="form-label fw-semibold" for="mosquitoOrderNote">Примітка до замовлення</label>
+          <input type="text" class="form-control" id="mosquitoOrderNote" name="note" value="{{ order.note|default_if_none:'' }}" placeholder="Коротка примітка...">
+        </div>
+        <div class="col-12 col-lg-4 financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
+          <label class="form-label fw-semibold" for="mosquitoExtraServiceLabel">Додаткова послуга</label>
+          <input type="text" class="form-control" id="mosquitoExtraServiceLabel" name="extra_service_label" value="{{ order.extra_service_label|default_if_none:'' }}" placeholder="Доставка, монтаж тощо">
+        </div>
+        <div class="col-12 col-lg-4 financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
+          <label class="form-label fw-semibold" for="mosquitoExtraServiceAmount">Сума послуги, грн</label>
+          <input type="number" step="0.01" min="0" class="form-control" id="mosquitoExtraServiceAmount" name="extra_service_amount_uah" value="{{ order.extra_service_amount_uah|default_if_none:0|stringformat:'0.2f' }}">
+        </div>
+        <div class="col-12 col-lg-4 financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
+          <div class="border rounded-3 p-3 h-100">
+            <div class="mosquito-summary-label mb-1">З націнкою та дод. посл.</div>
+            <div class="mosquito-summary-value" id="mosquitoOrderTotalRetailUah">0</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="mosquitoInfoLines" class="small text-muted mb-3"></div>
+      <div id="mosquitoContainer" class="d-flex flex-column gap-3"></div>
+
+      <div class="d-grid mt-2">
+        <button type="button" class="btn btn-primary" id="addMosquitoRow">
+          <i class="bi bi-plus-lg me-1"></i> Додати позицію
+        </button>
+      </div>
+
+      {% if not readonly %}
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          <button type="submit" class="btn btn-primary">Зберегти</button>
+          <a href="{% url 'orders:mosquito_list' %}" class="btn btn-secondary">До списку</a>
+        </div>
+      {% endif %}
+    </fieldset>
+  </form>
+
+  <template id="mosquito-item-template">
+    <div class="card shadow-sm mosquito-card">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <div class="fw-semibold">Позиція <span class="pos-index"></span></div>
+          <button type="button" class="btn btn-sm btn-danger remove-row"><i class="bi bi-x-lg"></i></button>
+        </div>
+
+        <div class="row g-3">
+          <div class="col-12 col-lg-4">
+            <label class="form-label small fw-semibold">Різновид виробу</label>
+            <select name="product_type" class="form-select mosquito-product-type">
+              <option value="">— Оберіть виріб —</option>
+            </select>
+          </div>
+          <div class="col-12 col-lg-3">
+            <label class="form-label small fw-semibold">Колір профілю</label>
+            <select name="profile_color" class="form-select mosquito-profile-color" disabled>
+              <option value="">— Оберіть колір —</option>
+            </select>
+          </div>
+          <div class="col-12 col-lg-3">
+            <label class="form-label small fw-semibold">Полотно</label>
+            <select name="mesh_type" class="form-select mosquito-mesh-type" disabled>
+              <option value="">— Оберіть полотно —</option>
+            </select>
+          </div>
+          <div class="col-12 col-lg-2">
+            <label class="form-label small fw-semibold">К-сть</label>
+            <input type="number" min="1" step="1" name="quantity" class="form-control mosquito-qty" value="1">
+          </div>
+
+          <div class="col-12 col-lg-3">
+            <label class="form-label small fw-semibold mosquito-width-label">Ширина, мм</label>
+            <input type="number" min="1" step="1" name="width_mm" class="form-control mosquito-width" value="">
+          </div>
+          <div class="col-12 col-lg-3">
+            <label class="form-label small fw-semibold mosquito-height-label">Висота, мм</label>
+            <input type="number" min="1" step="1" name="height_mm" class="form-control mosquito-height" value="">
+          </div>
+          <div class="col-12 col-lg-2">
+            <label class="form-label small fw-semibold">Площа, м²</label>
+            <input type="text" class="form-control mosquito-area" readonly disabled>
+          </div>
+          <div class="col-12 col-lg-2">
+            <label class="form-label small fw-semibold">Мін. площа, м²</label>
+            <input type="text" class="form-control mosquito-min-area" readonly disabled>
+          </div>
+          <div class="col-12 col-lg-2">
+            <label class="form-label small fw-semibold">Ціна, USD/м²</label>
+            <input type="text" class="form-control mosquito-price-usd" readonly disabled>
+          </div>
+
+          <div class="col-12 col-lg-4 sliding-side-wrap d-none">
+            <label class="form-label small fw-semibold">Сторона зсуву</label>
+            <div class="d-flex flex-wrap gap-3 sliding-side-preview">
+              <label class="d-flex align-items-center gap-2">
+                <input type="radio" class="form-check-input mosquito-sliding-side" name="" value="left">
+                <img src="/staticfiles/media/left.png" alt="left">
+                <span>Ліва</span>
+              </label>
+              <label class="d-flex align-items-center gap-2">
+                <input type="radio" class="form-check-input mosquito-sliding-side" name="" value="right">
+                <img src="/staticfiles/media/right.png" alt="right">
+                <span>Права</span>
+              </label>
+            </div>
+            <input type="hidden" name="sliding_side" class="mosquito-sliding-side-value">
+          </div>
+
+          <div class="col-12 mosquito-warning-wrap d-none">
+            <div class="alert alert-warning py-2 px-3 mb-0 small mosquito-warning-text"></div>
+          </div>
+
+          <div class="col-12 mosquito-options d-none">
+            <div class="small fw-semibold mb-2">Додаткові опції</div>
+            <div class="row g-3 mosquito-options-body"></div>
+          </div>
+
+          <div class="col-12 col-lg-8">
+            <label class="form-label small fw-semibold">Примітка по позиції</label>
+            <input type="text" name="item_note" class="form-control mosquito-item-note" placeholder="Коротка примітка...">
+          </div>
+          <div class="col-12 col-lg-4">
+            <label class="form-label small fw-semibold">Ціна позиції, грн</label>
+            <input type="text" class="form-control fw-semibold text-end mosquito-total-uah" readonly disabled>
+          </div>
+        </div>
+
+        <input type="hidden" class="mosquito-subtotal-usd">
+        <input type="hidden" name="options_json" class="mosquito-options-json" value="{}">
+      </div>
+    </div>
+  </template>
+{% endblock %}
+
+{% block body_extra %}
+  {{ block.super }}
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+  <script>
+    const mosquitoOrderId = {{ order.id|default:"null" }};
+    const builderItems = {{ mosquito_items_json|safe|default:"[]" }};
+    const usdRate = parseFloat('{{ builder_rate|default:"0.00" }}'.replace(',', '.')) || 0;
+    const isManager = {{ request.user.is_manager|yesno:"true,false" }};
+    const isSuperuser = {{ request.user.is_superuser|yesno:"true,false" }};
+    const currentUserId = {{ request.user.id|default:0 }};
+    let mosquitoCatalog = null;
+
+    function money(x) {
+      return (Math.round(parseFloat(x || 0) * 100) / 100).toFixed(2);
+    }
+    function normalizeNumber(val, fallback = 0) {
+      const num = parseFloat((val ?? '').toString().replace(',', '.'));
+      return Number.isFinite(num) ? num : fallback;
+    }
+    function uahFromUsd(x) {
+      return Number(x || 0) * Number(usdRate || 0);
+    }
+    function escapeHtml(value) {
+      return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    async function loadMosquitoCatalog() {
+      if (mosquitoCatalog) return mosquitoCatalog;
+      const url = ` /api/v1/pricing/mosquito-products?url=${encodeURIComponent('{{ PRICE_SHEET_URL|escapejs }}')}`.trim();
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: 'Error' }));
+        throw new Error(err.detail || 'Не вдалося завантажити прайс москітних сіток');
+      }
+      mosquitoCatalog = await resp.json();
+      const info = (mosquitoCatalog.info_lines || []).map(line => `<div>${line}</div>`).join('');
+      document.getElementById('mosquitoInfoLines').innerHTML = info;
+      return mosquitoCatalog;
+    }
+
+    function productRows(productType) {
+      return (mosquitoCatalog?.products || []).filter((item) => (item.product_type || '') === productType || (item.raw_product_type || '') === productType);
+    }
+
+    function normalizeProductType(productType) {
+      const name = String(productType || '').toLowerCase();
+      if (name.includes('внутрішні 10*30')) return 'Внутрішні 10*30';
+      if (name.includes('зовнішні 10*20')) return 'Зовнішні 10*20';
+      if (name.includes('дверні посилені')) return 'Дверні посилені 14*40';
+      if (name.includes('дверні 17*25')) return 'Дверні 17*25';
+      if (name.includes('ролетні внутр')) return 'Ролетні внутрішнього кріплення';
+      if (name.includes('ролетні')) return 'Ролетні';
+      if (name.includes('плісе двочаст')) return 'Плісе двочастні';
+      if (name.includes('плісе одночаст')) return 'Плісе одночастні';
+      return productType || '';
+    }
+
+    function firstProductRow(productType, height = 0, color = '') {
+      const rows = productRows(normalizeProductType(productType)).filter((item) => !color || (item.color || '') === color);
+      if (!rows.length) return null;
+      if (rows.length === 1) return rows[0];
+      const heightValue = Math.max(0, parseInt(height || 0, 10));
+      for (const row of rows) {
+        const minHeight = row.height_range_min;
+        const maxHeight = row.height_range_max;
+        if ((minHeight === null || minHeight === undefined || heightValue >= minHeight) && (maxHeight === null || maxHeight === undefined || heightValue <= maxHeight)) {
+          return row;
+        }
+      }
+      return rows[rows.length - 1];
+    }
+
+    function fillProductTypes($card, preselect) {
+      const $sel = $card.find('.mosquito-product-type');
+      $sel.empty().append('<option value="">— Оберіть виріб —</option>');
+      (mosquitoCatalog.product_types || []).forEach((name) => $sel.append(new Option(name, name)));
+      if (preselect) $sel.val(normalizeProductType(preselect));
+      $sel.trigger('change');
+    }
+
+    function fillProfileColors($card, productType, preselect) {
+      const $sel = $card.find('.mosquito-profile-color');
+      $sel.empty().append('<option value="">— Оберіть колір —</option>');
+      const colors = (mosquitoCatalog.colors_by_product || {})[productType] || [];
+      colors.forEach((name) => $sel.append(new Option(name, name)));
+      $sel.prop('disabled', colors.length === 0);
+      if (preselect) $sel.val(preselect);
+      $sel.trigger('change');
+    }
+
+    function fillMeshTypes($card, productType, preselect) {
+      const $sel = $card.find('.mosquito-mesh-type');
+      $sel.empty().append('<option value="">— Оберіть полотно —</option>');
+      const row = firstProductRow(productType);
+      const meshTypes = ((mosquitoCatalog.mesh_types_by_product || {})[productType] || []).slice();
+      meshTypes.forEach((name) => $sel.append(new Option(name, name)));
+      const fiberglassOnly = !!row?.fiberglass_only;
+      $sel.prop('disabled', meshTypes.length === 0 || fiberglassOnly);
+      if (fiberglassOnly && meshTypes.length) {
+        $sel.val(meshTypes[0]);
+      } else if (preselect) {
+        $sel.val(preselect);
+      }
+      $sel.trigger('change');
+    }
+
+    function applyDimensionLabels($card, productType) {
+      const row = firstProductRow(productType);
+      const labels = row?.dimension_labels || {};
+      $card.find('.mosquito-width-label').text((labels.width || 'Ширина') + ', мм');
+      $card.find('.mosquito-height-label').text((labels.height || 'Висота') + ', мм');
+      const requiresSliding = !!row?.requires_sliding_side;
+      const $wrap = $card.find('.sliding-side-wrap');
+      if (requiresSliding) {
+        $wrap.removeClass('d-none');
+      } else {
+        $wrap.addClass('d-none');
+        $card.find('.mosquito-sliding-side').prop('checked', false);
+        $card.find('.mosquito-sliding-side-value').val('');
+      }
+    }
+
+    function findCatalogRow(productType, color, height = 0) {
+      return firstProductRow(productType, height, color);
+    }
+
+    function optionPrice(optionName) {
+      const item = (mosquitoCatalog?.options || []).find((entry) => (entry.name || '') === optionName);
+      return normalizeNumber(item?.price_usd, 0);
+    }
+
+    function getOptionValues($card) {
+      const data = {};
+      $card.find('.mosquito-option-input').each(function () {
+        const key = $(this).data('optionKey');
+        if (!key) return;
+        if ($(this).is(':checkbox')) {
+          data[key] = $(this).is(':checked');
+        } else {
+          data[key] = $(this).val();
+        }
+      });
+      const normalized = {};
+      Object.entries(data).forEach(([key, value]) => {
+        if (value === '' || value === false || value == null) return;
+        normalized[key] = value;
+      });
+      $card.find('.mosquito-options-json').val(JSON.stringify(normalized));
+      return normalized;
+    }
+
+    function addNumberField(html, label, key, value = '', col = 'col-12 col-lg-3', min = '0', step = '1') {
+      html.push(`
+        <div class="${col}">
+          <label class="form-label small fw-semibold">${escapeHtml(label)}</label>
+          <input type="number" min="${min}" step="${step}" class="form-control mosquito-option-input" data-option-key="${escapeHtml(key)}" value="${escapeHtml(value)}">
+        </div>
+      `);
+    }
+
+    function addTextField(html, label, key, value = '', col = 'col-12 col-lg-4', placeholder = '') {
+      html.push(`
+        <div class="${col}">
+          <label class="form-label small fw-semibold">${escapeHtml(label)}</label>
+          <input type="text" class="form-control mosquito-option-input" data-option-key="${escapeHtml(key)}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}">
+        </div>
+      `);
+    }
+
+    function addSelectField(html, label, key, options, value = '', col = 'col-12 col-lg-4') {
+      const optionHtml = ['<option value="">— Не обрано —</option>'];
+      (options || []).forEach((item) => {
+        optionHtml.push(`<option value="${escapeHtml(item)}" ${item === value ? 'selected' : ''}>${escapeHtml(item)}</option>`);
+      });
+      html.push(`
+        <div class="${col}">
+          <label class="form-label small fw-semibold">${escapeHtml(label)}</label>
+          <select class="form-select mosquito-option-input" data-option-key="${escapeHtml(key)}">
+            ${optionHtml.join('')}
+          </select>
+        </div>
+      `);
+    }
+
+    function addCheckboxField(html, label, key, checked = false, col = 'col-12 col-lg-3') {
+      html.push(`
+        <div class="${col} d-flex align-items-end">
+          <div class="form-check mt-4">
+            <input class="form-check-input mosquito-option-input" type="checkbox" data-option-key="${escapeHtml(key)}" ${checked ? 'checked' : ''}>
+            <label class="form-check-label small fw-semibold">${escapeHtml(label)}</label>
+          </div>
+        </div>
+      `);
+    }
+
+    function splitHeightValues(raw) {
+      return String(raw || '')
+        .split(/[,;\n]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+
+    function renderOptions($card, productType, initialOptions = null) {
+      const name = (productType || '').toLowerCase();
+      const data = initialOptions || getOptionValues($card) || {};
+      const html = [];
+
+      if (name.includes('10*30')) {
+        addSelectField(html, 'Заміна кріплення з 9*32', 'replacement_mount', ['15*32', '21*32'], data.replacement_mount || '');
+        addNumberField(html, 'Дод. кріплення 9*32, шт', 'extra_mount_9', data.extra_mount_9 || '');
+        addNumberField(html, 'Дод. кріплення 15*32, шт', 'extra_mount_15', data.extra_mount_15 || '');
+        addNumberField(html, 'Дод. кріплення 21*32, шт', 'extra_mount_21', data.extra_mount_21 || '');
+        addNumberField(html, 'К-сть імпостів', 'impost_qty', data.impost_qty || '', 'col-12 col-lg-3');
+        addTextField(html, 'Висоти імпостів від низу, мм', 'impost_heights', data.impost_heights || '', 'col-12 col-lg-5', 'напр. 800,1200');
+      } else if (name.includes('10*20')) {
+        addNumberField(html, 'Кріплення 9*32, шт', 'extra_mount_9', data.extra_mount_9 || '');
+        addNumberField(html, 'Кріплення 15*32, шт', 'extra_mount_15', data.extra_mount_15 || '');
+        addNumberField(html, 'Кріплення 21*32, шт', 'extra_mount_21', data.extra_mount_21 || '');
+        addNumberField(html, 'Кріплення для алюм. рам, компл.', 'aluminum_mount_kit', data.aluminum_mount_kit || '', 'col-12 col-lg-3');
+        addNumberField(html, 'К-сть імпостів', 'impost_qty', data.impost_qty || '', 'col-12 col-lg-3');
+        addTextField(html, 'Висоти імпостів від низу, мм', 'impost_heights', data.impost_heights || '', 'col-12 col-lg-5', 'напр. 800,1200');
+      } else if (name.includes('дверні 17*25')) {
+        addTextField(html, 'Висота імпоста від низу, мм', 'door_impost_height', data.door_impost_height || '', 'col-12 col-lg-3');
+        addCheckboxField(html, 'Без імпоста', 'door_no_impost', !!data.door_no_impost, 'col-12 col-lg-2');
+        addNumberField(html, 'Дод. імпостів, шт', 'door_extra_impost_qty', data.door_extra_impost_qty || '', 'col-12 col-lg-2');
+        addTextField(html, 'Висоти дод. імпостів, мм', 'door_extra_impost_heights', data.door_extra_impost_heights || '', 'col-12 col-lg-5', 'напр. 900');
+        addNumberField(html, 'Петлі звичайні, шт', 'hinge_regular_qty', data.hinge_regular_qty || '');
+        addNumberField(html, 'Петлі з пружиною, шт', 'hinge_spring_qty', data.hinge_spring_qty || '');
+        addNumberField(html, 'Защіпка пластикова, шт', 'latch_qty', data.latch_qty || '');
+        addNumberField(html, 'Магніт, шт', 'magnet_qty', data.magnet_qty || '');
+        addNumberField(html, 'Кріплення для алюм. рам, компл.', 'aluminum_mount_kit', data.aluminum_mount_kit || '', 'col-12 col-lg-3');
+      } else if (name.includes('посилені')) {
+        addTextField(html, 'Висота імпоста від низу, мм', 'door_impost_height', data.door_impost_height || '', 'col-12 col-lg-3');
+        addCheckboxField(html, 'Без імпоста', 'door_no_impost', !!data.door_no_impost, 'col-12 col-lg-2');
+        addNumberField(html, 'Петлі звичайні, шт', 'hinge_regular_qty', data.hinge_regular_qty || '');
+        addNumberField(html, 'Петлі з пружиною, шт', 'hinge_spring_qty', data.hinge_spring_qty || '');
+        addNumberField(html, 'Защіпка пластикова, шт', 'latch_qty', data.latch_qty || '');
+        addNumberField(html, 'Магніт, шт', 'magnet_qty', data.magnet_qty || '');
+      } else if (name.includes('ролетні')) {
+        addNumberField(html, 'Механізм гальмування, шт', 'brake_qty', data.brake_qty || '', 'col-12 col-lg-3');
+        if (name.includes('внутр. кріпл')) {
+          addSelectField(html, 'Заміна кріплення з 9*32', 'replacement_mount', ['15*32', '21*32'], data.replacement_mount || '');
+          addNumberField(html, 'Дод. кріплення 9*32, шт', 'extra_mount_9', data.extra_mount_9 || '');
+          addNumberField(html, 'Дод. кріплення 15*32, шт', 'extra_mount_15', data.extra_mount_15 || '');
+          addNumberField(html, 'Дод. кріплення 21*32, шт', 'extra_mount_21', data.extra_mount_21 || '');
+        }
+      }
+
+      const $wrap = $card.find('.mosquito-options');
+      const $body = $card.find('.mosquito-options-body');
+      if (!html.length) {
+        $wrap.addClass('d-none');
+        $body.html('');
+        $card.find('.mosquito-options-json').val('{}');
+        return;
+      }
+      $wrap.removeClass('d-none');
+      $body.html(html.join(''));
+      syncOptionFieldState($card);
+      getOptionValues($card);
+    }
+
+    function syncOptionFieldState($card) {
+      const productType = ($card.find('.mosquito-product-type').val() || '').toLowerCase();
+      const optionsData = getOptionValues($card);
+      if (productType.includes('10*30') || productType.includes('10*20')) {
+        const impostQty = Math.max(0, parseInt(optionsData.impost_qty || 0, 10) || 0);
+        const $heights = $card.find('.mosquito-option-input[data-option-key="impost_heights"]');
+        $heights.prop('disabled', impostQty <= 0);
+        if (impostQty <= 0) {
+          $heights.val('');
+        }
+      }
+      if (productType.includes('дверні 17*25') || productType.includes('посилені')) {
+        const noImpost = !!optionsData.door_no_impost;
+        const extraImpostQty = Math.max(0, parseInt(optionsData.door_extra_impost_qty || 0, 10) || 0);
+        const $mainImpost = $card.find('.mosquito-option-input[data-option-key="door_impost_height"]');
+        const $extraHeights = $card.find('.mosquito-option-input[data-option-key="door_extra_impost_heights"]');
+        $mainImpost.prop('disabled', noImpost);
+        if (noImpost) {
+          $mainImpost.val('');
+        }
+        $extraHeights.prop('disabled', extraImpostQty <= 0);
+        if (extraImpostQty <= 0) {
+          $extraHeights.val('');
+        }
+      }
+      getOptionValues($card);
+    }
+
+    function recalcCard($card) {
+      const productType = $card.find('.mosquito-product-type').val();
+      const color = $card.find('.mosquito-profile-color').val();
+      const meshType = $card.find('.mosquito-mesh-type').val();
+      const width = Math.max(0, Math.floor(normalizeNumber($card.find('.mosquito-width').val(), 0)));
+      const height = Math.max(0, Math.floor(normalizeNumber($card.find('.mosquito-height').val(), 0)));
+      const qty = Math.max(1, Math.floor(normalizeNumber($card.find('.mosquito-qty').val(), 1)));
+      $card.find('.mosquito-qty').val(qty);
+      const row = findCatalogRow(productType, color, height);
+      const discount = normalizeNumber($('#customerDiscountValue').val(), 0);
+      const discountMultiplier = 1 - (discount / 100);
+      const optionsData = getOptionValues($card);
+
+      let subtotalUsd = 0;
+      let optionsTotalUsd = 0;
+      let actualArea = 0;
+      let minArea = 0;
+      let priceUsd = 0;
+      let warningText = '';
+      if (row && meshType && width > 0 && height > 0) {
+        priceUsd = normalizeNumber((row.mesh_prices_usd_sqm || {})[meshType], 0);
+        actualArea = (width * height) / 1000000;
+        minArea = normalizeNumber(row.min_area_sqm, 0);
+        const calcArea = Math.max(actualArea, minArea);
+        subtotalUsd = calcArea * priceUsd * qty * discountMultiplier;
+        const name = (productType || '').toLowerCase();
+        if (name.includes('10*30')) {
+          if ((optionsData.replacement_mount || '') === '15*32') optionsTotalUsd += optionPrice('Заміна кріплення з 9*32 на 15*32') * qty;
+          if ((optionsData.replacement_mount || '') === '21*32') optionsTotalUsd += optionPrice('Заміна кріплення з 9*32 на 21*32') * qty;
+          optionsTotalUsd += optionPrice('Додаткове кріплення 9*32 (стандарт)') * normalizeNumber(optionsData.extra_mount_9, 0) * qty;
+          optionsTotalUsd += optionPrice('Додаткове кріплення 15*32') * normalizeNumber(optionsData.extra_mount_15, 0) * qty;
+          optionsTotalUsd += optionPrice('Додаткове кріплення 21*32') * normalizeNumber(optionsData.extra_mount_21, 0) * qty;
+          optionsTotalUsd += optionPrice('Додатковий імпост для внутрішніх сіток 10*30') * normalizeNumber(optionsData.impost_qty, 0) * qty;
+        } else if (name.includes('10*20')) {
+          optionsTotalUsd += optionPrice('Додаткове кріплення 9*32 (стандарт)') * normalizeNumber(optionsData.extra_mount_9, 0) * qty;
+          optionsTotalUsd += optionPrice('Додаткове кріплення 15*32') * normalizeNumber(optionsData.extra_mount_15, 0) * qty;
+          optionsTotalUsd += optionPrice('Додаткове кріплення 21*32') * normalizeNumber(optionsData.extra_mount_21, 0) * qty;
+          optionsTotalUsd += optionPrice('Кріплення для алюмінєвих рам') * normalizeNumber(optionsData.aluminum_mount_kit, 0) * qty;
+          optionsTotalUsd += optionPrice('Додотковий імпост для зовнішніх сіток 10*20') * normalizeNumber(optionsData.impost_qty, 0) * qty;
+        } else if (name.includes('дверні 17*25')) {
+          optionsTotalUsd += optionPrice('Додатковий імпост для дверних сіток 17*25') * normalizeNumber(optionsData.door_extra_impost_qty, 0) * qty;
+          optionsTotalUsd += optionPrice('Петля ПВХ звичайна') * normalizeNumber(optionsData.hinge_regular_qty, 0) * qty;
+          optionsTotalUsd += optionPrice('Петля з пружиною') * normalizeNumber(optionsData.hinge_spring_qty, 0) * qty;
+          optionsTotalUsd += optionPrice('Защіпка пластикова') * normalizeNumber(optionsData.latch_qty, 0) * qty;
+          optionsTotalUsd += optionPrice('Магніт') * normalizeNumber(optionsData.magnet_qty, 0) * qty;
+          optionsTotalUsd += optionPrice('Кріплення для алюмінєвих рам') * normalizeNumber(optionsData.aluminum_mount_kit, 0) * qty;
+        } else if (name.includes('посилені')) {
+          optionsTotalUsd += optionPrice('Петля ПВХ звичайна') * normalizeNumber(optionsData.hinge_regular_qty, 0) * qty;
+          optionsTotalUsd += optionPrice('Петля з пружиною') * normalizeNumber(optionsData.hinge_spring_qty, 0) * qty;
+          optionsTotalUsd += optionPrice('Защіпка пластикова') * normalizeNumber(optionsData.latch_qty, 0) * qty;
+          optionsTotalUsd += optionPrice('Магніт') * normalizeNumber(optionsData.magnet_qty, 0) * qty;
+        } else if (name.includes('ролетні')) {
+          optionsTotalUsd += optionPrice('Механізм гальмування') * normalizeNumber(optionsData.brake_qty, 0) * qty;
+          if (name.includes('внутр. кріпл')) {
+            if ((optionsData.replacement_mount || '') === '15*32') optionsTotalUsd += optionPrice('Заміна кріплення з 9*32 на 15*32') * qty;
+            if ((optionsData.replacement_mount || '') === '21*32') optionsTotalUsd += optionPrice('Заміна кріплення з 9*32 на 21*32') * qty;
+            optionsTotalUsd += optionPrice('Додаткове кріплення 9*32 (стандарт)') * normalizeNumber(optionsData.extra_mount_9, 0) * qty;
+            optionsTotalUsd += optionPrice('Додаткове кріплення 15*32') * normalizeNumber(optionsData.extra_mount_15, 0) * qty;
+            optionsTotalUsd += optionPrice('Додаткове кріплення 21*32') * normalizeNumber(optionsData.extra_mount_21, 0) * qty;
+          }
+        }
+        subtotalUsd += optionsTotalUsd;
+        if ((productType || '').includes('10*30') || (productType || '').includes('10*20')) {
+          if ((meshType || '').toLowerCase().includes('антикіт')) {
+            if (Math.max(width, height) > 1400) warningText = 'Негарантійний виріб, рекомендується встановлення імпоста';
+          } else if (Math.max(width, height) > 1700) {
+            warningText = 'Негарантійний виріб, рекомендується встановлення імпоста';
+          }
+        }
+        if ((productType || '').includes('17*25')) {
+          if ((meshType || '').toLowerCase().includes('антикіт')) {
+            if (Math.max(width, height) > 1600) warningText = 'Негарантійний виріб, рекомендується встановлення імпоста';
+          } else if (Math.max(width, height) > 2000) {
+            warningText = 'Негарантійний виріб, рекомендується встановлення імпоста';
+          }
+        }
+        if ((productType || '').toLowerCase().includes('ролетні')) {
+          const calcArea = Math.max(actualArea, minArea);
+          const warnings = [];
+          if (width > 1500) warnings.push('Негарантійний виріб, рекомендується ширина до 1500мм');
+          if (calcArea > 2.5) warnings.push('Негарантійний виріб, рекомендується квадратура до 2,5 м.кв.');
+          warningText = warnings.join('\n');
+        }
+        if ((productType || '').toLowerCase().includes('плісе') && !(productType || '').toLowerCase().includes('двочаст') && width >= 3000) {
+          warningText = 'Оберіть двочасну сітку';
+        }
+      }
+
+      $card.find('.mosquito-area').val(money(actualArea));
+      $card.find('.mosquito-min-area').val(money(minArea));
+      $card.find('.mosquito-price-usd').val(money(priceUsd));
+      $card.find('.mosquito-subtotal-usd').val(money(subtotalUsd));
+      $card.find('.mosquito-total-uah').val(String(Math.round(uahFromUsd(subtotalUsd))));
+      if (warningText) {
+        $card.find('.mosquito-warning-wrap').removeClass('d-none');
+        $card.find('.mosquito-warning-text').text(warningText);
+      } else {
+        $card.find('.mosquito-warning-wrap').addClass('d-none');
+        $card.find('.mosquito-warning-text').text('');
+      }
+      return subtotalUsd;
+    }
+
+    function recalcOrderTotals() {
+      let totalUsd = 0;
+      $('#mosquitoContainer .mosquito-card').each(function () {
+        totalUsd += normalizeNumber($(this).find('.mosquito-subtotal-usd').val(), 0);
+      });
+      const markup = normalizeNumber($('#mosquitoMarkup').val(), 0);
+      const extraService = normalizeNumber($('#mosquitoExtraServiceAmount').val(), 0);
+      const baseUah = uahFromUsd(totalUsd);
+      const retailUah = (uahFromUsd(totalUsd) * (1 + markup / 100)) + extraService;
+      $('#mosquitoOrderTotalBaseUah').text(String(Math.round(baseUah)));
+      $('#mosquitoOrderTotalRetailUah').text(String(Math.round(retailUah)));
+    }
+
+    async function addMosquitoRow(initial = null) {
+      await loadMosquitoCatalog();
+      const index = $('#mosquitoContainer .mosquito-card').length;
+      const tpl = document.getElementById('mosquito-item-template').content.cloneNode(true);
+      $('#mosquitoContainer').append(tpl);
+      const $card = $('#mosquitoContainer .mosquito-card').last();
+      $card.find('.pos-index').text(index + 1);
+      const radioName = `sliding_side_${index}`;
+      $card.find('.mosquito-sliding-side').attr('name', radioName);
+
+      $card.find('.mosquito-product-type').select2({ width: '100%', dropdownParent: $card });
+      $card.find('.mosquito-profile-color').select2({ width: '100%', dropdownParent: $card });
+      $card.find('.mosquito-mesh-type').select2({ width: '100%', dropdownParent: $card });
+
+      fillProductTypes($card, initial?.product_type || null);
+      if (initial?.product_type) {
+        const normalizedType = normalizeProductType(initial.product_type);
+        fillProfileColors($card, normalizedType, initial.profile_color || null);
+        fillMeshTypes($card, normalizedType, initial.mesh_type || null);
+        applyDimensionLabels($card, normalizedType);
+        renderOptions($card, normalizedType, initial.options_data || {});
+      }
+      if (initial?.width_mm) $card.find('.mosquito-width').val(initial.width_mm);
+      if (initial?.height_mm) $card.find('.mosquito-height').val(initial.height_mm);
+      if (initial?.quantity) $card.find('.mosquito-qty').val(initial.quantity);
+      if (initial?.note) $card.find('.mosquito-item-note').val(initial.note);
+      if (initial?.sliding_side) {
+        $card.find(`.mosquito-sliding-side[value="${initial.sliding_side}"]`).prop('checked', true);
+        $card.find('.mosquito-sliding-side-value').val(initial.sliding_side);
+      }
+      recalcCard($card);
+      recalcOrderTotals();
+    }
+
+    function updateFinancialVisibility() {
+      if (isSuperuser) {
+        $('.financial-only').removeAttr('style');
+        return;
+      }
+      const $customer = $('#mosquitoOrderCustomer');
+      if (!$customer.length) return;
+      const selectedId = Number($customer.val() || 0);
+      if (selectedId === currentUserId) {
+        $('.financial-only').removeAttr('style');
+      } else {
+        $('.financial-only').attr('style', 'display:none !important');
+      }
+    }
+
+    $('#addMosquitoRow').on('click', async function () {
+      const $prev = $('#mosquitoContainer .mosquito-card').last();
+      let initial = null;
+      if ($prev.length) {
+        initial = {
+          product_type: $prev.find('.mosquito-product-type').val() || '',
+          profile_color: $prev.find('.mosquito-profile-color').val() || '',
+          mesh_type: $prev.find('.mosquito-mesh-type').val() || '',
+          width_mm: $prev.find('.mosquito-width').val() || '',
+          height_mm: $prev.find('.mosquito-height').val() || '',
+          quantity: 1,
+          note: '',
+        };
+      }
+      await addMosquitoRow(initial);
+    });
+
+    $('#mosquitoContainer').on('change', '.mosquito-product-type', function () {
+      const $card = $(this).closest('.mosquito-card');
+      const productType = $(this).val();
+      fillProfileColors($card, productType, null);
+      fillMeshTypes($card, productType, null);
+      applyDimensionLabels($card, productType);
+      renderOptions($card, productType, null);
+      recalcCard($card);
+      recalcOrderTotals();
+    });
+
+    $('#mosquitoContainer').on('change', '.mosquito-profile-color', function () {
+      const $card = $(this).closest('.mosquito-card');
+      recalcCard($card);
+      recalcOrderTotals();
+    });
+
+    $('#mosquitoContainer').on('change', '.mosquito-mesh-type, .mosquito-width, .mosquito-height, .mosquito-qty', function () {
+      const $card = $(this).closest('.mosquito-card');
+      recalcCard($card);
+      recalcOrderTotals();
+    });
+
+    $('#mosquitoContainer').on('change', '.mosquito-sliding-side', function () {
+      const $card = $(this).closest('.mosquito-card');
+      $card.find('.mosquito-sliding-side-value').val($(this).val() || '');
+    });
+
+    $('#mosquitoContainer').on('input change', '.mosquito-option-input', function () {
+      const $card = $(this).closest('.mosquito-card');
+      syncOptionFieldState($card);
+      getOptionValues($card);
+      recalcCard($card);
+      recalcOrderTotals();
+    });
+
+    $('#mosquitoContainer').on('click', '.remove-row', function () {
+      $(this).closest('.mosquito-card').remove();
+      $('#mosquitoContainer .mosquito-card').each(function (idx) {
+        $(this).find('.pos-index').text(idx + 1);
+      });
+      recalcOrderTotals();
+    });
+
+    $('#mosquitoMarkup, #mosquitoExtraServiceAmount').on('input change', recalcOrderTotals);
+
+    $('#mosquitoOrderForm').on('submit', function (e) {
+      let ok = true;
+      const $cust = $('#mosquitoOrderCustomer');
+      if ($cust.length && !$cust.val()) {
+        ok = false;
+        $cust.addClass('is-invalid');
+      }
+      const $cards = $('#mosquitoContainer .mosquito-card');
+      if ($cards.length === 0) ok = false;
+      $cards.each(function () {
+        const $card = $(this);
+        const productType = $card.find('.mosquito-product-type').val();
+        const color = $card.find('.mosquito-profile-color').val();
+        const mesh = $card.find('.mosquito-mesh-type').val();
+        const width = normalizeNumber($card.find('.mosquito-width').val(), 0);
+        const height = normalizeNumber($card.find('.mosquito-height').val(), 0);
+        const requiresSliding = !$card.find('.sliding-side-wrap').hasClass('d-none');
+        const slidingSide = $card.find('.mosquito-sliding-side-value').val();
+        const optionsData = getOptionValues($card);
+        if (!productType || !color || !mesh || width <= 0 || height <= 0 || (requiresSliding && !slidingSide)) {
+          ok = false;
+        }
+        const lowerName = (productType || '').toLowerCase();
+        if (lowerName.includes('10*30') || lowerName.includes('10*20')) {
+          const impostQty = normalizeNumber(optionsData.impost_qty, 0);
+          const impostHeights = String(optionsData.impost_heights || '').trim();
+          if (impostQty > 0 && !impostHeights) ok = false;
+          if (impostQty > 0 && splitHeightValues(impostHeights).length !== Math.trunc(impostQty)) ok = false;
+        }
+        if (lowerName.includes('дверні 17*25') || lowerName.includes('посилені')) {
+          const noImpost = !!optionsData.door_no_impost;
+          const doorImpostHeight = String(optionsData.door_impost_height || '').trim();
+          if (!noImpost && !doorImpostHeight) ok = false;
+          const extraImpostQty = normalizeNumber(optionsData.door_extra_impost_qty, 0);
+          const extraImpostHeights = String(optionsData.door_extra_impost_heights || '').trim();
+          if (extraImpostQty > 0 && !extraImpostHeights) ok = false;
+          if (extraImpostQty > 0 && splitHeightValues(extraImpostHeights).length !== Math.trunc(extraImpostQty)) ok = false;
+        }
+      });
+      if (!ok) {
+        e.preventDefault();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        if (window.showToast) {
+          window.showToast('Перевірте форму: параметри позицій, сторону зсуву для плісе та відповідність висот кількості імпостів', 'warning');
+        }
+      }
+    });
+
+    (async function initMosquitoBuilder() {
+      await loadMosquitoCatalog();
+      if (isManager || isSuperuser) {
+        $('#mosquitoOrderCustomer').select2({ width: '100%', placeholder: 'Оберіть клієнта', allowClear: true });
+        $('#mosquitoOrderCustomer').on('change', function () {
+          const pct = Number($(this).find('option:selected').data('discount') || 0);
+          $('#customerDiscountValue').val(pct);
+          updateFinancialVisibility();
+          $('#mosquitoContainer .mosquito-card').each(function () { recalcCard($(this)); });
+          recalcOrderTotals();
+        });
+      }
+      updateFinancialVisibility();
+      if (Array.isArray(builderItems) && builderItems.length) {
+        for (const item of builderItems) {
+          await addMosquitoRow(item);
+        }
+      } else {
+        await addMosquitoRow();
+      }
+    })().catch((err) => {
+      alert(err?.message || 'Не вдалося завантажити прайс москітних сіток');
+    });
+  </script>
+{% endblock %}

@@ -10,7 +10,7 @@ from .models import (
     NotificationEmail,
     PaymentMessage,
 )
-from .services_currency import update_eur_rate_from_nbu
+from .services_currency import update_eur_rate_from_nbu, update_usd_rate_from_nbu
 
 
 @admin.register(CurrencyRate)
@@ -20,7 +20,7 @@ class CurrencyRateAdmin(admin.ModelAdmin):
     search_fields = ("currency",)
     readonly_fields = ("updated_at",)
 
-    actions = ["fetch_eur_from_nbu"]
+    actions = ["fetch_eur_from_nbu", "fetch_usd_from_nbu"]
 
     @admin.action(description="Оновити курс EUR з НБУ")
     def fetch_eur_from_nbu(self, request, queryset):
@@ -28,6 +28,15 @@ class CurrencyRateAdmin(admin.ModelAdmin):
         self.message_user(
             request,
             f"Курс EUR оновлено: {obj.rate_uah} грн (джерело: {obj.source})",
+            level=messages.SUCCESS,
+        )
+
+    @admin.action(description="Оновити курс USD з НБУ")
+    def fetch_usd_from_nbu(self, request, queryset):
+        obj = update_usd_rate_from_nbu()
+        self.message_user(
+            request,
+            f"Курс USD оновлено: {obj.rate_uah} грн (джерело: {obj.source})",
             level=messages.SUCCESS,
         )
 
