@@ -97,14 +97,16 @@
           href="{% url 'orders:fabrics_list' %}">
           <i class="bi bi-scissors me-2"></i>Тканина
         </a>
-        <a class="nav-link text-white {% if request.resolver_match.url_name == 'mosquito_list' or request.resolver_match.url_name == 'order_mosquito_builder' or request.resolver_match.url_name == 'mosquito_builder_create' %}active{% endif %}"
-          href="{% url 'orders:mosquito_list' %}">
-          <i class="bi bi-grid-3x3-gap me-2"></i>Москітні сітки
-        </a>
-        <a class="nav-link text-white {% if request.resolver_match.url_name == 'mosquito_components_list' or request.resolver_match.url_name == 'order_mosquito_components_builder' or request.resolver_match.url_name == 'mosquito_components_builder_create' %}active{% endif %}"
-          href="{% url 'orders:mosquito_components_list' %}">
-          <i class="bi bi-wrench-adjustable me-2"></i>Комплектуючі до мос. сіток
-        </a>
+        {% if request.user.is_superuser %}
+          <a class="nav-link text-white {% if request.resolver_match.url_name == 'mosquito_list' or request.resolver_match.url_name == 'order_mosquito_builder' or request.resolver_match.url_name == 'mosquito_builder_create' %}active{% endif %}"
+            href="{% url 'orders:mosquito_list' %}">
+            <i class="bi bi-grid-3x3-gap me-2"></i>Москітні сітки
+          </a>
+          <a class="nav-link text-white {% if request.resolver_match.url_name == 'mosquito_components_list' or request.resolver_match.url_name == 'order_mosquito_components_builder' or request.resolver_match.url_name == 'mosquito_components_builder_create' %}active{% endif %}"
+            href="{% url 'orders:mosquito_components_list' %}">
+            <i class="bi bi-wrench-adjustable me-2"></i>Ком-чі до мос. сіток
+          </a>
+        {% endif %}
         <a class="nav-link text-white {% if request.resolver_match.url_name == 'technical_info' %}active{% endif %}"
           href="{% url 'core:technical_info' %}">
           <i class="bi bi-file-earmark-text me-2"></i>Технічна інформація

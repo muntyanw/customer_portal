@@ -1,4 +1,5 @@
 {% extends 'core/dashboard_base.html' %}
+{% load l10n %}
 
 {% block dashboard_title %}Комплектуючі до мос. сіток{% endblock %}
 
@@ -11,7 +12,28 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
   <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
   <style>
+    .order-summary-bar {
+      position: static;
+      background: var(--bs-body-bg);
+      border-bottom: 1px solid var(--bs-border-color);
+      box-shadow: none;
+      padding: 0.75rem 1rem;
+    }
+    .order-total-bar {
+      background: var(--bs-body-bg);
+      border-top: 1px solid var(--bs-border-color);
+    }
     .mosquito-components-card .select2-container { width: 100% !important; }
+    .mosquito-components-card .card-body { padding: 1.25rem; }
+    .mosquito-components-card-head {
+      border-bottom: 1px solid var(--bs-border-color);
+      padding-bottom: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .mosquito-components-card-title {
+      font-weight: 700;
+      font-size: 1.05rem;
+    }
     .mosquito-components-summary-label {
       font-size: 0.8rem;
       letter-spacing: 0.04em;
@@ -22,6 +44,59 @@
       font-weight: 700;
       font-size: 1.35rem;
     }
+    .mosquito-component-total-box {
+      background: rgba(255, 255, 255, 0.65);
+      border: 1px solid var(--bs-border-color);
+      border-radius: 0.75rem;
+      padding: 0.75rem 0.9rem;
+    }
+    .mosquito-component-total-caption {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-weight: 700;
+      margin-bottom: 0.45rem;
+      color: var(--bs-secondary-color);
+    }
+    .order-summary-note {
+      min-width: 260px;
+    }
+    .builder-page-alert {
+      max-width: 980px;
+      margin: 0 auto 1rem;
+      text-align: center;
+      font-size: 1.2rem;
+      font-weight: 700;
+      line-height: 1.4;
+    }
+    .mosquito-components-card .field-invalid,
+    .mosquito-components-card .field-invalid + .select2 .select2-selection,
+    #mosquitoComponentsOrderCustomer.field-invalid + .select2 .select2-selection {
+      border-color: var(--bs-danger) !important;
+      box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.15) !important;
+    }
+    .field-error-text {
+      color: var(--bs-danger);
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin-top: 0.35rem;
+      line-height: 1.3;
+    }
+    @media (max-width: 576px) {
+      .order-summary-bar {
+        padding: 0.5rem 0.75rem;
+      }
+      .mosquito-components-summary-label {
+        font-size: 0.65rem;
+      }
+      .mosquito-components-summary-value {
+        font-size: 1.1rem;
+      }
+      .order-summary-bar .form-control-sm {
+        padding: 0.3rem 0.5rem;
+        font-size: 0.9rem;
+      }
+    }
   </style>
 {% endblock %}
 
@@ -30,17 +105,18 @@
     {% csrf_token %}
     <input type="hidden" id="customerDiscountValue" value="{{ customer_discount_percent_js|default:'0' }}">
     <fieldset {% if readonly %}disabled{% endif %}>
+      <div id="mosquitoComponentsBuilderAlert" class="alert alert-warning builder-page-alert d-none" role="alert"></div>
       <div class="mb-3">
-        <div class="alert alert-info mb-3">{{ stage_message }}</div>
+        <div class="small text-muted mb-2">
+          Ознайомтесь, будь ласка, з технічними характеристиками і умовами. Клієнт самостійно несе відповідальність за правильність обраних комплектуючих, кольору, довжини та кількості.
+        </div>
         <div class="d-flex flex-wrap align-items-center gap-2">
-          <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="btn btn-primary btn-sm">
-            <i class="bi bi-file-earmark-spreadsheet me-1"></i> Відкрити прайс
-          </a>
-          <a href="{{ TECHNICAL_INFO_URL }}" target="_blank" class="btn btn-secondary btn-sm text-white">
-            <i class="bi bi-file-earmark-text me-1"></i> Технічні характеристики
-          </a>
+          <div class="d-flex flex-wrap gap-2">
+            <a href="{{ PRICE_SHEET_URL }}" target="_blank" class="btn btn-primary btn-sm">Відкрити прайс</a>
+            <a href="{{ TECHNICAL_INFO_URL }}" target="_blank" class="btn btn-secondary btn-sm text-white">Технічні характеристики</a>
+          </div>
           {% if request.user.is_manager or request.user.is_superuser %}
-            <div class="ms-auto" style="min-width:260px;">
+            <div class="ms-auto d-flex flex-column gap-1" style="min-width:260px;">
               <label class="form-label fw-semibold mb-1" for="mosquitoComponentsOrderCustomer">Клієнт</label>
               <select id="mosquitoComponentsOrderCustomer" name="customer_id" class="form-select form-select-sm">
                 <option value="">— Оберіть клієнта —</option>
@@ -50,56 +126,45 @@
                   </option>
                 {% endfor %}
               </select>
+              <div class="invalid-feedback">Оберіть клієнта.</div>
             </div>
           {% endif %}
+          <div class="ms-auto d-flex align-items-center gap-2">
+            <span class="text-muted small text-uppercase">Статус</span>
+            <span class="badge bg-primary">{% if order %}{{ order.get_status_display }}{% else %}Прорахунок{% endif %}</span>
+          </div>
         </div>
       </div>
 
-      <div class="row g-3 mb-3">
-        <div class="col-12 col-lg-3">
-          <div class="border rounded-3 p-3 h-100">
-            <div class="mosquito-components-summary-label mb-1">Статус</div>
-            <div class="fw-semibold">{% if order %}{{ order.get_status_display }}{% else %}Прорахунок{% endif %}</div>
-          </div>
-        </div>
-        <div class="col-12 col-lg-3">
-          <div class="border rounded-3 p-3 h-100">
-            <div class="mosquito-components-summary-label mb-1">Курс USD</div>
-            <div class="fw-semibold">{{ builder_rate }}</div>
-          </div>
-        </div>
-        <div class="col-12 col-lg-3">
-          <div class="border rounded-3 p-3 h-100">
+      <div class="order-summary-bar p-3 rounded-3 shadow-sm mb-3">
+        <div class="d-flex flex-wrap align-items-end gap-3">
+          <div class="d-flex flex-column">
             <div class="mosquito-components-summary-label mb-1">Всього, грн</div>
-            <div class="mosquito-components-summary-value" id="mosquitoComponentsTotalBaseUah">0</div>
+            <div class="mosquito-components-summary-value" id="mosquitoComponentsTotalBaseUah">0.00</div>
           </div>
-        </div>
-        <div class="col-12 col-lg-3 financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
-          <div class="border rounded-3 p-3 h-100">
+          <div class="d-flex flex-column financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
             <label class="mosquito-components-summary-label mb-1" for="mosquitoComponentsMarkup">Націнка на роздріб, %</label>
-            <input type="number" step="0.01" min="0" class="form-control" id="mosquitoComponentsMarkup" name="markup_percent" value="{{ order.markup_percent|default:'0'|floatformat:2 }}">
+            <input type="number" step="0.01" min="0" class="form-control form-control-sm" id="mosquitoComponentsMarkup" name="markup_percent" value="{{ order.markup_percent|default_if_none:0|unlocalize }}">
+          </div>
+          <div class="d-flex flex-column financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
+            <div class="mosquito-components-summary-label mb-1">З націнкою та дод. посл.</div>
+            <div class="mosquito-components-summary-value" id="mosquitoComponentsTotalRetailUah">0.00</div>
+          </div>
+          <div class="flex-grow-1 order-summary-note ms-lg-auto">
+            <label class="mosquito-components-summary-label mb-1" for="mosquitoComponentsOrderNote">Примітка до замовлення</label>
+            <input type="text" class="form-control form-control-sm" id="mosquitoComponentsOrderNote" name="note" value="{{ order.note|default_if_none:'' }}" placeholder="Коротка примітка...">
           </div>
         </div>
       </div>
 
-      <div class="row g-3 mb-3">
-        <div class="col-12 col-lg-8">
-          <label class="form-label fw-semibold" for="mosquitoComponentsOrderNote">Примітка до замовлення</label>
-          <input type="text" class="form-control" id="mosquitoComponentsOrderNote" name="note" value="{{ order.note|default_if_none:'' }}" placeholder="Коротка примітка...">
-        </div>
-        <div class="col-12 col-lg-4 financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
+      <div class="row g-2 align-items-end mb-3 financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
+        <div class="col-12 col-md-6">
           <label class="form-label fw-semibold" for="mosquitoComponentsExtraServiceLabel">Додаткова послуга</label>
           <input type="text" class="form-control" id="mosquitoComponentsExtraServiceLabel" name="extra_service_label" value="{{ order.extra_service_label|default_if_none:'' }}" placeholder="Доставка, монтаж тощо">
         </div>
-        <div class="col-12 col-lg-4 financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
-          <label class="form-label fw-semibold" for="mosquitoComponentsExtraServiceAmount">Сума послуги, грн</label>
+        <div class="col-12 col-md-3">
+          <label class="form-label fw-semibold" for="mosquitoComponentsExtraServiceAmount">Сума, грн</label>
           <input type="number" step="0.01" min="0" class="form-control" id="mosquitoComponentsExtraServiceAmount" name="extra_service_amount_uah" value="{{ order.extra_service_amount_uah|default_if_none:0|stringformat:'0.2f' }}">
-        </div>
-        <div class="col-12 col-lg-4 financial-only" {% if not can_view_financial_controls %}style="display:none !important"{% endif %}>
-          <div class="border rounded-3 p-3 h-100">
-            <div class="mosquito-components-summary-label mb-1">З націнкою та дод. посл.</div>
-            <div class="mosquito-components-summary-value" id="mosquitoComponentsTotalRetailUah">0</div>
-          </div>
         </div>
       </div>
 
@@ -111,20 +176,59 @@
         </button>
       </div>
 
-      {% if not readonly %}
-        <div class="d-flex flex-wrap gap-2 mt-3">
-          <button type="submit" class="btn btn-primary">Зберегти</button>
-          <a href="{% url 'orders:mosquito_components_list' %}" class="btn btn-secondary">До списку</a>
-        </div>
-      {% endif %}
+      <div class="order-total-bar mt-3 p-3 rounded-3 shadow-sm">
+        {% if not readonly %}
+          <div class="d-flex flex-wrap gap-2">
+            <button type="submit" class="btn btn-primary">Зберегти</button>
+            {% if order %}
+              {% if order.status == order.STATUS_QUOTE %}
+                <button type="submit" class="btn btn-success" name="status_action" value="to_work">В роботу</button>
+              {% endif %}
+              {% if request.user.is_manager %}
+                <div class="ms-auto d-flex gap-2">
+                  {% if order.prev_status %}
+                    <button type="submit" class="btn btn-outline-primary" name="status_action" value="prev">Попередній статус</button>
+                  {% endif %}
+                  {% if next_status_label %}
+                    <button type="submit" class="btn btn-outline-primary" name="status_action" value="next">
+                      Наступний статус{% if next_status_label %}: {{ next_status_label }}{% endif %}
+                    </button>
+                  {% endif %}
+                  <a class="btn btn-outline-primary" href="{% url 'orders:workbook_download' order.id %}">
+                    <i class="bi bi-file-earmark-excel me-1"></i> Файл замовлення
+                  </a>
+                </div>
+              {% endif %}
+            {% else %}
+              <button type="submit" class="btn btn-success" name="status_action" value="to_work">В роботу</button>
+            {% endif %}
+          </div>
+        {% endif %}
+        {% if order and can_view_financial_controls %}
+          {% if proposal_page_url or proposal_excel_url %}
+            <div class="d-flex flex-wrap gap-2 mt-2">
+              {% if proposal_page_url %}
+                <a class="btn btn-warning text-dark" href="{{ proposal_page_url }}" target="_blank">
+                  <i class="bi bi-eye me-1"></i> Комерційна пропозиція (сторінка)
+                </a>
+              {% endif %}
+              {% if proposal_excel_url %}
+                <a class="btn btn-success" href="{{ proposal_excel_url }}">
+                  <i class="bi bi-file-earmark-excel me-1"></i> Комерційна пропозиція (Excel)
+                </a>
+              {% endif %}
+            </div>
+          {% endif %}
+        {% endif %}
+      </div>
     </fieldset>
   </form>
 
   <template id="mosquito-component-template">
     <div class="card shadow-sm mosquito-components-card">
       <div class="card-body">
-        <div class="d-flex align-items-center justify-content-between mb-3">
-          <div class="fw-semibold">Позиція <span class="pos-index"></span></div>
+        <div class="d-flex align-items-center justify-content-between mosquito-components-card-head">
+          <div class="mosquito-components-card-title">Позиція <span class="pos-index"></span></div>
           <button type="button" class="btn btn-sm btn-danger remove-row"><i class="bi bi-x-lg"></i></button>
         </div>
         <div class="row g-3">
@@ -167,8 +271,10 @@
             <input type="text" name="item_note" class="form-control mosquito-component-note" placeholder="Коротка примітка...">
           </div>
           <div class="col-12 col-lg-4">
-            <label class="form-label small fw-semibold">Ціна позиції, грн</label>
-            <input type="text" class="form-control fw-semibold text-end mosquito-component-total-uah" readonly disabled>
+            <div class="mosquito-component-total-box">
+              <div class="mosquito-component-total-caption">Ціна позиції, грн</div>
+              <input type="text" class="form-control fw-semibold text-end mosquito-component-total-uah" readonly disabled>
+            </div>
           </div>
         </div>
         <input type="hidden" class="mosquito-component-subtotal-usd">
@@ -295,6 +401,40 @@
       $('#mosquitoComponentsTotalRetailUah').text(String(Math.round(retailUah)));
     }
 
+    function setBuilderAlert(message = '') {
+      const $alert = $('#mosquitoComponentsBuilderAlert');
+      if (message) {
+        $alert.text(message).removeClass('d-none');
+      } else {
+        $alert.addClass('d-none').text('');
+      }
+    }
+
+    function markFieldInvalid($el, invalid = true) {
+      if (!$el || !$el.length) return;
+      $el.toggleClass('field-invalid', !!invalid);
+    }
+
+    function fieldErrorHost($el) {
+      if (!$el || !$el.length) return $();
+      const $parent = $el.parent();
+      return $parent.length ? $parent : $el;
+    }
+
+    function setFieldError($el, message = '') {
+      const $host = fieldErrorHost($el);
+      if (!$host.length) return;
+      $host.find('> .field-error-text').remove();
+      if (message) {
+        $host.append(`<div class="field-error-text">${message}</div>`);
+      }
+    }
+
+    function clearCardValidation($card) {
+      $card.find('.field-invalid').removeClass('field-invalid');
+      $card.find('.field-error-text').remove();
+    }
+
     async function addRow(initial = null) {
       await loadMosquitoComponentsCatalog();
       const index = $('#mosquitoComponentsContainer .mosquito-components-card').length;
@@ -353,6 +493,8 @@
 
     $('#mosquitoComponentsContainer').on('change', '.mosquito-component-group', function () {
       const $card = $(this).closest('.mosquito-components-card');
+      markFieldInvalid($(this), false);
+      setFieldError($(this), '');
       const group = $(this).val();
       fillComponentNames($card, group, null);
       $card.find('.mosquito-component-color').empty().append('<option value="">— Колір —</option>').prop('disabled', true).trigger('change');
@@ -363,6 +505,8 @@
 
     $('#mosquitoComponentsContainer').on('change', '.mosquito-component-name', function () {
       const $card = $(this).closest('.mosquito-components-card');
+      markFieldInvalid($(this), false);
+      setFieldError($(this), '');
       const name = $(this).val();
       fillComponentColors($card, name, null);
       const rows = componentRowsByName(name);
@@ -378,6 +522,8 @@
 
     $('#mosquitoComponentsContainer').on('change', '.mosquito-component-color', function () {
       const $card = $(this).closest('.mosquito-components-card');
+      markFieldInvalid($(this), false);
+      setFieldError($(this), '');
       const name = $card.find('.mosquito-component-name').val();
       const color = $(this).val();
       const rows = componentRowsByName(name);
@@ -389,6 +535,8 @@
 
     $('#mosquitoComponentsContainer').on('change input', '.mosquito-component-length, .mosquito-component-qty', function () {
       const $card = $(this).closest('.mosquito-components-card');
+      markFieldInvalid($(this), false);
+      setFieldError($(this), '');
       recalcComponentCard($card);
       recalcTotals();
     });
@@ -404,31 +552,71 @@
     $('#mosquitoComponentsMarkup, #mosquitoComponentsExtraServiceAmount').on('input change', recalcTotals);
 
     $('#mosquitoComponentsOrderForm').on('submit', function (e) {
+      setBuilderAlert('');
       let ok = true;
+      let $firstInvalid = null;
       const $cust = $('#mosquitoComponentsOrderCustomer');
+      setFieldError($cust, '');
       if ($cust.length && !$cust.val()) {
         ok = false;
-        $cust.addClass('is-invalid');
+        markFieldInvalid($cust, true);
+        setFieldError($cust, 'Оберіть клієнта.');
+        $firstInvalid = $firstInvalid || $cust;
       }
       const $cards = $('#mosquitoComponentsContainer .mosquito-components-card');
-      if ($cards.length === 0) ok = false;
+      if ($cards.length === 0) {
+        ok = false;
+        $firstInvalid = $firstInvalid || $('#addMosquitoComponentRow');
+      }
       $cards.each(function () {
         const $card = $(this);
+        clearCardValidation($card);
         const group = $card.find('.mosquito-component-group').val();
         const name = $card.find('.mosquito-component-name').val();
         const color = $card.find('.mosquito-component-color').val();
         const unit = ($card.find('.mosquito-component-unit').val() || '').trim();
         const quantity = normalizeNumber($card.find('.mosquito-component-qty').val(), 0);
         const lengthMm = normalizeNumber($card.find('.mosquito-component-length').val(), 0);
-        if (!group || !name || !color || !unit || quantity <= 0) ok = false;
-        if (unit.toLowerCase().includes('м.п') && lengthMm <= 0) ok = false;
+        if (!group) {
+          ok = false;
+          const $el = $card.find('.mosquito-component-group');
+          markFieldInvalid($el, true);
+          setFieldError($el, 'Оберіть різновид продукції.');
+          $firstInvalid = $firstInvalid || $el;
+        }
+        if (!name) {
+          ok = false;
+          const $el = $card.find('.mosquito-component-name');
+          markFieldInvalid($el, true);
+          setFieldError($el, 'Оберіть комплектуючу.');
+          $firstInvalid = $firstInvalid || $el;
+        }
+        if (!color) {
+          ok = false;
+          const $el = $card.find('.mosquito-component-color');
+          markFieldInvalid($el, true);
+          setFieldError($el, 'Оберіть колір.');
+          $firstInvalid = $firstInvalid || $el;
+        }
+        if (quantity <= 0) {
+          ok = false;
+          const $el = $card.find('.mosquito-component-qty');
+          markFieldInvalid($el, true);
+          setFieldError($el, 'Вкажіть кількість.');
+          $firstInvalid = $firstInvalid || $el;
+        }
+        if (unit.toLowerCase().includes('м.п') && lengthMm <= 0) {
+          ok = false;
+          const $el = $card.find('.mosquito-component-length');
+          markFieldInvalid($el, true);
+          setFieldError($el, 'Вкажіть довжину для м.п.');
+          $firstInvalid = $firstInvalid || $el;
+        }
       });
       if (!ok) {
         e.preventDefault();
-        if (window.showToast) {
-          window.showToast('Перевірте форму: заповніть комплектуючі, колір, кількість і довжину для м.п.', 'warning');
-        }
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        const top = Math.max(($firstInvalid?.offset()?.top || 0) - 120, 0);
+        window.scrollTo({ top, behavior: 'smooth' });
       }
     });
 

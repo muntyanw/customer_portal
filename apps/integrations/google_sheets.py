@@ -1004,7 +1004,7 @@ def _mosquito_dimension_labels_for_product(product_type: str) -> Dict[str, str]:
 def _mosquito_product_group(product_type: str) -> str:
     name = (product_type or "").strip().lower()
     if "внутрішні 10*30" in name:
-        return "Внутрішні 10*30"
+        return "Внутрішні 10*30 «Анвіс»"
     if "зовнішні 10*20" in name:
         return "Зовнішні 10*20"
     if "дверні посилені" in name:
@@ -1177,7 +1177,7 @@ def parse_mosquito_components_sheet(
         if "рол мс" in lowered or "ролет" in lowered:
             return "Ролетні"
         if "10*30" in lowered or "анвіс" in lowered or "внутр." in lowered:
-            return "Внутрішні 10*30"
+            return "Внутрішні 10*30 «Анвіс»"
         if "10*20" in lowered or "зовніш" in lowered:
             return "Зовнішні 10*20"
         if "дверн" in lowered and ("17*25" in lowered or "посилен" not in lowered):
@@ -1228,24 +1228,39 @@ def build_mosquito_warnings(
     width_mm: int,
     height_mm: int,
     area_sqm,
+    options_data: Optional[Dict[str, Any]] = None,
 ) -> List[str]:
     name = (product_type or "").strip().lower()
     mesh = (mesh_type or "").strip().lower()
     max_side = max(int(width_mm or 0), int(height_mm or 0))
     warnings: List[str] = []
+    options = options_data or {}
+    has_frame_impost = int(options.get("impost_qty") or 0) > 0
+    try:
+        door_impost_height = float(str(options.get("door_impost_height") or "0").replace(",", "."))
+    except (TypeError, ValueError):
+        door_impost_height = 0.0
+    has_door_impost = not bool(options.get("door_no_impost")) and door_impost_height > 0
 
     if ("10*30" in name or "10*20" in name):
         if "антикіт" in mesh:
-            if max_side > 1400:
+            if max_side > 1400 and not has_frame_impost:
                 warnings.append("Негарантійний виріб, рекомендується встановлення імпоста")
-        elif max_side > 1700:
+        elif max_side > 1700 and not has_frame_impost:
             warnings.append("Негарантійний виріб, рекомендується встановлення імпоста")
 
     if "17*25" in name:
         if "антикіт" in mesh:
-            if max_side > 1600:
+            if max_side > 1600 and not has_door_impost:
                 warnings.append("Негарантійний виріб, рекомендується встановлення імпоста")
-        elif max_side > 2000:
+        elif max_side > 2000 and not has_door_impost:
+            warnings.append("Негарантійний виріб, рекомендується встановлення імпоста")
+
+    if "посилені" in name:
+        if "антикіт" in mesh:
+            if max_side > 1600 and not has_door_impost:
+                warnings.append("Негарантійний виріб, рекомендується встановлення імпоста")
+        elif max_side > 2000 and not has_door_impost:
             warnings.append("Негарантійний виріб, рекомендується встановлення імпоста")
 
     if "ролетні" in name:

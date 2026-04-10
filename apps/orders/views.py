@@ -686,7 +686,7 @@ def _collect_mosquito_option_lines(item, rate: Decimal, markup_multiplier: Decim
         add_line("Магніт", data.get("magnet_qty"), "Магніт")
     elif "ролетні" in product_name:
         add_line("Механізм гальмування", data.get("brake_qty"), "Механізм гальмування")
-        if "внутр. кріпл" in product_name:
+        if "внутр. кріпл" in product_name or "внутрішнього кріплення" in product_name:
             add_line("Додаткове кріплення 9*32", data.get("extra_mount_9"), "Додаткове кріплення 9*32 (стандарт)")
             add_line("Додаткове кріплення 15*32", data.get("extra_mount_15"), "Додаткове кріплення 15*32")
             add_line("Додаткове кріплення 21*32", data.get("extra_mount_21"), "Додаткове кріплення 21*32")
@@ -3527,24 +3527,28 @@ def _mosquito_option_price_map():
     }
 
 
+def _mosquito_has_selected_impost(product_type, options_data):
+    product_name = (product_type or "").lower()
+    options = options_data or {}
+    if "17*25" in product_name or "посилені" in product_name:
+        return (not bool(options.get("door_no_impost"))) and _to_int(options.get("door_impost_height", 0), 0) > 0
+    if "10*30" in product_name or "10*20" in product_name:
+        return _to_int(options.get("impost_qty", 0), 0) > 0
+    return False
+
+
 def _mosquito_note_with_auto_warning(product_type, base_note, warning_text, options_data):
     product_name = (product_type or "").lower()
     text = (warning_text or "").strip()
     note = (base_note or "").strip()
-    needs_impost = any(key in product_name for key in ("10*30", "10*20", "17*25"))
-    no_impost = False
-    if "17*25" in product_name:
-        no_impost = bool((options_data or {}).get("door_no_impost"))
-        if not no_impost and _to_int((options_data or {}).get("door_extra_impost_qty", 0), 0) > 0:
-            no_impost = False
-        elif not no_impost and (options_data or {}).get("door_impost_height"):
-            no_impost = False
-    else:
-        no_impost = _to_int((options_data or {}).get("impost_qty", 0), 0) <= 0
+    impost_warning = "Негарантійний виріб, рекомендується встановлення імпоста"
+    note = re.sub(r"^\s*Негарантійний виріб, рекомендується встановлення імпоста\.?\s*", "", note).strip()
+    needs_impost = any(key in product_name for key in ("10*30", "10*20", "17*25", "посилені"))
+    has_selected_impost = _mosquito_has_selected_impost(product_type, options_data)
 
     auto_warning = ""
-    if needs_impost and text and no_impost and "імпоста" in text.lower():
-        auto_warning = "Негарантійний виріб, рекомендується встановлення імпоста"
+    if needs_impost and text and (not has_selected_impost) and "імпоста" in text.lower():
+        auto_warning = impost_warning
     elif "оберіть двочасну сітку" in text.lower():
         auto_warning = "Оберіть двочасну сітку"
 
@@ -3570,8 +3574,8 @@ def _validate_mosquito_item_options(item):
             raise ValueError(f"Для {item['product_type']} кількість висот імпостів має відповідати кількості імпостів.")
     if "дверні 17*25" in product_name or "посилені" in product_name:
         no_impost = bool(options_data.get("door_no_impost"))
-        door_impost_height = str(options_data.get("door_impost_height") or "").strip()
-        if not no_impost and not door_impost_height:
+        door_impost_height = _to_int(options_data.get("door_impost_height"), 0)
+        if not no_impost and door_impost_height <= 0:
             raise ValueError(f"Для {item['product_type']} потрібно вказати висоту імпоста від низу або обрати 'без імпоста'.")
         extra_impost_qty = _to_int(options_data.get("door_extra_impost_qty", 0), 0)
         extra_impost_heights = str(options_data.get("door_extra_impost_heights") or "").strip()
@@ -3626,7 +3630,7 @@ def _calculate_mosquito_options_total(product_type, quantity, options_data, opti
         add_named("Магніт", count_value("magnet_qty"))
     elif "ролетні" in name:
         add_named("Механізм гальмування", count_value("brake_qty"))
-        if "внутр. кріпл" in name:
+        if "внутр. кріпл" in name or "внутрішнього кріплення" in name:
             replacement = (data.get("replacement_mount") or "").strip()
             if replacement == "15*32":
                 add_named("Заміна кріплення з 9*32 на 15*32", 1)
@@ -3678,6 +3682,7 @@ def _recalculate_mosquito_items(raw_items, discount_multiplier):
             width_mm=item["width_mm"],
             height_mm=item["height_mm"],
             area_sqm=calc_area,
+            options_data=item.get("options_data") or {},
         )
         total_usd += subtotal_usd
         recalculated.append(
