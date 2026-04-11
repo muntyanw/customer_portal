@@ -36,20 +36,20 @@
 {% block dashboard_content %}
   <div class="d-flex flex-wrap justify-content-end gap-2 mb-2 {% if list_mode == 'all' %}new-order-actions{% endif %}">
     {% if list_mode == 'all' %}
-      <a href="{% url 'orders:builder' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center new-order-btn-all">
-        <i class="bi bi-plus-lg me-1"></i> Нове замовлення (Ролети)
+      <a href="{% url 'orders:builder' %}" class="btn btn-success w-100 d-md-inline-flex d-flex align-items-center justify-content-center text-center new-order-btn-all">
+        <i class="bi bi-plus-lg me-1"></i><i class="bi bi-bag-check me-1"></i>Ролети
       </a>
-      <a href="{% url 'orders:components_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center new-order-btn-all">
-        <i class="bi bi-tools me-1"></i> Нове замовлення (Компл-ючі до тк. рол.)
+      <a href="{% url 'orders:components_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-flex align-items-center justify-content-center text-center new-order-btn-all">
+        <i class="bi bi-plus-lg me-1"></i><i class="bi bi-tools me-1"></i>Компл-ючі до тк. рол.
       </a>
-      <a href="{% url 'orders:fabrics_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center new-order-btn-all">
-        <i class="bi bi-scissors me-1"></i> Нове замовлення (Тканина)
+      <a href="{% url 'orders:fabrics_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-flex align-items-center justify-content-center text-center new-order-btn-all">
+        <i class="bi bi-plus-lg me-1"></i><i class="bi bi-scissors me-1"></i>Тканина
       </a>
-      <a href="{% url 'orders:mosquito_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center new-order-btn-all">
-        <i class="bi bi-grid-3x3-gap me-1"></i> Нове замовлення (Москітні сітки)
+      <a href="{% url 'orders:mosquito_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-flex align-items-center justify-content-center text-center new-order-btn-all">
+        <i class="bi bi-plus-lg me-1"></i><i class="bi bi-grid-3x3-gap me-1"></i>Москітні сітки
       </a>
-      <a href="{% url 'orders:mosquito_components_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center new-order-btn-all">
-        <i class="bi bi-wrench-adjustable me-1"></i> Нове замовлення (Комплектуючі до мос. сіток)
+      <a href="{% url 'orders:mosquito_components_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-flex align-items-center justify-content-center text-center new-order-btn-all">
+        <i class="bi bi-plus-lg me-1"></i><i class="bi bi-wrench-adjustable me-1"></i>Комплектуючі до мос. сіток
       </a>
     {% else %}
       {% if list_mode == 'components' %}

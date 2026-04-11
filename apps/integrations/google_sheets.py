@@ -1186,7 +1186,7 @@ def parse_mosquito_components_sheet(
             return "Дверні посилені 14*40"
         if "плісе" in lowered:
             return "Плісе"
-        return "Усі"
+        return "Інші"
 
     parsed = parse_components_sheet(
         google_sheet_url=google_sheet_url,

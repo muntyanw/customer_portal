@@ -25,14 +25,10 @@
     }
     .mosquito-components-card .select2-container { width: 100% !important; }
     .mosquito-components-card .card-body { padding: 1.25rem; }
-    .mosquito-components-card-head {
-      border-bottom: 1px solid var(--bs-border-color);
-      padding-bottom: 0.75rem;
-      margin-bottom: 1rem;
-    }
-    .mosquito-components-card-title {
+    .order-position {
       font-weight: 700;
       font-size: 1.05rem;
+      text-align: center;
     }
     .mosquito-components-summary-label {
       font-size: 0.8rem;
@@ -225,11 +221,13 @@
   </form>
 
   <template id="mosquito-component-template">
-    <div class="card shadow-sm mosquito-components-card">
+    <div class="card border-0 shadow-sm rounded-4 mosquito-components-card">
       <div class="card-body">
-        <div class="d-flex align-items-center justify-content-between mosquito-components-card-head">
-          <div class="mosquito-components-card-title">Позиція <span class="pos-index"></span></div>
-          <button type="button" class="btn btn-sm btn-danger remove-row"><i class="bi bi-x-lg"></i></button>
+        <div class="d-flex justify-content-between align-items-start mb-2 gap-3 position-relative">
+          <div class="order-position w-100 text-center">
+            Позиція <span class="pos-index"></span>
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-danger remove-row position-absolute end-0 top-0" aria-label="Видалити позицію"><i class="bi bi-trash"></i></button>
         </div>
         <div class="row g-3">
           <div class="col-12 col-lg-3">
