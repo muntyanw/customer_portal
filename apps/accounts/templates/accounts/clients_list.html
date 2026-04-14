@@ -30,20 +30,20 @@
         </a>
       {% endif %}
       <div class="btn-group btn-group-sm" role="group" aria-label="Сортування">
-        <a class="btn btn-outline-primary {% if sort == 'full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=full_name">Ім'я</a>
-        <a class="btn btn-outline-primary {% if sort == '-full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-full_name">Ім'я ↓</a>
-        <a class="btn btn-outline-primary {% if sort == 'email' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=email">Email</a>
-        <a class="btn btn-outline-primary {% if sort == '-email' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-email">Email ↓</a>
-        <a class="btn btn-outline-primary {% if sort == 'phone' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=phone">Телефон</a>
-        <a class="btn btn-outline-primary {% if sort == '-phone' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-phone">Телефон ↓</a>
-        <a class="btn btn-outline-primary {% if sort == 'company' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=company">Компанія</a>
-        <a class="btn btn-outline-primary {% if sort == '-company' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-company">Компанія ↓</a>
-        <a class="btn btn-outline-primary {% if sort == 'balance' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=balance">Баланс</a>
-        <a class="btn btn-outline-primary {% if sort == '-balance' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-balance">Баланс ↓</a>
-        <a class="btn btn-outline-primary {% if sort == 'discount' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=discount">Знижка</a>
-        <a class="btn btn-outline-primary {% if sort == '-discount' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-discount">Знижка ↓</a>
-        <a class="btn btn-outline-primary {% if sort == 'credit' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=credit">Кредит</a>
-        <a class="btn btn-outline-primary {% if sort == '-credit' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-credit">Кредит ↓</a>
+        <a class="btn-primary {% if sort == 'full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=full_name">Ім'я</a>
+        <a class="btn-primary {% if sort == '-full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-full_name">Ім'я ↓</a>
+        <a class="btn-primary {% if sort == 'email' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=email">Email</a>
+        <a class="btn-primary {% if sort == '-email' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-email">Email ↓</a>
+        <a class="btn-primary {% if sort == 'phone' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=phone">Телефон</a>
+        <a class="btn-primary {% if sort == '-phone' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-phone">Телефон ↓</a>
+        <a class="btn-primary {% if sort == 'company' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=company">Компанія</a>
+        <a class="btn-primary {% if sort == '-company' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-company">Компанія ↓</a>
+        <a class="btn-primary {% if sort == 'balance' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=balance">Баланс</a>
+        <a class="btn-primary {% if sort == '-balance' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-balance">Баланс ↓</a>
+        <a class="btn-primary {% if sort == 'discount' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=discount">Знижка</a>
+        <a class="btn-primary {% if sort == '-discount' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-discount">Знижка ↓</a>
+        <a class="btn-primary {% if sort == 'credit' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=credit">Кредит</a>
+        <a class="btn-primary {% if sort == '-credit' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-credit">Кредит ↓</a>
       </div>
       <a href="{% url 'accounts:client_create' %}" class="btn btn-success"><i class="bi bi-plus-lg me-1"></i> Створити акаунт</a>
     </div>

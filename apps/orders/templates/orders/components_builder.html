@@ -208,10 +208,10 @@
             {% if request.user.is_manager %}
               <div class="ms-auto d-flex gap-2">
                 {% if order.prev_status %}
-                  <button type="submit" class="btn btn-outline-primary" name="status_action" value="prev" data-status-action="prev">Попередній статус</button>
+                  <button type="submit" class="btn btn-primary" name="status_action" value="prev" data-status-action="prev">Попередній статус</button>
                 {% endif %}
                 {% if next_status_label %}
-                  <button type="submit" class="btn btn-outline-primary" name="status_action" value="next" data-status-action="next">
+                  <button type="submit" class="btn btn-primary" name="status_action" value="next" data-status-action="next">
                     Наступний статус{% if next_status_label %}: {{ next_status_label }}{% endif %}
                   </button>
                 {% endif %}

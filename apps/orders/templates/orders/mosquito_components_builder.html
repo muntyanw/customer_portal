@@ -183,14 +183,14 @@
               {% if request.user.is_manager %}
                 <div class="ms-auto d-flex gap-2">
                   {% if order.prev_status %}
-                    <button type="submit" class="btn btn-outline-primary" name="status_action" value="prev">Попередній статус</button>
+                    <button type="submit" class="btn btn-primary" name="status_action" value="prev">Попередній статус</button>
                   {% endif %}
                   {% if next_status_label %}
-                    <button type="submit" class="btn btn-outline-primary" name="status_action" value="next">
+                    <button type="submit" class="btn btn-primary" name="status_action" value="next">
                       Наступний статус{% if next_status_label %}: {{ next_status_label }}{% endif %}
                     </button>
                   {% endif %}
-                  <a class="btn btn-outline-primary" href="{% url 'orders:workbook_download' order.id %}">
+                  <a class="btn btn-primary" href="{% url 'orders:workbook_download' order.id %}">
                     <i class="bi bi-file-earmark-excel me-1"></i> Файл замовлення
                   </a>
                 </div>
@@ -351,12 +351,16 @@
       const colors = [...new Set(rows.map((item) => item.color || ''))].filter(Boolean);
       $sel.empty().append('<option value="">— Колір —</option>');
       colors.forEach((color) => $sel.append(new Option(color, color)));
-      $sel.prop('disabled', colors.length === 0);
-      if (preselect) $sel.val(preselect);
-      $sel.trigger('change');
-      if (!colors.length && rows.length === 1) {
+      const singleColor = colors.length === 1;
+      $sel.prop('disabled', colors.length === 0 || singleColor);
+      if (singleColor) {
+        $sel.val(colors[0]);
+      } else if (preselect) {
+        $sel.val(preselect);
+      } else if (!colors.length && rows.length === 1) {
         $sel.val(rows[0].color || '');
       }
+      $sel.trigger('change').trigger('change.select2');
     }
 
     function recalcComponentCard($card) {
@@ -507,10 +511,13 @@
       setFieldError($(this), '');
       const name = $(this).val();
       fillComponentColors($card, name, null);
-      const rows = componentRowsByName(name);
+      const rows = componentRowsByName(name, $card.find('.mosquito-component-group').val());
+      const colors = [...new Set(rows.map((item) => item.color || ''))].filter(Boolean);
       if (rows.length === 1) {
-        $card.find('.mosquito-component-color').val(rows[0].color || '').trigger('change');
+        $card.find('.mosquito-component-color').val(rows[0].color || '').trigger('change').trigger('change.select2');
         $card.find('.mosquito-component-unit').val(rows[0].unit || '');
+      } else if (colors.length === 1) {
+        $card.find('.mosquito-component-color').val(colors[0]).trigger('change').trigger('change.select2');
       } else {
         $card.find('.mosquito-component-unit').val('');
       }
@@ -524,7 +531,7 @@
       setFieldError($(this), '');
       const name = $card.find('.mosquito-component-name').val();
       const color = $(this).val();
-      const rows = componentRowsByName(name);
+      const rows = componentRowsByName(name, $card.find('.mosquito-component-group').val());
       const row = rows.find((item) => (item.color || '') === color) || rows[0] || null;
       $card.find('.mosquito-component-unit').val(row?.unit || '');
       recalcComponentCard($card);
