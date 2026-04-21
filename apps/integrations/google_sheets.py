@@ -1025,9 +1025,9 @@ def _mosquito_product_group(product_type: str) -> str:
 def _mosquito_height_range_for_product(product_type: str):
     name = (product_type or "").strip().lower()
     if "до 1600" in name:
-        return 0, 1600
+        return 0, 1599
     if "від 1600" in name and "до 2300" in name:
-        return 1601, 2300
+        return 1600, 2300
     return None, None
 
 
@@ -1142,7 +1142,25 @@ def parse_mosquito_price_sheet(
             }
         )
 
-    product_types = sorted({item["product_type"] for item in products})
+    mosquito_product_order = {
+        "внутрішні": 0,
+        "зовнішні": 1,
+        "дверні 17*25": 2,
+        "дверні посилені": 3,
+        "ролетні внутрішнього кріплення": 5,
+        "ролетні": 4,
+        "плісе одно": 6,
+        "плісе дво": 7,
+    }
+
+    def mosquito_product_sort_key(name: str):
+        normalized = (name or "").strip().lower()
+        for prefix, order_idx in mosquito_product_order.items():
+            if normalized.startswith(prefix):
+                return (order_idx, normalized)
+        return (999, normalized)
+
+    product_types = sorted({item["product_type"] for item in products}, key=mosquito_product_sort_key)
     colors_by_product: Dict[str, List[str]] = {}
     mesh_by_product: Dict[str, List[str]] = {}
     for item in products:

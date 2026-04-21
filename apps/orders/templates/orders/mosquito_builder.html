@@ -95,6 +95,19 @@
       align-items: center;
       gap: 0.45rem;
     }
+    .sliding-side-fixed-value {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 160px;
+      border: 1px solid var(--bs-border-color);
+      border-radius: 0.75rem;
+      background: #fff;
+      padding: 1rem;
+      font-size: 1.1rem;
+      font-weight: 700;
+      text-align: center;
+    }
     .mosquito-options {
       border-top: 1px dashed var(--bs-border-color);
       padding-top: 0.75rem;
@@ -184,6 +197,7 @@
 {% block dashboard_content %}
   <form method="post" id="mosquitoOrderForm" novalidate>
     {% csrf_token %}
+    <input type="hidden" name="status_action" id="statusActionInput" value="save" />
     <input type="hidden" id="customerDiscountValue" value="{{ customer_discount_percent_js|default:'0' }}">
     <fieldset {% if readonly %}disabled{% endif %}>
       <div id="mosquitoBuilderAlert" class="alert alert-warning builder-page-alert d-none" role="alert"></div>
@@ -260,18 +274,19 @@
       <div class="order-total-bar mt-3 p-3 rounded-3 shadow-sm">
         {% if not readonly %}
           <div class="d-flex flex-wrap gap-2">
-            <button type="submit" class="btn btn-primary">Зберегти</button>
+            <button type="submit" class="btn btn-primary" data-status-action="save">Зберегти</button>
+            <button type="submit" class="btn btn-outline-primary" data-status-action="save_stay">Зберегти і залишитись</button>
             {% if order %}
               {% if order.status == order.STATUS_QUOTE %}
-                <button type="submit" class="btn btn-success" name="status_action" value="to_work">В роботу</button>
+                <button type="submit" class="btn btn-success" name="status_action" value="to_work" data-status-action="to_work">В роботу</button>
               {% endif %}
               {% if request.user.is_manager %}
                 <div class="ms-auto d-flex gap-2">
                   {% if order.prev_status %}
-                    <button type="submit" class="btn btn-primary" name="status_action" value="prev">Попередній статус</button>
+                    <button type="submit" class="btn btn-primary" name="status_action" value="prev" data-status-action="prev">Попередній статус</button>
                   {% endif %}
                   {% if next_status_label %}
-                    <button type="submit" class="btn btn-primary" name="status_action" value="next">
+                    <button type="submit" class="btn btn-primary" name="status_action" value="next" data-status-action="next">
                       Наступний статус{% if next_status_label %}: {{ next_status_label }}{% endif %}
                     </button>
                   {% endif %}
@@ -281,7 +296,7 @@
                 </div>
               {% endif %}
             {% else %}
-              <button type="submit" class="btn btn-success" name="status_action" value="to_work">В роботу</button>
+              <button type="submit" class="btn btn-success" name="status_action" value="to_work" data-status-action="to_work">В роботу</button>
             {% endif %}
           </div>
         {% endif %}
@@ -304,6 +319,24 @@
       </div>
     </fieldset>
   </form>
+
+  <div class="modal fade" id="sendToWorkModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Відправити замовлення в роботу?</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          Відправити замовлення в роботу після збереження?
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" id="sendToWorkSkipBtn">Не відправляти</button>
+          <button type="button" class="btn btn-success" id="sendToWorkBtn">Відправити</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <template id="mosquito-item-template">
     <div class="card border-0 shadow-sm rounded-4 mosquito-card">
@@ -362,7 +395,7 @@
 
                 <div class="col-12 col-lg-4 sliding-side-wrap d-none">
                   <label class="form-label small fw-semibold">Сторона зсуву</label>
-                  <div class="d-flex flex-wrap gap-4 sliding-side-preview">
+                  <div class="d-flex flex-wrap gap-4 sliding-side-preview sliding-side-choice-wrap">
                     <label class="sliding-side-option">
                       <img src="{% static 'media/left.png' %}" alt="left">
                       <span class="sliding-side-choice">
@@ -377,6 +410,9 @@
                         <span>Права</span>
                       </span>
                     </label>
+                  </div>
+                  <div class="sliding-side-fixed-wrap d-none">
+                    <div class="sliding-side-fixed-value">До центру</div>
                   </div>
                   <input type="hidden" name="sliding_side" class="mosquito-sliding-side-value">
                 </div>
@@ -447,7 +483,9 @@
     const isManager = {{ request.user.is_manager|yesno:"true,false" }};
     const isSuperuser = {{ request.user.is_superuser|yesno:"true,false" }};
     const currentUserId = {{ request.user.id|default:0 }};
+    const isQuoteStatus = {% if not order or order.status == order.STATUS_QUOTE %}true{% else %}false{% endif %};
     let mosquitoCatalog = null;
+    let sendToWorkModal = null;
 
     function money(x) {
       return (Math.round(parseFloat(x || 0) * 100) / 100).toFixed(2);
@@ -498,6 +536,10 @@
       if (name.includes('плісе двочаст')) return 'Плісе двочастні';
       if (name.includes('плісе одночаст')) return 'Плісе одночастні';
       return productType || '';
+    }
+
+    function isDoublePleatedType(productType) {
+      return String(productType || '').toLowerCase().includes('плісе двочаст');
     }
 
     function firstProductRow(productType, height = 0, color = '') {
@@ -562,10 +604,21 @@
       $card.find('.mosquito-height-label').text((labels.height || 'Висота') + ', мм');
       const requiresSliding = !!row?.requires_sliding_side;
       const $wrap = $card.find('.sliding-side-wrap');
+      const isDoublePleated = isDoublePleatedType(productType);
       if (requiresSliding) {
         $wrap.removeClass('d-none');
+        $wrap.find('.sliding-side-choice-wrap').toggleClass('d-none', isDoublePleated);
+        $wrap.find('.sliding-side-fixed-wrap').toggleClass('d-none', !isDoublePleated);
+        if (isDoublePleated) {
+          $card.find('.mosquito-sliding-side').prop('checked', false);
+          $card.find('.mosquito-sliding-side-value').val('center');
+        } else if ($card.find('.mosquito-sliding-side-value').val() === 'center') {
+          $card.find('.mosquito-sliding-side-value').val('');
+        }
       } else {
         $wrap.addClass('d-none');
+        $wrap.find('.sliding-side-choice-wrap').removeClass('d-none');
+        $wrap.find('.sliding-side-fixed-wrap').addClass('d-none');
         $card.find('.mosquito-sliding-side').prop('checked', false);
         $card.find('.mosquito-sliding-side-value').val('');
       }
@@ -862,38 +915,38 @@
         subtotalUsd = calcArea * priceUsd * qty * discountMultiplier;
         const name = (productType || '').toLowerCase();
         if (name.includes('10*30')) {
-          if ((optionsData.replacement_mount || '') === '15*32') optionsTotalUsd += optionPrice('Заміна кріплення з 9*32 на 15*32') * qty;
-          if ((optionsData.replacement_mount || '') === '21*32') optionsTotalUsd += optionPrice('Заміна кріплення з 9*32 на 21*32') * qty;
-          optionsTotalUsd += optionPrice('Додаткове кріплення 9*32 (стандарт)') * normalizeNumber(optionsData.extra_mount_9, 0) * qty;
-          optionsTotalUsd += optionPrice('Додаткове кріплення 15*32') * normalizeNumber(optionsData.extra_mount_15, 0) * qty;
-          optionsTotalUsd += optionPrice('Додаткове кріплення 21*32') * normalizeNumber(optionsData.extra_mount_21, 0) * qty;
-          optionsTotalUsd += optionPrice('Додатковий імпост для внутрішніх сіток 10*30') * normalizeNumber(optionsData.impost_qty, 0) * qty;
+          if ((optionsData.replacement_mount || '') === '15*32') optionsTotalUsd += optionPrice('Заміна кріплення з 9*32 на 15*32') * qty * discountMultiplier;
+          if ((optionsData.replacement_mount || '') === '21*32') optionsTotalUsd += optionPrice('Заміна кріплення з 9*32 на 21*32') * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Додаткове кріплення 9*32 (стандарт)') * normalizeNumber(optionsData.extra_mount_9, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Додаткове кріплення 15*32') * normalizeNumber(optionsData.extra_mount_15, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Додаткове кріплення 21*32') * normalizeNumber(optionsData.extra_mount_21, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Додатковий імпост для внутрішніх сіток 10*30') * normalizeNumber(optionsData.impost_qty, 0) * qty * discountMultiplier;
         } else if (name.includes('10*20')) {
-          optionsTotalUsd += optionPrice('Додаткове кріплення 9*32 (стандарт)') * normalizeNumber(optionsData.extra_mount_9, 0) * qty;
-          optionsTotalUsd += optionPrice('Додаткове кріплення 15*32') * normalizeNumber(optionsData.extra_mount_15, 0) * qty;
-          optionsTotalUsd += optionPrice('Додаткове кріплення 21*32') * normalizeNumber(optionsData.extra_mount_21, 0) * qty;
-          optionsTotalUsd += optionPrice('Кріплення для алюмінєвих рам') * normalizeNumber(optionsData.aluminum_mount_kit, 0) * qty;
-          optionsTotalUsd += optionPrice('Додотковий імпост для зовнішніх сіток 10*20') * normalizeNumber(optionsData.impost_qty, 0) * qty;
+          optionsTotalUsd += optionPrice('Додаткове кріплення 9*32 (стандарт)') * normalizeNumber(optionsData.extra_mount_9, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Додаткове кріплення 15*32') * normalizeNumber(optionsData.extra_mount_15, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Додаткове кріплення 21*32') * normalizeNumber(optionsData.extra_mount_21, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Кріплення для алюмінєвих рам') * normalizeNumber(optionsData.aluminum_mount_kit, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Додотковий імпост для зовнішніх сіток 10*20') * normalizeNumber(optionsData.impost_qty, 0) * qty * discountMultiplier;
         } else if (name.includes('дверні 17*25')) {
-          optionsTotalUsd += optionPrice('Додатковий імпост для дверних сіток 17*25') * normalizeNumber(optionsData.door_extra_impost_qty, 0) * qty;
-          optionsTotalUsd += optionPrice('Петля ПВХ звичайна') * normalizeNumber(optionsData.hinge_regular_qty, 0) * qty;
-          optionsTotalUsd += optionPrice('Петля з пружиною') * normalizeNumber(optionsData.hinge_spring_qty, 0) * qty;
-          optionsTotalUsd += optionPrice('Защіпка пластикова') * normalizeNumber(optionsData.latch_qty, 0) * qty;
-          optionsTotalUsd += optionPrice('Магніт') * normalizeNumber(optionsData.magnet_qty, 0) * qty;
-          optionsTotalUsd += optionPrice('Кріплення для алюмінєвих рам') * normalizeNumber(optionsData.aluminum_mount_kit, 0) * qty;
+          optionsTotalUsd += optionPrice('Додатковий імпост для дверних сіток 17*25') * normalizeNumber(optionsData.door_extra_impost_qty, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Петля ПВХ звичайна') * normalizeNumber(optionsData.hinge_regular_qty, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Петля з пружиною') * normalizeNumber(optionsData.hinge_spring_qty, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Защіпка пластикова') * normalizeNumber(optionsData.latch_qty, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Магніт') * normalizeNumber(optionsData.magnet_qty, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Кріплення для алюмінєвих рам') * normalizeNumber(optionsData.aluminum_mount_kit, 0) * qty * discountMultiplier;
         } else if (name.includes('посилені')) {
-          optionsTotalUsd += optionPrice('Петля ПВХ звичайна') * normalizeNumber(optionsData.hinge_regular_qty, 0) * qty;
-          optionsTotalUsd += optionPrice('Петля з пружиною') * normalizeNumber(optionsData.hinge_spring_qty, 0) * qty;
-          optionsTotalUsd += optionPrice('Защіпка пластикова') * normalizeNumber(optionsData.latch_qty, 0) * qty;
-          optionsTotalUsd += optionPrice('Магніт') * normalizeNumber(optionsData.magnet_qty, 0) * qty;
+          optionsTotalUsd += optionPrice('Петля ПВХ звичайна') * normalizeNumber(optionsData.hinge_regular_qty, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Петля з пружиною') * normalizeNumber(optionsData.hinge_spring_qty, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Защіпка пластикова') * normalizeNumber(optionsData.latch_qty, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Магніт') * normalizeNumber(optionsData.magnet_qty, 0) * qty * discountMultiplier;
         } else if (name.includes('ролетні')) {
-          optionsTotalUsd += optionPrice('Механізм гальмування') * normalizeNumber(optionsData.brake_qty, 0) * qty;
+          optionsTotalUsd += optionPrice('Механізм гальмування') * normalizeNumber(optionsData.brake_qty, 0) * qty * discountMultiplier;
           if (name.includes('внутр. кріпл') || name.includes('внутрішнього кріплення')) {
-            if ((optionsData.replacement_mount || '') === '15*32') optionsTotalUsd += optionPrice('Заміна кріплення з 9*32 на 15*32') * qty;
-            if ((optionsData.replacement_mount || '') === '21*32') optionsTotalUsd += optionPrice('Заміна кріплення з 9*32 на 21*32') * qty;
-            optionsTotalUsd += optionPrice('Додаткове кріплення 9*32 (стандарт)') * normalizeNumber(optionsData.extra_mount_9, 0) * qty;
-            optionsTotalUsd += optionPrice('Додаткове кріплення 15*32') * normalizeNumber(optionsData.extra_mount_15, 0) * qty;
-            optionsTotalUsd += optionPrice('Додаткове кріплення 21*32') * normalizeNumber(optionsData.extra_mount_21, 0) * qty;
+            if ((optionsData.replacement_mount || '') === '15*32') optionsTotalUsd += optionPrice('Заміна кріплення з 9*32 на 15*32') * qty * discountMultiplier;
+            if ((optionsData.replacement_mount || '') === '21*32') optionsTotalUsd += optionPrice('Заміна кріплення з 9*32 на 21*32') * qty * discountMultiplier;
+            optionsTotalUsd += optionPrice('Додаткове кріплення 9*32 (стандарт)') * normalizeNumber(optionsData.extra_mount_9, 0) * qty * discountMultiplier;
+            optionsTotalUsd += optionPrice('Додаткове кріплення 15*32') * normalizeNumber(optionsData.extra_mount_15, 0) * qty * discountMultiplier;
+            optionsTotalUsd += optionPrice('Додаткове кріплення 21*32') * normalizeNumber(optionsData.extra_mount_21, 0) * qty * discountMultiplier;
           }
         }
         subtotalUsd += optionsTotalUsd;
@@ -953,6 +1006,11 @@
       } else {
         $alert.addClass('d-none').text('');
       }
+    }
+
+    function requestToWork() {
+      $('#statusActionInput').val('to_work');
+      document.getElementById('mosquitoOrderForm').requestSubmit();
     }
 
     function markFieldInvalid($el, invalid = true) {
@@ -1048,8 +1106,8 @@
           product_type: $prev.find('.mosquito-product-type').val() || '',
           profile_color: $prev.find('.mosquito-profile-color').val() || '',
           mesh_type: $prev.find('.mosquito-mesh-type').val() || '',
-          width_mm: $prev.find('.mosquito-width').val() || '',
-          height_mm: $prev.find('.mosquito-height').val() || '',
+          width_mm: '',
+          height_mm: '',
           quantity: 1,
           note: '',
         };
@@ -1118,7 +1176,7 @@
 
     $('#mosquitoMarkup, #mosquitoExtraServiceAmount').on('input change', recalcOrderTotals);
 
-    $('#mosquitoOrderForm').on('submit', function (e) {
+    function validateMosquitoOrderForm() {
       setBuilderAlert('');
       let ok = true;
       let $firstInvalid = null;
@@ -1236,10 +1294,49 @@
         }
       });
       if (!ok) {
-        e.preventDefault();
         const top = Math.max(($firstInvalid?.offset()?.top || 0) - 120, 0);
         window.scrollTo({ top, behavior: 'smooth' });
       }
+      return ok;
+    }
+
+    function enableDisabledSubmissionFields($form) {
+      if (!$form || !$form.length) return;
+      $form.find(':disabled[name]').prop('disabled', false).trigger('change.select2');
+    }
+
+    $('#mosquitoOrderForm').on('click', 'button[data-status-action]', function (e) {
+      const action = $(this).data('status-action') || 'save';
+      if (action === 'save_stay') {
+        $('#statusActionInput').val('save');
+        return;
+      }
+      if (action === 'save') {
+        if (isQuoteStatus && sendToWorkModal) {
+          e.preventDefault();
+          if (!validateMosquitoOrderForm()) {
+            return;
+          }
+          sendToWorkModal.show();
+          return;
+        }
+        $('#statusActionInput').val('save');
+        return;
+      }
+      if (action === 'to_work') {
+        e.preventDefault();
+        requestToWork();
+        return;
+      }
+      $('#statusActionInput').val(action);
+    });
+
+    $('#mosquitoOrderForm').on('submit', function (e) {
+      if (!validateMosquitoOrderForm()) {
+        e.preventDefault();
+        return;
+      }
+      enableDisabledSubmissionFields($(this));
     });
 
     (async function initMosquitoBuilder() {
@@ -1264,6 +1361,21 @@
       }
     })().catch((err) => {
       alert(err?.message || 'Не вдалося завантажити прайс москітних сіток');
+    });
+
+    document.addEventListener('DOMContentLoaded', function () {
+      const modalEl = document.getElementById('sendToWorkModal');
+      if (!modalEl || typeof bootstrap === 'undefined') return;
+      sendToWorkModal = new bootstrap.Modal(modalEl);
+      document.getElementById('sendToWorkSkipBtn')?.addEventListener('click', function () {
+        sendToWorkModal.hide();
+        document.getElementById('statusActionInput').value = 'save_list';
+        document.getElementById('mosquitoOrderForm').requestSubmit();
+      });
+      document.getElementById('sendToWorkBtn')?.addEventListener('click', function () {
+        sendToWorkModal.hide();
+        requestToWork();
+      });
     });
   </script>
 {% endblock %}

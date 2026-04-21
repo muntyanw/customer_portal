@@ -99,6 +99,7 @@
 {% block dashboard_content %}
   <form method="post" id="mosquitoComponentsOrderForm" novalidate>
     {% csrf_token %}
+    <input type="hidden" name="status_action" id="statusActionInput" value="save" />
     <input type="hidden" id="customerDiscountValue" value="{{ customer_discount_percent_js|default:'0' }}">
     <fieldset {% if readonly %}disabled{% endif %}>
       <div id="mosquitoComponentsBuilderAlert" class="alert alert-warning builder-page-alert d-none" role="alert"></div>
@@ -175,18 +176,18 @@
       <div class="order-total-bar mt-3 p-3 rounded-3 shadow-sm">
         {% if not readonly %}
           <div class="d-flex flex-wrap gap-2">
-            <button type="submit" class="btn btn-primary">Зберегти</button>
+            <button type="submit" class="btn btn-primary" data-status-action="save">Зберегти</button>
             {% if order %}
               {% if order.status == order.STATUS_QUOTE %}
-                <button type="submit" class="btn btn-success" name="status_action" value="to_work">В роботу</button>
+                <button type="submit" class="btn btn-success" name="status_action" value="to_work" data-status-action="to_work">В роботу</button>
               {% endif %}
               {% if request.user.is_manager %}
                 <div class="ms-auto d-flex gap-2">
                   {% if order.prev_status %}
-                    <button type="submit" class="btn btn-primary" name="status_action" value="prev">Попередній статус</button>
+                    <button type="submit" class="btn btn-primary" name="status_action" value="prev" data-status-action="prev">Попередній статус</button>
                   {% endif %}
                   {% if next_status_label %}
-                    <button type="submit" class="btn btn-primary" name="status_action" value="next">
+                    <button type="submit" class="btn btn-primary" name="status_action" value="next" data-status-action="next">
                       Наступний статус{% if next_status_label %}: {{ next_status_label }}{% endif %}
                     </button>
                   {% endif %}
@@ -196,7 +197,7 @@
                 </div>
               {% endif %}
             {% else %}
-              <button type="submit" class="btn btn-success" name="status_action" value="to_work">В роботу</button>
+              <button type="submit" class="btn btn-success" name="status_action" value="to_work" data-status-action="to_work">В роботу</button>
             {% endif %}
           </div>
         {% endif %}
@@ -219,6 +220,24 @@
       </div>
     </fieldset>
   </form>
+
+  <div class="modal fade" id="sendToWorkModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Відправити замовлення в роботу?</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          Відправити замовлення в роботу після збереження?
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" id="sendToWorkSkipBtn">Не відправляти</button>
+          <button type="button" class="btn btn-success" id="sendToWorkBtn">Відправити</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <template id="mosquito-component-template">
     <div class="card border-0 shadow-sm rounded-4 mosquito-components-card">
@@ -244,7 +263,7 @@
           </div>
           <div class="col-12 col-lg-2">
             <label class="form-label small fw-semibold">Колір</label>
-            <select name="component_color" class="form-select mosquito-component-color" disabled>
+            <select name="component_color" class="form-select mosquito-component-color">
               <option value="">— Колір —</option>
             </select>
           </div>
@@ -258,7 +277,7 @@
           </div>
           <div class="col-12 col-lg-2">
             <label class="form-label small fw-semibold">К-сть</label>
-            <input type="number" min="0.001" step="0.001" name="quantity" class="form-control mosquito-component-qty" value="1">
+            <input type="number" min="1" step="1" name="quantity" class="form-control mosquito-component-qty" value="1">
           </div>
           <div class="col-12 col-lg-2">
             <label class="form-label small fw-semibold">Ціна, USD</label>
@@ -290,7 +309,9 @@
     const isManager = {{ request.user.is_manager|yesno:"true,false" }};
     const isSuperuser = {{ request.user.is_superuser|yesno:"true,false" }};
     const currentUserId = {{ request.user.id|default:0 }};
+    const isQuoteStatus = {% if not order or order.status == order.STATUS_QUOTE %}true{% else %}false{% endif %};
     let mosquitoComponentsCatalog = null;
+    let sendToWorkModal = null;
 
     function normalizeNumber(val, fallback = 0) {
       const num = parseFloat((val ?? '').toString().replace(',', '.'));
@@ -352,7 +373,7 @@
       $sel.empty().append('<option value="">— Колір —</option>');
       colors.forEach((color) => $sel.append(new Option(color, color)));
       const singleColor = colors.length === 1;
-      $sel.prop('disabled', colors.length === 0 || singleColor);
+      //$sel.prop('disabled', colors.length === 0 || singleColor);
       if (singleColor) {
         $sel.val(colors[0]);
       } else if (preselect) {
@@ -437,6 +458,11 @@
       $card.find('.field-error-text').remove();
     }
 
+    function requestToWork() {
+      $('#statusActionInput').val('to_work');
+      document.getElementById('mosquitoComponentsOrderForm').requestSubmit();
+    }
+
     async function addRow(initial = null) {
       await loadMosquitoComponentsCatalog();
       const index = $('#mosquitoComponentsContainer .mosquito-components-card').length;
@@ -499,7 +525,7 @@
       setFieldError($(this), '');
       const group = $(this).val();
       fillComponentNames($card, group, null);
-      $card.find('.mosquito-component-color').empty().append('<option value="">— Колір —</option>').prop('disabled', true).trigger('change');
+      $card.find('.mosquito-component-color').empty().append('<option value="">— Колір —</option>').trigger('change');
       $card.find('.mosquito-component-unit').val('');
       recalcComponentCard($card);
       recalcTotals();
@@ -556,7 +582,7 @@
 
     $('#mosquitoComponentsMarkup, #mosquitoComponentsExtraServiceAmount').on('input change', recalcTotals);
 
-    $('#mosquitoComponentsOrderForm').on('submit', function (e) {
+    function validateMosquitoComponentsOrderForm() {
       setBuilderAlert('');
       let ok = true;
       let $firstInvalid = null;
@@ -619,9 +645,37 @@
         }
       });
       if (!ok) {
-        e.preventDefault();
         const top = Math.max(($firstInvalid?.offset()?.top || 0) - 120, 0);
         window.scrollTo({ top, behavior: 'smooth' });
+      }
+      return ok;
+    }
+
+    $('#mosquitoComponentsOrderForm').on('click', 'button[data-status-action]', function (e) {
+      const action = $(this).data('status-action') || 'save';
+      if (action === 'save') {
+        if (isQuoteStatus && sendToWorkModal) {
+          e.preventDefault();
+          if (!validateMosquitoComponentsOrderForm()) {
+            return;
+          }
+          sendToWorkModal.show();
+          return;
+        }
+        $('#statusActionInput').val('save');
+        return;
+      }
+      if (action === 'to_work') {
+        e.preventDefault();
+        requestToWork();
+        return;
+      }
+      $('#statusActionInput').val(action);
+    });
+
+    $('#mosquitoComponentsOrderForm').on('submit', function (e) {
+      if (!validateMosquitoComponentsOrderForm()) {
+        e.preventDefault();
       }
     });
 
@@ -647,6 +701,21 @@
       }
     })().catch((err) => {
       alert(err?.message || 'Не вдалося завантажити прайс комплектуючих');
+    });
+
+    document.addEventListener('DOMContentLoaded', function () {
+      const modalEl = document.getElementById('sendToWorkModal');
+      if (!modalEl || typeof bootstrap === 'undefined') return;
+      sendToWorkModal = new bootstrap.Modal(modalEl);
+      document.getElementById('sendToWorkSkipBtn')?.addEventListener('click', function () {
+        sendToWorkModal.hide();
+        document.getElementById('statusActionInput').value = 'save_list';
+        document.getElementById('mosquitoComponentsOrderForm').requestSubmit();
+      });
+      document.getElementById('sendToWorkBtn')?.addEventListener('click', function () {
+        sendToWorkModal.hide();
+        requestToWork();
+      });
     });
   </script>
 {% endblock %}

@@ -4,6 +4,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django import forms as django_forms
 from django.db import models
+from django.http import JsonResponse
 from decimal import Decimal, InvalidOperation
 from .forms import RegisterForm, LoginForm, ProfileForm, ContactFormSet
 from .models import User
@@ -180,6 +181,8 @@ def clients_list_view(request):
         profile, _ = CustomerProfile.objects.get_or_create(user=target_user)
         profile.credit_allowed = bool(request.POST.get("credit_allowed"))
         profile.save(update_fields=["credit_allowed"])
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"ok": True, "credit_allowed": bool(profile.credit_allowed)})
         messages.success(request, "Статус кредиту оновлено.")
         return redirect("accounts:clients_list")
     if request.method == "POST" and request.POST.get("action") == "toggle_manager":
@@ -202,8 +205,12 @@ def clients_list_view(request):
                 value = Decimal("100")
             profile.discount_percent = value.quantize(Decimal("0.01"))
             profile.save(update_fields=["discount_percent"])
+            if request.headers.get("x-requested-with") == "XMLHttpRequest":
+                return JsonResponse({"ok": True, "discount_percent": str(profile.discount_percent)})
             messages.success(request, "Знижку оновлено.")
         except (InvalidOperation, ValueError):
+            if request.headers.get("x-requested-with") == "XMLHttpRequest":
+                return JsonResponse({"ok": False, "error": "Вкажіть коректне значення знижки (0-100)."}, status=400)
             messages.error(request, "Вкажіть коректне значення знижки (0-100).")
         return redirect("accounts:clients_list")
 

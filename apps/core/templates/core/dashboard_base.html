@@ -8,9 +8,14 @@
     .sidebar {
       width: 260px;
       min-height: calc(100vh - 56px); /* minus navbar height */
+      position: sticky;
+      top: calc(var(--app-navbar-height, 56px) + 12px);
     }
     .sidebar .nav-link {
       border-radius: .375rem;
+      padding-top: .35rem;
+      padding-bottom: .35rem;
+      margin-bottom: .1rem;
     }
     .sidebar .nav-link.active {
       background: rgba(255,255,255,.2);
@@ -21,6 +26,7 @@
       .sidebar {
         width: 100%;
         min-height: auto;
+        position: static;
       }
     }
     .avatar-fallback {

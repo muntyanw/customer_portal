@@ -73,7 +73,7 @@ def _get(lst, idx, default=""):
 
 def _to_decimal(value, default="0"):
     """EN: Convert string to Decimal with fallback. UA: Конвертація рядка в Decimal з запасним значенням."""
-    value = (str(value) or "").strip()
+    value = (value or "").strip()
     if not value:
         value = default
     try:
@@ -562,19 +562,6 @@ def _excel_plain_text(value) -> str:
     return html.unescape(str(value))
 
 
-def _format_qty_for_display(value) -> str:
-    """Normalize qty representation for Excel labels (e.g. 2 instead of 2.0)."""
-    if value in ("", None):
-        return ""
-    try:
-        dec = Decimal(str(value))
-    except Exception:
-        return str(value)
-    if dec == dec.to_integral_value():
-        return str(int(dec))
-    return format(dec.normalize(), "f").rstrip("0").rstrip(".")
-
-
 def _order_base_total(order) -> Decimal:
     """
     Return stored total (без націнки). Якщо відсутнє/нульове, рахуємо по items.
@@ -640,8 +627,6 @@ def _mosquito_sliding_side_label(value):
         return "Ліва"
     if value == "right":
         return "Права"
-    if value == "center":
-        return "До центру"
     return ""
 
 
@@ -673,17 +658,6 @@ def _collect_mosquito_option_lines(item, rate: Decimal, markup_multiplier: Decim
             }
         )
 
-    def calc_total_uah(option_name, count, *, multiply_by_order_qty=True):
-        if not count:
-            return None
-        base_price = option_prices.get(option_name, Decimal("0")) * discount_multiplier
-        line_count = Decimal(str(count))
-        charge_multiplier = quantity if multiply_by_order_qty else Decimal("1")
-        total_usd = (base_price * line_count * charge_multiplier).quantize(Decimal("0.01"))
-        if total_usd <= 0:
-            return None
-        return _round_uah_total(total_usd * rate * markup_multiplier)
-
     replacement = (data.get("replacement_mount") or "").strip()
     if replacement == "15*32":
         add_line("Заміна кріплення з 9*32 на 15*32", 1, "Заміна кріплення з 9*32 на 15*32")
@@ -694,12 +668,15 @@ def _collect_mosquito_option_lines(item, rate: Decimal, markup_multiplier: Decim
         add_line("Додаткове кріплення 9*32", data.get("extra_mount_9"), "Додаткове кріплення 9*32 (стандарт)")
         add_line("Додаткове кріплення 15*32", data.get("extra_mount_15"), "Додаткове кріплення 15*32")
         add_line("Додаткове кріплення 21*32", data.get("extra_mount_21"), "Додаткове кріплення 21*32")
+        add_line("Додатковий імпост", data.get("impost_qty"), "Додатковий імпост для внутрішніх сіток 10*30")
     elif "10*20" in product_name:
         add_line("Кріплення 9*32", data.get("extra_mount_9"), "Додаткове кріплення 9*32 (стандарт)")
         add_line("Кріплення 15*32", data.get("extra_mount_15"), "Додаткове кріплення 15*32")
         add_line("Кріплення 21*32", data.get("extra_mount_21"), "Додаткове кріплення 21*32")
         add_line("Кріплення для алюмінєвих рам", data.get("aluminum_mount_kit"), "Кріплення для алюмінєвих рам")
+        add_line("Додатковий імпост", data.get("impost_qty"), "Додотковий імпост для зовнішніх сіток 10*20")
     elif "дверні 17*25" in product_name:
+        add_line("Додатковий імпост", data.get("door_extra_impost_qty"), "Додатковий імпост для дверних сіток 17*25")
         add_line("Петлі звичайні", data.get("hinge_regular_qty"), "Петля ПВХ звичайна")
         add_line("Петлі з пружиною", data.get("hinge_spring_qty"), "Петля з пружиною")
         add_line("Защіпка пластикова", data.get("latch_qty"), "Защіпка пластикова")
@@ -718,86 +695,8 @@ def _collect_mosquito_option_lines(item, rate: Decimal, markup_multiplier: Decim
             add_line("Додаткове кріплення 21*32", data.get("extra_mount_21"), "Додаткове кріплення 21*32")
 
     extras = []
-    impost_heights = str(data.get("impost_heights") or "").strip()
-    if impost_heights:
-        impost_option_name = "Додатковий імпост для внутрішніх сіток 10*30" if "10*30" in product_name else "Додотковий імпост для зовнішніх сіток 10*20"
-        heights = [part.strip() for part in re.split(r"[,\n;]+", impost_heights) if part.strip()]
-        if heights:
-            per_impost_total_uah = calc_total_uah(impost_option_name, 1)
-            for idx, height_value in enumerate(heights, start=1):
-                extras.append(
-                    {
-                        "label": f"Імпост {idx}",
-                        "qty": 1,
-                        "height_mm": height_value,
-                        "total_uah": per_impost_total_uah,
-                    }
-                )
-        else:
-            impost_total_uah = calc_total_uah(impost_option_name, _to_int(data.get("impost_qty", 0), 0))
-            extras.append(
-                {
-                    "label": "Імпост",
-                    "qty": _to_int(data.get("impost_qty", 0), 0) or "",
-                    "height_mm": impost_heights,
-                    "total_uah": impost_total_uah,
-                }
-            )
-
-    door_main_impost_height = _to_int(data.get("door_impost_height", 0), 0)
-    if (not bool(data.get("door_no_impost"))) and door_main_impost_height > 0:
-        extras.append(
-            {
-                "label": "Імпост",
-                "qty": 1,
-                "height_mm": door_main_impost_height,
-                "total_uah": None,
-            }
-        )
-
-    door_extra_impost_heights = str(data.get("door_extra_impost_heights") or "").strip()
-    if door_extra_impost_heights:
-        heights = [part.strip() for part in re.split(r"[,\n;]+", door_extra_impost_heights) if part.strip()]
-        per_extra_total_uah = calc_total_uah("Додатковий імпост для дверних сіток 17*25", 1)
-        if heights:
-            for idx, height_value in enumerate(heights, start=1):
-                extras.append(
-                    {
-                        "label": f"Додатковий імпост {idx}",
-                        "qty": 1,
-                        "height_mm": height_value,
-                        "total_uah": per_extra_total_uah,
-                    }
-                )
-        else:
-            extras.append(
-                {
-                    "label": "Додатковий імпост",
-                    "qty": _to_int(data.get("door_extra_impost_qty", 0), 0) or "",
-                    "height_mm": door_extra_impost_heights,
-                    "total_uah": calc_total_uah("Додатковий імпост для дверних сіток 17*25", _to_int(data.get("door_extra_impost_qty", 0), 0)),
-                }
-            )
-
     for key, value in data.items():
-        if key in {
-            "replacement_mount",
-            "extra_mount_9",
-            "extra_mount_15",
-            "extra_mount_21",
-            "impost_qty",
-            "impost_heights",
-            "door_impost_height",
-            "door_no_impost",
-            "door_extra_impost_qty",
-            "door_extra_impost_heights",
-            "hinge_regular_qty",
-            "hinge_spring_qty",
-            "latch_qty",
-            "magnet_qty",
-            "aluminum_mount_kit",
-            "brake_qty",
-        }:
+        if key in {"replacement_mount", "extra_mount_9", "extra_mount_15", "extra_mount_21", "impost_qty", "door_extra_impost_qty", "hinge_regular_qty", "hinge_spring_qty", "latch_qty", "magnet_qty", "aluminum_mount_kit", "brake_qty"}:
             continue
         if value in ("", None, False, 0, "0"):
             continue
@@ -949,15 +848,6 @@ def _build_order_workbook(
     border_horiz = Border(top=thin, bottom=thin)
     center_align = Alignment(horizontal="center", vertical="center")
     center_wrap_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    mosquito_only_order = (
-        client_info_mode == "order"
-        and order.mosquito_items.exists()
-        and not order.items.exists()
-        and not order.component_items.exists()
-        and not order.fabric_items.exists()
-        and not order.mosquito_component_items.exists()
-    )
-    grid_max_col = 10 if mosquito_only_order else 12
 
     def add_workbook_logo():
         fallback_text = _proposal_logo_fallback_text(profile, order.customer)
@@ -1040,10 +930,10 @@ def _build_order_workbook(
     for r in range(1, ws.max_row + 1):
         ws.cell(row=r, column=2).alignment = center_align
 
-    # merge client info value cells and add borders within active grid.
+    # merge C-L in the client info rows and add borders B-L, center text
     for r in range(1, client_info_rows + 1):
-        ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=grid_max_col)
-        for c in range(2, grid_max_col + 1):
+        ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=12)
+        for c in range(2, 13):
             cell = ws.cell(row=r, column=c)
             cell.border = border_all
         ws.cell(row=r, column=3).alignment = center_wrap_align
@@ -1054,7 +944,7 @@ def _build_order_workbook(
         website_cell.font = Font(color="0563C1", underline="single")
 
     # пустая строка после блоку приміток
-    ws.append([""] * grid_max_col)
+    ws.append([""] * 12)
     header_aux_row = ws.max_row
     if client_info_mode == "proposal":
         extra_service_label = (getattr(order, "extra_service_label", "") or "").strip()
@@ -1085,9 +975,9 @@ def _build_order_workbook(
     doc_label = "Пропозиція" if client_info_mode == "proposal" else "Замовлення"
 
     # Show "Замовлення/Пропозиція № ... від ..." once in the header instead of repeating it per position.
-    ws.append(["", f"{doc_label} № {order.pk} від {created_str}"] + [""] * (grid_max_col - 2))
+    ws.append(["", f"{doc_label} № {order.pk} від {created_str}"] + [""] * 10)
     doc_title_row = ws.max_row
-    ws.merge_cells(start_row=doc_title_row, start_column=2, end_row=doc_title_row, end_column=grid_max_col)
+    ws.merge_cells(start_row=doc_title_row, start_column=2, end_row=doc_title_row, end_column=12)
     ws.cell(row=doc_title_row, column=2).alignment = center_wrap_align
     ws.cell(row=doc_title_row, column=2).font = Font(bold=True, size=14)
 
@@ -1272,7 +1162,14 @@ def _build_order_workbook(
     if order.mosquito_items.exists():
         # widen column C for mosquito items
         ws.column_dimensions["C"].width = max(ws.column_dimensions["C"].width or 0, 30)
-
+        
+        # Title row - don't merge, just style the cells (B-L)
+        ws.append([""] + ["Москітні сітки виріб"] + [""] * 11)
+        mos_title_row = ws.max_row
+        for c in range(2, 13):
+            ws.cell(row=mos_title_row, column=c).font = Font(bold=True, size=14)
+            ws.cell(row=mos_title_row, column=c).alignment = center_wrap_align
+        
         # Headers row (B-J) - 10 columns
         mos_headers = ["", "Виріб", "Колір профілю", "Полотно", "Ширина, мм", "Висота, мм", "Площа, м²", "Сторона зсуву", "К-сть", "Вартість, грн"]
         ws.append(mos_headers)
@@ -1313,9 +1210,7 @@ def _build_order_workbook(
             for c in range(1, 11):
                 ws.cell(row=mos_data_row, column=c).border = border_all
                 ws.cell(row=mos_data_row, column=c).alignment = center_align
-            ws.cell(row=mos_data_row, column=2).alignment = center_wrap_align
-            ws.cell(row=mos_data_row, column=3).alignment = center_wrap_align
-            ws.cell(row=mos_data_row, column=4).alignment = center_wrap_align
+            item_total_rows.append(mos_data_row)
             
             # Додатково section - 8 columns with borders (I-J empty, no borders)
             # Quantity in column I (9), price in J (10)
@@ -1323,39 +1218,25 @@ def _build_order_workbook(
             for line in options_rows:
                 ws.append([""] * 10)
                 cur_row = ws.max_row
-                # Label merged C-H (3-8), qty in I (9), price in J (10)
-                ws.merge_cells(start_row=cur_row, start_column=3, end_row=cur_row, end_column=8)
+                # Label merged C-I (3-9), price in J (10)
+                ws.merge_cells(start_row=cur_row, start_column=3, end_row=cur_row, end_column=9)
                 label_cell = ws.cell(row=cur_row, column=3)
                 label_cell.value = _excel_plain_text(f"  {line['label']}")
                 label_cell.alignment = Alignment(vertical="center")
                 for c in range(2, 11):
                     ws.cell(row=cur_row, column=c).border = border_all
-                ws.cell(row=cur_row, column=9).value = _format_qty_for_display(line.get("qty"))
-                ws.cell(row=cur_row, column=9).alignment = center_align
                 ws.cell(row=cur_row, column=10).value = float(line["total_uah"])
-                ws.cell(row=cur_row, column=10).alignment = center_align
             
             for line in extra_rows:
                 ws.append([""] * 10)
                 cur_row = ws.max_row
-                height_val = line.get("height_mm")
-                if height_val not in ("", None):
-                    # C-E: label, F: height (mm), I: qty
-                    ws.merge_cells(start_row=cur_row, start_column=3, end_row=cur_row, end_column=5)
-                    ws.cell(row=cur_row, column=6).value = _excel_plain_text(height_val)
-                    ws.cell(row=cur_row, column=6).alignment = center_align
-                else:
-                    ws.merge_cells(start_row=cur_row, start_column=3, end_row=cur_row, end_column=8)
+                ws.merge_cells(start_row=cur_row, start_column=3, end_row=cur_row, end_column=9)
                 label_cell = ws.cell(row=cur_row, column=3)
                 label_cell.value = _excel_plain_text(f"  {line['label']}")
                 label_cell.alignment = Alignment(vertical="center")
                 for c in range(2, 11):
                     ws.cell(row=cur_row, column=c).border = border_all
-                ws.cell(row=cur_row, column=9).value = _format_qty_for_display(line.get("qty"))
-                ws.cell(row=cur_row, column=9).alignment = center_align
-                if line.get("total_uah") is not None:
-                    ws.cell(row=cur_row, column=10).value = float(line["total_uah"])
-                    ws.cell(row=cur_row, column=10).alignment = center_align
+                ws.cell(row=cur_row, column=10).value = line["qty"]
             
             end_opt_row = ws.max_row
             
@@ -1382,6 +1263,7 @@ def _build_order_workbook(
             ws.append([""] * 7 + ["Всього:", "", ""])
             tot_row = ws.max_row
             ws.cell(row=tot_row, column=8).value = "Всього:"
+            ws.cell(row=tot_row, column=9).value = mos.quantity or ""
             ws.cell(row=tot_row, column=10).value = float(total_uah)
             item_total_rows.append(ws.max_row)
             for c in range(1, 11):
@@ -1466,9 +1348,6 @@ def _build_order_workbook(
     # add borders to all populated grid cells (A-L)
     for r in range(1, ws.max_row + 1):
         for c in range(1, 13):
-            if c > grid_max_col:
-                ws.cell(row=r, column=c).border = Border()
-                continue
             if r in gap_rows:
                 if c == 1:
                     ws.cell(row=r, column=c).border = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -1484,7 +1363,7 @@ def _build_order_workbook(
     # override borders: auxiliary row after header horizontal-only, before total labels remove verticals
     for c in range(1, 7):
         ws.cell(row=header_aux_row, column=c).border = Border()
-    for c in range(7, grid_max_col + 1):
+    for c in range(7, 13):
         ws.cell(row=header_aux_row, column=c).border = border_horiz
     ws.cell(row=header_aux_row, column=1).border = Border(left=thin)
     # overall total row: remove verticals before text (cols 1-6)
@@ -1495,18 +1374,6 @@ def _build_order_workbook(
         for c in range(1, 10):
             ws.cell(row=r, column=c).border = border_horiz
         ws.cell(row=r, column=1).border = Border(left=thin, right=thin)
-
-    # For mosquito production workbook, constrain print to A:J and fit to one page.
-    # This avoids auto-spilling to a second page because of service columns K/L.
-    if mosquito_only_order:
-        ws.print_area = f"A1:J{ws.max_row}"
-        ws.sheet_properties.pageSetUpPr.fitToPage = True
-        ws.page_setup.fitToWidth = 1
-        ws.page_setup.fitToHeight = 1
-        ws.page_margins.left = 0.25
-        ws.page_margins.right = 0.25
-        ws.page_margins.top = 0.5
-        ws.page_margins.bottom = 0.5
 
     buffer = BytesIO()
     wb.save(buffer)
@@ -3835,7 +3702,7 @@ def _validate_mosquito_item_options(item):
             raise ValueError(f"Для {item['product_type']} кількість висот додаткових імпостів має відповідати кількості додаткових імпостів.")
 
 
-def _calculate_mosquito_options_total(product_type, quantity, options_data, option_prices, line_discount_multiplier=Decimal("1")):
+def _calculate_mosquito_options_total(product_type, quantity, options_data, option_prices):
     name = (product_type or "").lower()
     qty = Decimal(max(int(quantity or 1), 1))
     data = options_data or {}
@@ -3846,7 +3713,7 @@ def _calculate_mosquito_options_total(product_type, quantity, options_data, opti
 
     def add_named(option_name, count, *, multiply_by_order_qty=True):
         nonlocal total
-        price = option_prices.get(option_name, Decimal("0")) * Decimal(line_discount_multiplier or 0)
+        price = option_prices.get(option_name, Decimal("0"))
         multiplier = qty if multiply_by_order_qty else Decimal("1")
         total += price * Decimal(str(count)) * multiplier
 
@@ -3912,9 +3779,9 @@ def _recalculate_mosquito_items(raw_items, discount_multiplier):
         if not product:
             raise ValueError(f"Не знайдено виріб у прайсі: {item['product_type']} / {item['profile_color']}")
         mesh_prices = product.get("mesh_prices_usd_sqm") or {}
-        if not item["mesh_type"] or item["mesh_type"] not in mesh_prices:
-            raise ValueError(f"Для {item['product_type']} немає ціни по полотну {item['mesh_type']}")
         price_usd_sqm = _to_decimal(mesh_prices.get(item["mesh_type"]))
+        if price_usd_sqm is None:
+            raise ValueError(f"Для {item['product_type']} немає ціни по полотну {item['mesh_type']}")
         actual_area = (Decimal(item["width_mm"]) * Decimal(item["height_mm"])) / Decimal("1000000")
         min_area = _to_decimal(product.get("min_area_sqm"), default="0")
         calc_area = actual_area if actual_area >= min_area else min_area
@@ -3924,7 +3791,6 @@ def _recalculate_mosquito_items(raw_items, discount_multiplier):
             item["quantity"],
             item.get("options_data") or {},
             option_prices,
-            discount_multiplier,
         )
         subtotal_usd = (base_subtotal_usd + options_total_usd).quantize(Decimal("0.01"))
         warnings = build_mosquito_warnings(
@@ -4027,7 +3893,6 @@ def order_mosquito_builder(request, pk):
         if readonly:
             messages.warning(request, "Це замовлення можна лише переглядати.")
             return redirect("orders:order_mosquito_builder", pk=order.pk)
-        action = request.POST.get("status_action") or "save"
         if not _save_order_header_only(request, order):
             return redirect("orders:order_mosquito_builder", pk=order.pk)
         raw_items = _parse_mosquito_items_from_post(request.POST)
@@ -4038,18 +3903,13 @@ def order_mosquito_builder(request, pk):
             discount_multiplier, discount_pct = _customer_discount_multiplier(order.customer)
             recalculated_items, total_usd = _recalculate_mosquito_items(raw_items, discount_multiplier)
         except Exception as exc:
-            logger.exception("Failed to save mosquito order %s", order.pk)
             messages.error(request, str(exc))
             return redirect("orders:order_mosquito_builder", pk=order.pk)
 
         for item in recalculated_items:
-            if item.get("requires_sliding_side"):
-                allowed_sliding_sides = ("left", "right")
-                if "плісе двочаст" in (item.get("product_type") or "").lower():
-                    allowed_sliding_sides = ("center",)
-                if item.get("sliding_side") not in allowed_sliding_sides:
-                    messages.error(request, f"Для {item['product_type']} потрібно обрати сторону зсуву.")
-                    return redirect("orders:order_mosquito_builder", pk=order.pk)
+            if item.get("requires_sliding_side") and item.get("sliding_side") not in ("left", "right"):
+                messages.error(request, f"Для {item['product_type']} потрібно обрати сторону зсуву.")
+                return redirect("orders:order_mosquito_builder", pk=order.pk)
             try:
                 _validate_mosquito_item_options(item)
             except ValueError as exc:
@@ -4086,23 +3946,7 @@ def order_mosquito_builder(request, pk):
             order.eur_rate_at_creation = order.eur_rate
         order.discount_percent = discount_pct
         order.save(update_fields=["total_eur", "eur_rate", "eur_rate_at_creation", "discount_percent"])
-
-        new_status = None
-        if action == "to_work":
-            new_status = Order.STATUS_IN_WORK
-        elif action == "next":
-            new_status = order.next_status()
-        elif action == "prev":
-            new_status = order.prev_status()
-
-        if new_status and not _apply_status_change(order, new_status, request):
-            return redirect("orders:order_mosquito_builder", pk=order.pk)
-
         messages.success(request, "Замовлення москітних сіток збережено.")
-        if action == "to_work":
-            return redirect("orders:mosquito_list")
-        if action == "save_list":
-            return redirect("orders:mosquito_list")
         return redirect("orders:order_mosquito_builder", pk=order.pk)
     return _render_mosquito_builder_page(
         request,
@@ -4161,10 +4005,10 @@ def _recalculate_mosquito_component_items(raw_items, discount_multiplier):
     recalculated = []
     total_usd = Decimal("0")
     for item in raw_items:
-        #logger.info("item[name] = %s",  item["name"])
-        #logger.info("item[color] = %s",  item["color"])
-        #logger.info("item[unit] = %s",  item["unit"])
-        #logger.info("------------------------------------------------------------------")
+        logger.info("item[name] = %s",  item["name"])
+        logger.info("item[color] = %s",  item["color"])
+        logger.info("item[unit] = %s",  item["unit"])
+        logger.info("------------------------------------------------------------------")
         matched = next(
             (
                 row for row in price_rows
@@ -4175,7 +4019,7 @@ def _recalculate_mosquito_component_items(raw_items, discount_multiplier):
             None,
         )
         if not matched:
-            raise ValueError(f"Не знайдено комплектуючу у прайсі: {item['name']} / {item['color']} / {item['unit']}")
+            raise ValueError(f"class="btn btn-primary": {item['name']} / {item['color']} / {item['unit']}")
         quantity = _to_decimal(item.get("quantity"), default="0")
         if quantity <= 0:
             raise ValueError(f"Для {item['name']} потрібно вказати кількість більше нуля.")
@@ -4252,11 +4096,9 @@ def order_mosquito_components_builder(request, pk):
         if readonly:
             messages.warning(request, "Це замовлення можна лише переглядати.")
             return redirect("orders:order_mosquito_components_builder", pk=order.pk)
-        action = request.POST.get("status_action") or "save"
         try:
             if not _save_order_header_only(request, order):
                 return redirect("orders:order_mosquito_components_builder", pk=order.pk)
-            #logger.info("request.POST - %s", request.POST)
             raw_items = _parse_mosquito_component_items_from_post(request.POST)
             if not raw_items:
                 messages.error(request, "Додайте хоча б одну комплектуючу перед збереженням.")
@@ -4291,23 +4133,7 @@ def order_mosquito_components_builder(request, pk):
             order.eur_rate_at_creation = order.eur_rate
         order.discount_percent = discount_pct
         order.save(update_fields=["total_eur", "eur_rate", "eur_rate_at_creation", "discount_percent"])
-
-        new_status = None
-        if action == "to_work":
-            new_status = Order.STATUS_IN_WORK
-        elif action == "next":
-            new_status = order.next_status()
-        elif action == "prev":
-            new_status = order.prev_status()
-
-        if new_status and not _apply_status_change(order, new_status, request):
-            return redirect("orders:order_mosquito_components_builder", pk=order.pk)
-
         messages.success(request, "Замовлення комплектуючих до москітних сіток збережено.")
-        if action == "to_work":
-            return redirect("orders:mosquito_components_list")
-        if action == "save_list":
-            return redirect("orders:mosquito_components_list")
         return redirect("orders:order_mosquito_components_builder", pk=order.pk)
     return _render_mosquito_components_builder_page(request, order)
 

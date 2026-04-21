@@ -4,13 +4,29 @@
 {% block head_extra %}
   {{ block.super }}
   <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+  <style>
+    .clients-sticky-head {
+      position: sticky;
+      top: calc(var(--app-navbar-height, 56px) + 8px);
+      z-index: 40;
+      background: var(--bs-light);
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
+    }
+    .clients-sticky-head .row {
+      background: var(--bs-light);
+    }
+    .card.shadow-sm,
+    .card.shadow-sm .card-body {
+      overflow: visible;
+    }
+  </style>
 {% endblock %}
 {% block dashboard_title %}Користувачі{% endblock %}
 {% block dashboard_heading %}Користувачі{% endblock %}
 
 {% block dashboard_content %}
-  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-    <form method="get" class="d-flex flex-wrap align-items-center gap-2 w-100 flex-md-nowrap">
+  <div class="d-flex flex-wrap flex-lg-nowrap align-items-center gap-2 mb-3">
+    <form method="get" class="d-flex flex-wrap flex-lg-nowrap align-items-center gap-2 flex-grow-1 mb-0">
       <select name="customer" id="clientsCustomerFilter" class="form-select form-select-sm" style="min-width: 240px;" data-placeholder="Усі клієнти">
         <option value="">Усі клієнти</option>
         {% for c in customer_options %}
@@ -19,49 +35,47 @@
           </option>
         {% endfor %}
       </select>
-      <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm flex-grow-1" placeholder="Пошук (ПІБ, email, телефон)">
+      <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm flex-grow-1" style="min-width: 280px;" placeholder="Пошук (ПІБ, email, телефон)">
       <button type="submit" class="btn btn-primary btn-sm">Фільтрувати</button>
       <a href="{% url 'accounts:clients_list' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
     </form>
-    <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
+    <div class="ms-lg-auto d-flex align-items-center gap-2 flex-nowrap">
       {% if request.user.is_superuser %}
         <a href="{% url 'accounts:clients_trash' %}" class="btn btn-outline-secondary btn-sm">
           <i class="bi bi-trash me-1"></i>Кошик
         </a>
       {% endif %}
-      <div class="btn-group btn-group-sm" role="group" aria-label="Сортування">
-        <a class="btn-primary {% if sort == 'full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=full_name">Ім'я</a>
-        <a class="btn-primary {% if sort == '-full_name' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-full_name">Ім'я ↓</a>
-        <a class="btn-primary {% if sort == 'email' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=email">Email</a>
-        <a class="btn-primary {% if sort == '-email' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-email">Email ↓</a>
-        <a class="btn-primary {% if sort == 'phone' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=phone">Телефон</a>
-        <a class="btn-primary {% if sort == '-phone' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-phone">Телефон ↓</a>
-        <a class="btn-primary {% if sort == 'company' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=company">Компанія</a>
-        <a class="btn-primary {% if sort == '-company' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-company">Компанія ↓</a>
-        <a class="btn-primary {% if sort == 'balance' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=balance">Баланс</a>
-        <a class="btn-primary {% if sort == '-balance' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-balance">Баланс ↓</a>
-        <a class="btn-primary {% if sort == 'discount' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=discount">Знижка</a>
-        <a class="btn-primary {% if sort == '-discount' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-discount">Знижка ↓</a>
-        <a class="btn-primary {% if sort == 'credit' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=credit">Кредит</a>
-        <a class="btn-primary {% if sort == '-credit' %}active{% endif %}" href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort=-credit">Кредит ↓</a>
-      </div>
       <a href="{% url 'accounts:client_create' %}" class="btn btn-success"><i class="bi bi-plus-lg me-1"></i> Створити акаунт</a>
     </div>
   </div>
 
   <div class="card shadow-sm">
     <div class="card-body p-0">
-      <div class="d-none d-md-block border-bottom bg-light">
+      <div class="d-none d-md-block border-bottom bg-light clients-sticky-head">
         <div class="row g-2 align-items-center px-3 py-2 text-uppercase small fw-semibold text-muted">
           <div class="col-12 col-md-auto" style="width: 56px;">ID</div>
           <div class="col-12 col-md-1"></div>
-          <div class="col-12 col-md">Назва компанії</div>
-          <div class="col-12 col-md"><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'full_name' %}-full_name{% else %}full_name{% endif %}">ПІБ</a></div>
-          <div class="col-12 col-md"><a href="?{% if q %}q={{ q }}&amp;{% endif %}sort={% if sort == 'email' %}-email{% else %}email{% endif %}">Email</a></div>
-          <div class="col-6 col-md">Телефон</div>
-          <div class="col-6 col-md">Баланс</div>
-          <div class="col-6 col-md-auto">Знижка, %</div>
-          <div class="col-6 col-md-auto">Кредит</div>
+          <div class="col-12 col-md">
+            <a href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort={% if sort == 'company' %}-company{% else %}company{% endif %}" class="text-muted text-decoration-none">Назва компанії</a>
+          </div>
+          <div class="col-12 col-md">
+            <a href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort={% if sort == 'full_name' %}-full_name{% else %}full_name{% endif %}" class="text-muted text-decoration-none">ПІБ</a>
+          </div>
+          <div class="col-12 col-md">
+            <a href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort={% if sort == 'email' %}-email{% else %}email{% endif %}" class="text-muted text-decoration-none">Email</a>
+          </div>
+          <div class="col-6 col-md">
+            <a href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort={% if sort == 'phone' %}-phone{% else %}phone{% endif %}" class="text-muted text-decoration-none">Телефон</a>
+          </div>
+          <div class="col-6 col-md">
+            <a href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort={% if sort == 'balance' %}-balance{% else %}balance{% endif %}" class="text-muted text-decoration-none">Баланс</a>
+          </div>
+          <div class="col-6 col-md-auto">
+            <a href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort={% if sort == 'discount' %}-discount{% else %}discount{% endif %}" class="text-muted text-decoration-none">Знижка, %</a>
+          </div>
+          <div class="col-6 col-md-auto">
+            <a href="?{% if q %}q={{ q }}&amp;{% endif %}{% if customer_filter %}customer={{ customer_filter }}&amp;{% endif %}sort={% if sort == 'credit' %}-credit{% else %}credit{% endif %}" class="text-muted text-decoration-none">Кредит</a>
+          </div>
           <div class="col-6 col-md-auto">Менеджер</div>
           <div class="col-12 col-md-3">Дії</div>
         </div>
@@ -135,7 +149,7 @@
                 {% csrf_token %}
                 <input type="hidden" name="action" value="toggle_credit">
                 <input type="hidden" name="user_id" value="{{ u.id }}">
-                <input class="form-check-input" type="checkbox" name="credit_allowed" value="1" {% if u.customerprofile.credit_allowed %}checked{% endif %} onchange="this.form.submit()">
+                <input class="form-check-input js-credit-toggle" type="checkbox" name="credit_allowed" value="1" {% if u.customerprofile.credit_allowed %}checked{% endif %}>
               </form>
             </div>
             <div class="col-6 col-md-auto">
@@ -251,6 +265,93 @@
         }
         input.addEventListener('input', toggleButton)
         toggleButton()
+      })
+
+      document.querySelectorAll('.discount-form').forEach(function (form) {
+        form.addEventListener('submit', async function (e) {
+          e.preventDefault()
+          const input = form.querySelector('.discount-input')
+          const button = form.querySelector('.save-discount-btn')
+          const submitUrl = form.getAttribute('action') || window.location.href
+          if (!input) return
+          const formData = new FormData(form)
+          if (button) button.disabled = true
+          input.disabled = true
+          try {
+            const response = await fetch(submitUrl, {
+              method: 'POST',
+              body: formData,
+              credentials: 'same-origin',
+              headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json',
+              },
+            })
+            const data = await response.json().catch(() => ({}))
+            if (!response.ok || !data.ok) {
+              throw new Error(data.error || 'Не вдалося оновити знижку')
+            }
+            const saved = parseFloat(String(data.discount_percent || input.value || '0').replace(',', '.'))
+            const normalized = Number.isFinite(saved) ? saved.toFixed(2) : input.value
+            input.value = normalized
+            input.dataset.initial = normalized
+            input.dataset.rawValue = normalized
+            if (button) button.classList.add('d-none')
+          } catch (err) {
+            if (window.showToast) {
+              window.showToast(err.message || 'Не вдалося оновити знижку', 'danger')
+            } else {
+              alert(err.message || 'Не вдалося оновити знижку')
+            }
+          } finally {
+            input.disabled = false
+            if (button) button.disabled = false
+          }
+        })
+      })
+
+      document.querySelectorAll('.js-credit-toggle').forEach(function (input) {
+        input.addEventListener('change', async function () {
+          const form = input.closest('form')
+          if (!form) return
+          const submitUrl = form.getAttribute('action') || window.location.href
+          const previous = !input.checked
+          input.disabled = true
+          try {
+            const formData = new FormData(form)
+            if (input.checked) {
+              formData.set('credit_allowed', '1')
+            } else {
+              formData.delete('credit_allowed')
+            }
+            const response = await fetch(submitUrl, {
+              method: 'POST',
+              body: formData,
+              credentials: 'same-origin',
+              headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json',
+              },
+            })
+            if (!response.ok) {
+              throw new Error('Не вдалося оновити кредит')
+            }
+            const data = await response.json()
+            if (!data || !data.ok) {
+              throw new Error('Не вдалося оновити кредит')
+            }
+            input.checked = !!data.credit_allowed
+          } catch (e) {
+            input.checked = previous
+            if (window.showToast) {
+              window.showToast('Не вдалося оновити статус кредиту', 'danger')
+            } else {
+              alert('Не вдалося оновити статус кредиту')
+            }
+          } finally {
+            input.disabled = false
+          }
+        })
       })
     })
   </script>
