@@ -83,7 +83,7 @@
     {% csrf_token %}
     <input type="hidden" name="eur_rate_at_creation" class="eur_rate_at_creation" />
     <input type="hidden" name="status_action" id="statusActionInput" value="save" />
-    <input type="hidden" name="next_url" id="nextUrlInput" value="" />
+    <input type="hidden" name="next_url" id="nextUrlInput" value="{{ return_url|default:'' }}" />
     <fieldset {% if readonly %}disabled{% endif %}>
 
     <div class="mb-3">
@@ -201,6 +201,7 @@
       {% if not readonly %}
         <div class="d-flex flex-wrap gap-2">
           <button type="submit" class="btn btn-primary" name="status_action" value="save" data-status-action="save">Зберегти</button>
+          <button type="submit" class="btn btn-outline-primary" name="status_action" value="save_stay" data-status-action="save_stay">Зберегти і залишитись</button>
           {% if order %}
             {% if order.status == order.STATUS_QUOTE %}
               <button type="submit" class="btn btn-success" name="status_action" value="to_work" data-status-action="to_work">В роботу</button>
@@ -415,7 +416,7 @@
 
     // EN: Global builder context from Django
     // UA: Глобальний контекст білдера з Django
-    const builderOrderId = {{ order.id|default:"null" }};
+    let builderOrderId = {{ order.id|default:"null" }};
     const builderComponents = {{ components_json|safe|default:"[]" }};
     const paymentMessage = "{{ payment_message_text|default:''|escapejs }}"
     const paymentShortageRaw = "{{ payment_shortage.shortage|default:''|escapejs }}"
@@ -452,6 +453,89 @@
       $('#statusActionInput').val(action);
       isDirty = false;
       document.getElementById('componentsOrderForm').requestSubmit();
+    }
+
+    function validateComponentsOrderForm() {
+      let ok = true;
+
+      const $cust = $('#componentsOrderCustomer');
+      if ($cust.length) {
+        if (!$cust.val()) {
+          ok = false;
+          $cust.addClass('is-invalid');
+        } else {
+          $cust.removeClass('is-invalid');
+        }
+      }
+
+      const $cards = $componentsContainer.find('.component-card');
+      if ($cards.length === 0) {
+        ok = false;
+      }
+
+      $cards.each(function () {
+        const $c = $(this);
+        const name = $c.find('.component-name').val();
+        const qty = componentQuantityForCalc($c);
+        const unit = $c.find('.component-unit').val() || '';
+        const visibleQty = normalizeNumber($c.find('.component-qty').val(), 0);
+
+        if (!name || qty <= 0) {
+          ok = false;
+          if (!name) {
+            $c.find('.component-name').addClass('is-invalid');
+          }
+          if (qty <= 0) {
+            $c.find('.component-qty').addClass('is-invalid');
+          }
+        } else {
+          $c.find('.component-name, .component-qty').removeClass('is-invalid');
+        }
+
+        if (isMeterUnit(unit) && (!Number.isInteger(visibleQty) || visibleQty <= 0)) {
+          ok = false;
+          $c.find('.component-qty').addClass('is-invalid');
+        }
+      });
+
+      if (!ok) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        window.showToast('Перевірте форму: клієнт та комплектуючі мають бути заповнені', 'warning');
+      }
+      return ok;
+    }
+
+    async function saveAndStayComponents() {
+      if (!validateComponentsOrderForm()) return;
+      const form = document.getElementById('componentsOrderForm');
+      const formData = new FormData(form);
+      formData.set('status_action', 'save_stay');
+      formData.set('next_url', $('#nextUrlInput').val() || '');
+      const $btn = $('button[data-status-action="save_stay"]');
+      $btn.prop('disabled', true);
+      try {
+        const response = await fetch(window.location.href, {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRFToken': getCsrf(),
+          },
+          credentials: 'same-origin',
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || 'Не вдалося зберегти замовлення');
+        }
+        if (data.order_id) builderOrderId = data.order_id;
+        if (data.order_url) window.history.replaceState({}, '', data.order_url);
+        isDirty = false;
+        window.showToast(data.message || 'Замовлення збережено.', 'success');
+      } catch (e) {
+        window.showToast(e.message || 'Не вдалося зберегти замовлення', 'danger');
+      } finally {
+        $btn.prop('disabled', false);
+      }
     }
 
     function buildPaymentMessage() {
@@ -1011,52 +1095,8 @@
     // ---------- Submit validation ----------
 
     $('#componentsOrderForm').on('submit', function (e) {
-      let ok = true;
-
-      const $cust = $('#componentsOrderCustomer');
-      if ($cust.length) {
-        if (!$cust.val()) {
-          ok = false;
-          $cust.addClass('is-invalid');
-        } else {
-          $cust.removeClass('is-invalid');
-        }
-      }
-
-      const $cards = $componentsContainer.find('.component-card');
-      if ($cards.length === 0) {
-        ok = false;
-      }
-
-      $cards.each(function () {
-        const $c = $(this);
-        const name = $c.find('.component-name').val();
-        const qty = componentQuantityForCalc($c);
-        const unit = $c.find('.component-unit').val() || '';
-        const visibleQty = normalizeNumber($c.find('.component-qty').val(), 0);
-
-        if (!name || qty <= 0) {
-          ok = false;
-          if (!name) {
-            $c.find('.component-name').addClass('is-invalid');
-          }
-          if (qty <= 0) {
-            $c.find('.component-qty').addClass('is-invalid');
-          }
-        } else {
-          $c.find('.component-name, .component-qty').removeClass('is-invalid');
-        }
-
-        if (isMeterUnit(unit) && (!Number.isInteger(visibleQty) || visibleQty <= 0)) {
-          ok = false;
-          $c.find('.component-qty').addClass('is-invalid');
-        }
-      });
-
-      if (!ok) {
+      if (!validateComponentsOrderForm()) {
         e.preventDefault();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        window.showToast('Перевірте форму: клієнт та комплектуючі мають бути заповнені', 'warning');
       }
     });
 
@@ -1065,6 +1105,12 @@
       if (action === 'save') {
         e.preventDefault();
         sendToWorkModal.show();
+        return;
+      }
+      if (action === 'save_stay') {
+        e.preventDefault();
+        $('#statusActionInput').val(action);
+        saveAndStayComponents();
         return;
       }
       if (action === 'to_work') {

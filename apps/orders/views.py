@@ -84,6 +84,33 @@ def _to_decimal(value, default="0"):
         return Decimal(default)
 
 
+def _get_safe_return_url(request):
+    return_url = (request.POST.get("next_url") or request.GET.get("next") or "").strip()
+    if return_url and not url_has_allowed_host_and_scheme(
+        return_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return_url = ""
+    return return_url
+
+
+def _builder_save_stay_response(request, order, route_name, return_url=""):
+    builder_url = reverse(route_name, args=[order.pk])
+    if return_url:
+        builder_url = f"{builder_url}?{urlencode({'next': return_url})}"
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return JsonResponse(
+            {
+                "ok": True,
+                "message": "Замовлення збережено.",
+                "order_id": order.pk,
+                "order_url": builder_url,
+            }
+        )
+    return redirect(builder_url)
+
+
 def _to_int(value, default=0):
     """EN: Safe int conversion with fallback. UA: Безпечне перетворення в int із запасним значенням."""
     try:
@@ -4018,6 +4045,7 @@ def _render_mosquito_builder_page(
     title,
     stage_message,
 ):
+    return_url = _get_safe_return_url(request)
     readonly = bool(order and (not is_manager(request.user) and order.status != Order.STATUS_QUOTE))
     proposal_token = _proposal_token(order) if order else None
     proposal_page_url = reverse("orders:proposal_page", args=[proposal_token]) if proposal_token else None
@@ -4064,6 +4092,7 @@ def _render_mosquito_builder_page(
         "mosquito_builder_title": title,
         "mosquito_items_json": json.dumps(items_payload, ensure_ascii=False),
         "customer_discount_percent_js": format(_normalize_discount_percent(getattr(order, "discount_percent", Decimal("0")) if order else getattr(getattr(request.user, "customerprofile", None), "discount_percent", Decimal("0"))), "f"),
+        "return_url": return_url,
     }
     return render(request, template_name, context)
 
@@ -4071,6 +4100,7 @@ def _render_mosquito_builder_page(
 @login_required
 def order_mosquito_builder(request, pk):
     order = get_object_or_404(Order, pk=pk, deleted=False)
+    return_url = _get_safe_return_url(request)
     readonly = bool(order and (not is_manager(request.user) and order.status != Order.STATUS_QUOTE))
     if request.method == "POST":
         if readonly:
@@ -4157,7 +4187,8 @@ def order_mosquito_builder(request, pk):
         if new_status and not _apply_status_change(order, new_status, request):
             return redirect("orders:order_mosquito_builder", pk=order.pk)
 
-        messages.success(request, "Замовлення москітних сіток збережено.")
+        if action == "save_stay":
+            return _builder_save_stay_response(request, order, "orders:order_mosquito_builder", return_url)
         if action == "to_work":
             return redirect("orders:mosquito_list")
         if action == "save_list":
@@ -4190,7 +4221,11 @@ def order_mosquito_builder_new(request):
         "Замовлення (москітні сітки)",
         rate=get_current_usd_rate(),
     )
-    return redirect("orders:order_mosquito_builder", pk=order.pk)
+    builder_url = reverse("orders:order_mosquito_builder", args=[order.pk])
+    return_url = _get_safe_return_url(request)
+    if return_url:
+        builder_url = f"{builder_url}?{urlencode({'next': return_url})}"
+    return redirect(builder_url)
 
 
 def _parse_mosquito_component_items_from_post(post):
@@ -4267,6 +4302,7 @@ def _recalculate_mosquito_component_items(raw_items, discount_multiplier):
 
 
 def _render_mosquito_components_builder_page(request, order):
+    return_url = _get_safe_return_url(request)
     readonly = bool(order and (not is_manager(request.user) and order.status != Order.STATUS_QUOTE))
     proposal_token = _proposal_token(order) if order else None
     proposal_page_url = reverse("orders:proposal_page", args=[proposal_token]) if proposal_token else None
@@ -4305,6 +4341,7 @@ def _render_mosquito_components_builder_page(request, order):
         "stage_message": "Комплектуючі до москітних сіток рахуються по другій вкладці прайсу одним довідковим запитом. Розрахунок іде по м.п. або по шт./компл. залежно від одиниці виміру.",
         "mosquito_component_items_json": json.dumps(items_payload, ensure_ascii=False),
         "customer_discount_percent_js": format(_normalize_discount_percent(getattr(order, "discount_percent", Decimal("0")) if order else getattr(getattr(request.user, "customerprofile", None), "discount_percent", Decimal("0"))), "f"),
+        "return_url": return_url,
     }
     return render(request, "orders/mosquito_components_builder.html", context)
 
@@ -4312,6 +4349,7 @@ def _render_mosquito_components_builder_page(request, order):
 @login_required
 def order_mosquito_components_builder(request, pk):
     order = get_object_or_404(Order, pk=pk, deleted=False)
+    return_url = _get_safe_return_url(request)
     readonly = bool(order and (not is_manager(request.user) and order.status != Order.STATUS_QUOTE))
     if request.method == "POST":
         if readonly:
@@ -4368,7 +4406,8 @@ def order_mosquito_components_builder(request, pk):
         if new_status and not _apply_status_change(order, new_status, request):
             return redirect("orders:order_mosquito_components_builder", pk=order.pk)
 
-        messages.success(request, "Замовлення комплектуючих до москітних сіток збережено.")
+        if action == "save_stay":
+            return _builder_save_stay_response(request, order, "orders:order_mosquito_components_builder", return_url)
         if action == "to_work":
             return redirect("orders:mosquito_components_list")
         if action == "save_list":
@@ -4393,7 +4432,11 @@ def order_mosquito_components_builder_new(request):
         "Замовлення (комплектуючі до москітних сіток)",
         rate=get_current_usd_rate(),
     )
-    return redirect("orders:order_mosquito_components_builder", pk=order.pk)
+    builder_url = reverse("orders:order_mosquito_components_builder", args=[order.pk])
+    return_url = _get_safe_return_url(request)
+    if return_url:
+        builder_url = f"{builder_url}?{urlencode({'next': return_url})}"
+    return redirect(builder_url)
 
 
 @login_required
@@ -4403,6 +4446,7 @@ def order_components_builder(request, pk):
     UA: Білдер комплектуючих для замовлення (аркуш 'Комплектація').
     """
     order = get_object_or_404(Order, pk=pk, deleted=False)
+    return_url = _get_safe_return_url(request)
     readonly = bool(order and (not is_manager(request.user) and order.status != Order.STATUS_QUOTE))
 
     if request.method == "POST":
@@ -4497,7 +4541,8 @@ def order_components_builder(request, pk):
         if new_status and not _apply_status_change(order, new_status, request):
             return redirect(reverse("orders:order_components_builder", kwargs={"pk": order.pk}))
 
-        messages.success(request, "Замовлення збережено.")
+        if action == "save_stay":
+            return _builder_save_stay_response(request, order, "orders:order_components_builder", return_url)
 
         # EN: Redirect back to builder or to order detail — adjust as needed
         # UA: Редірект назад у білдер або на сторінку замовлення — за потреби зміни
@@ -4552,6 +4597,7 @@ def order_components_builder(request, pk):
             customer_profiles_queryset()
         ) if is_manager(request.user) else [],
         "can_view_financial_controls": _can_view_financial_controls(request.user, order.customer),
+        "return_url": return_url,
     }
 
     return render(request, "orders/components_builder.html", context)
@@ -4560,6 +4606,7 @@ def order_components_builder(request, pk):
 @login_required
 def order_fabric_builder(request, pk):
     order = get_object_or_404(Order, pk=pk, deleted=False)
+    return_url = _get_safe_return_url(request)
     readonly = bool(order and (not is_manager(request.user) and order.status != Order.STATUS_QUOTE))
 
     if request.method == "POST":
@@ -4688,7 +4735,8 @@ def order_fabric_builder(request, pk):
         if new_status and not _apply_status_change(order, new_status, request):
             return redirect(reverse("orders:order_fabric_builder", kwargs={"pk": order.pk}))
 
-        messages.success(request, "Замовлення збережено.")
+        if action == "save_stay":
+            return _builder_save_stay_response(request, order, "orders:order_fabric_builder", return_url)
         next_url = (request.POST.get("next_url") or "").strip()
         if next_url and url_has_allowed_host_and_scheme(
             next_url,
@@ -4740,6 +4788,7 @@ def order_fabric_builder(request, pk):
             customer_profiles_queryset()
         ) if is_manager(request.user) else [],
         "can_view_financial_controls": _can_view_financial_controls(request.user, order.customer),
+        "return_url": return_url,
     }
 
     return render(request, "orders/fabrics_builder.html", context)
@@ -4770,7 +4819,11 @@ def order_fabric_builder_new(request):
         total_eur=Decimal("0"),
         discount_percent=discount_pct_val,
     )
-    return redirect("orders:order_fabric_builder", pk=order.pk)
+    builder_url = reverse("orders:order_fabric_builder", args=[order.pk])
+    return_url = _get_safe_return_url(request)
+    if return_url:
+        builder_url = f"{builder_url}?{urlencode({'next': return_url})}"
+    return redirect(builder_url)
 
 
 @login_required
@@ -5153,7 +5206,11 @@ def order_components_builder_new(request):
         total_eur=Decimal("0"),
         discount_percent=discount_pct_val,
     )
-    return redirect("orders:order_components_builder", pk=order.pk)
+    builder_url = reverse("orders:order_components_builder", args=[order.pk])
+    return_url = _get_safe_return_url(request)
+    if return_url:
+        builder_url = f"{builder_url}?{urlencode({'next': return_url})}"
+    return redirect(builder_url)
 
 
 @staff_member_required

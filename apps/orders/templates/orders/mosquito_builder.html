@@ -198,6 +198,7 @@
   <form method="post" id="mosquitoOrderForm" novalidate>
     {% csrf_token %}
     <input type="hidden" name="status_action" id="statusActionInput" value="save" />
+    <input type="hidden" name="next_url" id="nextUrlInput" value="{{ return_url|default:'' }}" />
     <input type="hidden" id="customerDiscountValue" value="{{ customer_discount_percent_js|default:'0' }}">
     <fieldset {% if readonly %}disabled{% endif %}>
       <div id="mosquitoBuilderAlert" class="alert alert-warning builder-page-alert d-none" role="alert"></div>
@@ -496,6 +497,12 @@
     function normalizeNumber(val, fallback = 0) {
       const num = parseFloat((val ?? '').toString().replace(',', '.'));
       return Number.isFinite(num) ? num : fallback;
+    }
+    function getCsrf() {
+      const m = document.querySelector('meta[name="csrf-token"]');
+      if (m && m.content) return m.content;
+      const match = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/);
+      return match ? decodeURIComponent(match[1]) : '';
     }
     function uahFromUsd(x) {
       return Number(x || 0) * Number(usdRate || 0);
@@ -1309,10 +1316,44 @@
       $form.find(':disabled[name]').prop('disabled', false).trigger('change.select2');
     }
 
+    async function saveAndStayMosquito() {
+      if (!validateMosquitoOrderForm()) return;
+      const $form = $('#mosquitoOrderForm');
+      enableDisabledSubmissionFields($form);
+      const formData = new FormData($form[0]);
+      formData.set('status_action', 'save_stay');
+      formData.set('next_url', $('#nextUrlInput').val() || '');
+      const $btn = $('button[data-status-action="save_stay"]');
+      $btn.prop('disabled', true);
+      try {
+        const response = await fetch(window.location.href, {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRFToken': getCsrf(),
+          },
+          credentials: 'same-origin',
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || 'Не вдалося зберегти замовлення');
+        }
+        if (data.order_url) window.history.replaceState({}, '', data.order_url);
+        window.showToast(data.message || 'Замовлення збережено.', 'success');
+      } catch (e) {
+        window.showToast(e.message || 'Не вдалося зберегти замовлення', 'danger');
+      } finally {
+        $btn.prop('disabled', false);
+      }
+    }
+
     $('#mosquitoOrderForm').on('click', 'button[data-status-action]', function (e) {
       const action = $(this).data('status-action') || 'save';
       if (action === 'save_stay') {
-        $('#statusActionInput').val('save');
+        e.preventDefault();
+        $('#statusActionInput').val(action);
+        saveAndStayMosquito();
         return;
       }
       if (action === 'save') {
