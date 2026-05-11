@@ -22,6 +22,30 @@
     <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
+    <style>
+      .scroll-top-btn {
+        position: fixed;
+        right: 1.25rem;
+        bottom: 1.25rem;
+        z-index: 1050;
+        width: 3rem;
+        height: 3rem;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        box-shadow: 0 0.5rem 1.25rem rgba(0, 0, 0, 0.2);
+      }
+      .scroll-top-btn.is-visible {
+        display: inline-flex;
+      }
+      @media (max-width: 576px) {
+        .scroll-top-btn {
+          right: 0.9rem;
+          bottom: 0.9rem;
+        }
+      }
+    </style>
 
     <!-- CSRF meta for AJAX -->
     {% csrf_token %}
@@ -219,6 +243,9 @@
 
     {% block body_extra %}
     {% endblock %}
+    <button type="button" class="btn btn-primary scroll-top-btn" id="scrollTopBtn" aria-label="Нагору" title="Нагору">
+      <i class="bi bi-arrow-up"></i>
+    </button>
     <!-- Global loader overlay -->
     <div id="global-loader" class="d-none">
       <div class="loader-backdrop">
@@ -237,6 +264,19 @@
         };
         setHeight();
         window.addEventListener('resize', setHeight);
+      });
+
+      document.addEventListener('DOMContentLoaded', function () {
+        const scrollTopBtn = document.getElementById('scrollTopBtn');
+        if (!scrollTopBtn) return;
+        const toggleScrollTopBtn = () => {
+          scrollTopBtn.classList.toggle('is-visible', window.scrollY > 500);
+        };
+        window.addEventListener('scroll', toggleScrollTopBtn, { passive: true });
+        toggleScrollTopBtn();
+        scrollTopBtn.addEventListener('click', function () {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
       });
 
       document.addEventListener('DOMContentLoaded', function () {

@@ -34,42 +34,43 @@
 {% endblock %}
 
 {% block dashboard_content %}
+  {% with return_url=request.get_full_path|urlencode %}
   <div class="d-flex flex-wrap justify-content-end gap-2 mb-2 {% if list_mode == 'all' %}new-order-actions{% endif %}">
     {% if list_mode == 'all' %}
-      <a href="{% url 'orders:builder' %}" class="btn btn-success w-100 d-md-inline-flex d-flex align-items-center justify-content-center text-center new-order-btn-all">
+      <a href="{% url 'orders:builder' %}?next={{ return_url }}" class="btn btn-success w-100 d-md-inline-flex d-flex align-items-center justify-content-center text-center new-order-btn-all">
         <i class="bi bi-plus-lg me-1"></i><i class="bi bi-bag-check me-1"></i>Ролети
       </a>
-      <a href="{% url 'orders:components_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-flex align-items-center justify-content-center text-center new-order-btn-all">
+      <a href="{% url 'orders:components_builder_create' %}?next={{ return_url }}" class="btn btn-success w-100 d-md-inline-flex d-flex align-items-center justify-content-center text-center new-order-btn-all">
         <i class="bi bi-plus-lg me-1"></i><i class="bi bi-tools me-1"></i>Компл-ючі до тк. рол.
       </a>
-      <a href="{% url 'orders:fabrics_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-flex align-items-center justify-content-center text-center new-order-btn-all">
+      <a href="{% url 'orders:fabrics_builder_create' %}?next={{ return_url }}" class="btn btn-success w-100 d-md-inline-flex d-flex align-items-center justify-content-center text-center new-order-btn-all">
         <i class="bi bi-plus-lg me-1"></i><i class="bi bi-scissors me-1"></i>Тканина
       </a>
-      <a href="{% url 'orders:mosquito_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-flex align-items-center justify-content-center text-center new-order-btn-all">
+      <a href="{% url 'orders:mosquito_builder_create' %}?next={{ return_url }}" class="btn btn-success w-100 d-md-inline-flex d-flex align-items-center justify-content-center text-center new-order-btn-all">
         <i class="bi bi-plus-lg me-1"></i><i class="bi bi-grid-3x3-gap me-1"></i>Москітні сітки
       </a>
-      <a href="{% url 'orders:mosquito_components_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-flex align-items-center justify-content-center text-center new-order-btn-all">
+      <a href="{% url 'orders:mosquito_components_builder_create' %}?next={{ return_url }}" class="btn btn-success w-100 d-md-inline-flex d-flex align-items-center justify-content-center text-center new-order-btn-all">
         <i class="bi bi-plus-lg me-1"></i><i class="bi bi-wrench-adjustable me-1"></i>Комплектуючі до мос. сіток
       </a>
     {% else %}
       {% if list_mode == 'components' %}
-        <a href="{% url 'orders:components_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
+        <a href="{% url 'orders:components_builder_create' %}?next={{ return_url }}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
           <i class="bi bi-tools me-1"></i> Нове замовлення (Компл-ючі до тк. рол.)
         </a>
       {% elif list_mode == 'fabrics' %}
-        <a href="{% url 'orders:fabrics_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
+        <a href="{% url 'orders:fabrics_builder_create' %}?next={{ return_url }}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
           <i class="bi bi-scissors me-1"></i> Нове замовлення (Тканина)
         </a>
       {% elif list_mode == 'mosquitoes' %}
-        <a href="{% url 'orders:mosquito_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
+        <a href="{% url 'orders:mosquito_builder_create' %}?next={{ return_url }}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
           <i class="bi bi-grid-3x3-gap me-1"></i> Нове замовлення (Москітні сітки)
         </a>
       {% elif list_mode == 'mosquito_components' %}
-        <a href="{% url 'orders:mosquito_components_builder_create' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
+        <a href="{% url 'orders:mosquito_components_builder_create' %}?next={{ return_url }}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
           <i class="bi bi-wrench-adjustable me-1"></i> Нове замовлення (Комплектуючі до мос. сіток)
         </a>
       {% else %}
-        <a href="{% url 'orders:builder' %}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
+        <a href="{% url 'orders:builder' %}?next={{ return_url }}" class="btn btn-success w-100 d-md-inline-flex d-block text-center">
           <i class="bi bi-plus-lg me-1"></i> Нове замовлення (Ролети)
         </a>
       {% endif %}
@@ -211,7 +212,7 @@
               {% endif %}
               <td style="min-width: 220px; max-width: 420px;">
                 <div class="fw-semibold mb-1">
-                  <a href="{% if list_mode == 'components' %}{% url 'orders:order_components_builder' o.id %}{% elif list_mode == 'fabrics' %}{% url 'orders:order_fabric_builder' o.id %}{% elif list_mode == 'mosquitoes' %}{% url 'orders:order_mosquito_builder' o.id %}{% elif list_mode == 'mosquito_components' %}{% url 'orders:order_mosquito_components_builder' o.id %}{% elif list_mode == 'all' %}{{ order_view_urls|get_item:o.id }}{% else %}{% url 'orders:builder_edit' o.id %}{% endif %}">Замовлення №{{ o.id }}</a>
+                  <a href="{% if list_mode == 'components' %}{% url 'orders:order_components_builder' o.id %}{% elif list_mode == 'fabrics' %}{% url 'orders:order_fabric_builder' o.id %}{% elif list_mode == 'mosquitoes' %}{% url 'orders:order_mosquito_builder' o.id %}{% elif list_mode == 'mosquito_components' %}{% url 'orders:order_mosquito_components_builder' o.id %}{% elif list_mode == 'all' %}{{ order_view_urls|get_item:o.id }}{% else %}{% url 'orders:builder_edit' o.id %}{% endif %}?next={{ return_url }}">Замовлення №{{ o.id }}</a>
                 </div>
                 {% if list_mode == 'all' %}
                   {% with order_kind=order_kind_map|get_item:o.id %}
@@ -321,7 +322,7 @@
                     {% endif %}
                   {% endif %}
                   </span>
-                  <a class="btn btn-sm btn-outline-secondary" href="{% if list_mode == 'components' %}{% url 'orders:order_components_builder' o.id %}{% elif list_mode == 'fabrics' %}{% url 'orders:order_fabric_builder' o.id %}{% elif list_mode == 'mosquitoes' %}{% url 'orders:order_mosquito_builder' o.id %}{% elif list_mode == 'mosquito_components' %}{% url 'orders:order_mosquito_components_builder' o.id %}{% elif list_mode == 'all' %}{{ order_view_urls|get_item:o.id }}{% else %}{% url 'orders:builder_edit' o.id %}{% endif %}">
+                  <a class="btn btn-sm btn-outline-secondary" href="{% if list_mode == 'components' %}{% url 'orders:order_components_builder' o.id %}{% elif list_mode == 'fabrics' %}{% url 'orders:order_fabric_builder' o.id %}{% elif list_mode == 'mosquitoes' %}{% url 'orders:order_mosquito_builder' o.id %}{% elif list_mode == 'mosquito_components' %}{% url 'orders:order_mosquito_components_builder' o.id %}{% elif list_mode == 'all' %}{{ order_view_urls|get_item:o.id }}{% else %}{% url 'orders:builder_edit' o.id %}{% endif %}?next={{ return_url }}">
                     <i class="bi bi-eye me-1"></i> Переглянути
                   </a>
                   {% if request.user.is_manager or request.user.is_superuser %}
@@ -375,6 +376,7 @@
       {% endif %}
     </div>
   {% endif %}
+  {% endwith %}
 
   <div class="modal fade" id="paymentListModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -548,6 +550,13 @@
           });
           setDateMode((data && data.date_mode) || 'month', { applyDates: false });
         };
+        const hasMeaningfulFilters = (data) => {
+          if (!data) return false;
+          return Object.entries(data).some(([name, value]) => {
+            if (name === 'date_mode') return false;
+            return !!(value && value.toString().trim() !== '');
+          });
+        };
 
         const hasQuery = window.location.search && window.location.search.length > 1;
         setDateMode((dateModeInput && dateModeInput.value) || 'month', { applyDates: false });
@@ -555,6 +564,18 @@
           try {
             localStorage.setItem(storageKey, JSON.stringify(readFields()));
             localStorage.setItem(dateModeKey, getCurrentMode());
+          } catch (e) {}
+        } else {
+          try {
+            const raw = localStorage.getItem(storageKey);
+            const saved = raw ? JSON.parse(raw) : null;
+            if (saved) {
+              writeFields(saved);
+              if (hasMeaningfulFilters(saved)) {
+                filtersForm.requestSubmit();
+                return;
+              }
+            }
           } catch (e) {}
         }
         highlightActive();

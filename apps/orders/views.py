@@ -29,6 +29,7 @@ from apps.accounts.roles import is_manager
 import json
 import html
 import logging
+from urllib.parse import urlencode
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 from django.contrib.admin.views.decorators import staff_member_required
@@ -2450,6 +2451,14 @@ def order_builder(request, pk=None):
     - POST + pk=<id>    → обновить заказ + Items
     """
 
+    return_url = (request.POST.get("next_url") or request.GET.get("next") or "").strip()
+    if return_url and not url_has_allowed_host_and_scheme(
+        return_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return_url = ""
+
     # Получение или создание ордера
     if pk:
         if is_manager(request.user):
@@ -2698,7 +2707,20 @@ def order_builder(request, pk=None):
         if new_status and not _apply_status_change(order, new_status, request):
             return redirect("orders:builder_edit", pk=order.pk)
 
-        messages.success(request, "Замовлення збережено.")
+        if action == "save_stay":
+            builder_edit_url = reverse("orders:builder_edit", args=[order.pk])
+            if return_url:
+                builder_edit_url = f"{builder_edit_url}?{urlencode({'next': return_url})}"
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                return JsonResponse(
+                    {
+                        "ok": True,
+                        "message": "Замовлення збережено.",
+                        "order_id": order.pk,
+                        "order_url": builder_edit_url,
+                    }
+                )
+            return redirect(builder_edit_url)
         next_url = (request.POST.get("next_url") or "").strip()
         if next_url and url_has_allowed_host_and_scheme(
             next_url,
@@ -2824,6 +2846,7 @@ def order_builder(request, pk=None):
         "customer_discount_percent": discount_percent,
         "customer_discount_percent_js": customer_discount_percent_js,
         "can_view_financial_controls": can_view_financial_controls,
+        "return_url": return_url,
     })
     
     

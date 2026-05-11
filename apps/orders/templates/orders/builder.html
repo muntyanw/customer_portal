@@ -92,7 +92,7 @@
     <input type="hidden" name="eur_rate" id="orderEurRateInput" />
     <input type="hidden" name="total_eur" id="orderTotalInput" value="{{ order.total_eur|default:'0.00' }}" />
     <input type="hidden" name="status_action" id="statusActionInput" value="save" />
-    <input type="hidden" name="next_url" id="nextUrlInput" value="" />
+    <input type="hidden" name="next_url" id="nextUrlInput" value="{{ return_url|default:'' }}" />
     <input type="hidden" id="customerDiscountValue" value="{{ customer_discount_percent_js|default:'0' }}">
     <fieldset {% if readonly %}disabled{% endif %}>
 
@@ -217,6 +217,7 @@
       {% if not readonly %}
         <div class="d-flex flex-wrap gap-2">
           <button type="submit" class="btn btn-primary" name="status_action" value="save" data-status-action="save">Зберегти</button>
+          <button type="submit" class="btn btn-outline-primary" name="status_action" value="save_stay" data-status-action="save_stay">Зберегти і залишитись</button>
           {% if order %}
             {% if order.status == order.STATUS_QUOTE %}
               <button type="submit" class="btn btn-success" name="status_action" value="to_work" data-status-action="to_work">В роботу</button>
@@ -345,7 +346,7 @@
 
   <script>
     // UA: Виводимо тости ближче до центру екрана на сторінці білдера
-    window.showToast = function (message, type = "primary") {
+    window.showToast = function (message, type = "primary", delay = 4000) {
       const id = "toast-" + Math.random().toString(36).slice(2)
       const html = `
         <div id="${id}" class="toast align-items-center text-bg-${type} border-0 position-fixed top-50 start-50 translate-middle shadow"
@@ -358,14 +359,14 @@
       `
       document.body.insertAdjacentHTML("beforeend", html)
       const el = document.getElementById(id)
-      const toast = new bootstrap.Toast(el, { delay: 9000 })
+      const toast = new bootstrap.Toast(el, { autohide: true, delay })
       toast.show()
       el.addEventListener("hidden.bs.toast", () => el.remove())
     }
 
     // EN: Global builder context from Django
     // UA: Глобальний контекст білдера з Django
-    const builderOrderId = {{ order.id|default:"null" }}
+    let builderOrderId = {{ order.id|default:"null" }}
     const builderItems = {{ items_json|safe|default:"[]" }}
     const paymentMessage = "{{ payment_message_text|default:''|escapejs }}"
     const paymentShortageRaw = "{{ payment_shortage.shortage|default:''|escapejs }}"
@@ -395,6 +396,8 @@
     let paymentModal = null
     let suppressDirty = true
     let initWait = 2
+    let suppressRecalcPrice = false
+    let recalcPricePending = false
 
     function finishInit() {
       initWait -= 1
@@ -412,6 +415,80 @@
       $('#statusActionInput').val(action)
       isDirty = false
       document.getElementById('orderForm').requestSubmit()
+    }
+
+    function validateOrderForm() {
+      let ok = true
+      const $cust = $('#orderCustomer')
+      if ($cust.length) {
+        if (!$cust.val()) {
+          ok = false
+          $cust.addClass('is-invalid')
+        } else {
+          $cust.removeClass('is-invalid')
+        }
+      }
+      $container.find('.item-card').each(function () {
+        const $c = $(this)
+        const sys = $c.find('.system-sheet').val()
+        const sec = $c.find('.table-section').val()
+        const fab = $c.find('.fabric').val()
+
+        if (!sys || !sec || !fab) {
+          ok = false
+          if (!sys) $c.find('.system-sheet').addClass('is-invalid')
+          if (!sec) $c.find('.table-section').addClass('is-invalid')
+          if (!fab) $c.find('.fabric').addClass('is-invalid')
+          if (!$c.find('.control_side').hasClass('d-none')) {
+            if (!$c.find('.control_side select').val()) $c.find('.control_side select').addClass('is-invalid')
+          }
+        } else {
+          $c.find('.system-sheet,.table-section,.fabric,.fabric-color-code,.control_side select').removeClass('is-invalid')
+        }
+      })
+      if (!ok) {
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+        window.showToast('Перевірте форму: клієнт та поля позицій мають бути заповнені', 'warning')
+      }
+      return ok
+    }
+
+    async function saveAndStay() {
+      if (!validateOrderForm()) return
+      const form = document.getElementById('orderForm')
+      const formData = new FormData(form)
+      formData.set('status_action', 'save_stay')
+      formData.set('next_url', '')
+
+      const $btn = $('button[data-status-action="save_stay"]')
+      $btn.prop('disabled', true)
+      try {
+        const response = await fetch(window.location.href, {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRFToken': getCsrf(),
+          },
+          credentials: 'same-origin',
+        })
+        const data = await response.json()
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || 'Не вдалося зберегти замовлення')
+        }
+        if (data.order_id) {
+          builderOrderId = data.order_id
+        }
+        if (data.order_url) {
+          window.history.replaceState({}, '', data.order_url)
+        }
+        isDirty = false
+        window.showToast(data.message || 'Замовлення збережено.', 'success')
+      } catch (e) {
+        window.showToast(e.message || 'Не вдалося зберегти замовлення', 'danger')
+      } finally {
+        $btn.prop('disabled', false)
+      }
     }
 
     function buildPaymentMessage() {
@@ -1474,6 +1551,10 @@
   }
 
   function recalcPrice() {
+      if (suppressRecalcPrice) {
+        recalcPricePending = true
+        return
+      }
       let sumTotal = 0
       const discountMultiplier = getDiscountMultiplier()
 
@@ -1511,7 +1592,6 @@
 
         const discountedSum = sum * discountMultiplier
         const roundedDiscountedSum = Number(money(discountedSum))
-        console.log(discountMultiplier)
 
         // subtotal по позиции
         $card.find('.subtotal-input').text(money(roundedDiscountedSum)).val(money(roundedDiscountedSum))
@@ -1945,38 +2025,8 @@
     })
 
     $('#orderForm').on('submit', function (e) {
-      let ok = true
-      const $cust = $('#orderCustomer')
-      if ($cust.length) {
-        if (!$cust.val()) {
-          ok = false
-          $cust.addClass('is-invalid')
-        } else {
-          $cust.removeClass('is-invalid')
-        }
-      }
-      $container.find('.item-card').each(function () {
-        const $c = $(this)
-        const sys = $c.find('.system-sheet').val()
-        const sec = $c.find('.table-section').val()
-        const fab = $c.find('.fabric').val()
-
-        if (!sys || !sec || !fab) {
-          ok = false
-          if (!sys) $c.find('.system-sheet').addClass('is-invalid')
-          if (!sec) $c.find('.table-section').addClass('is-invalid')
-          if (!fab) $c.find('.fabric').addClass('is-invalid')
-          if(!$c.find('.control_side').hasClass("d-none")){
-              if (!$c.find('.control_side select').val()) $c.find('.control_side select').addClass('is-invalid')
-          }
-        } else {
-          $c.find('.system-sheet,.table-section,.fabric,.fabric-color-code,.control_side select').removeClass('is-invalid')
-        }
-      })
-      if (!ok) {
+      if (!validateOrderForm()) {
         e.preventDefault()
-        window.scrollTo({ top: 0, behavior: 'smooth' })
-        window.showToast('Перевірте форму: клієнт та поля позицій мають бути заповнені', 'warning')
       }
     })
 
@@ -1985,6 +2035,13 @@
       if (action === 'save') {
         e.preventDefault()
         sendToWorkModal.show()
+        return
+      }
+      if (action === 'save_stay') {
+        e.preventDefault()
+        $('#statusActionInput').val(action)
+        $('#nextUrlInput').val('')
+        saveAndStay()
         return
       }
       if (action === 'to_work') {
@@ -2003,9 +2060,15 @@
         if (Array.isArray(builderItems) && builderItems.length > 0) {
           // UA: Режим редагування існуючого замовлення
           // EN: Edit mode – restore existing items
-          for (const item of builderItems) {
-            await addRowWithData(item)
+          suppressRecalcPrice = true
+          try {
+            for (const item of builderItems) {
+              await addRowWithData(item)
+            }
+          } finally {
+            suppressRecalcPrice = false
           }
+          recalcPricePending = false
           recalcPrice()
         } else {
           // UA: Нове замовлення — одна порожня позиція
