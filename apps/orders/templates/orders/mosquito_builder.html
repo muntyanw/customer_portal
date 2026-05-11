@@ -758,12 +758,14 @@
         addTextField(html, 'Висоти дод. імпостів, мм (якщо кілька, через кому)', 'door_extra_impost_heights', data.door_extra_impost_heights || '', 'col-12 col-lg-5', 'напр. 900,1200');
         addNumberField(html, 'Петлі звичайні, шт', 'hinge_regular_qty', data.hinge_regular_qty || '');
         addNumberField(html, 'Петлі з пружиною, шт', 'hinge_spring_qty', data.hinge_spring_qty || '');
+        addNumberField(html, 'Ручка пластикова, шт', 'door_handle_qty', data.door_handle_qty || '');
         addNumberField(html, 'Защіпка пластикова, шт', 'latch_qty', data.latch_qty || '');
         addNumberField(html, 'Магніт, шт', 'magnet_qty', data.magnet_qty || '');
         addNumberField(html, 'Кріплення для алюм. рам, компл.', 'aluminum_mount_kit', data.aluminum_mount_kit || '', 'col-12 col-lg-3');
       } else if (name.includes('посилені')) {
         addNumberField(html, 'Петлі звичайні, шт', 'hinge_regular_qty', data.hinge_regular_qty || '');
         addNumberField(html, 'Петлі з пружиною, шт', 'hinge_spring_qty', data.hinge_spring_qty || '');
+        addNumberField(html, 'Ручка пластикова, шт', 'door_handle_qty', data.door_handle_qty || '');
         addNumberField(html, 'Защіпка пластикова, шт', 'latch_qty', data.latch_qty || '');
         addNumberField(html, 'Магніт, шт', 'magnet_qty', data.magnet_qty || '');
       } else if (name.includes('ролетні')) {
@@ -931,12 +933,14 @@
           optionsTotalUsd += optionPrice('Додатковий імпост для дверних сіток 17*25') * normalizeNumber(optionsData.door_extra_impost_qty, 0) * qty * discountMultiplier;
           optionsTotalUsd += optionPrice('Петля ПВХ звичайна') * normalizeNumber(optionsData.hinge_regular_qty, 0) * qty * discountMultiplier;
           optionsTotalUsd += optionPrice('Петля з пружиною') * normalizeNumber(optionsData.hinge_spring_qty, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Ручка пластикова до дверних') * normalizeNumber(optionsData.door_handle_qty, 0) * qty * discountMultiplier;
           optionsTotalUsd += optionPrice('Защіпка пластикова') * normalizeNumber(optionsData.latch_qty, 0) * qty * discountMultiplier;
           optionsTotalUsd += optionPrice('Магніт') * normalizeNumber(optionsData.magnet_qty, 0) * qty * discountMultiplier;
           optionsTotalUsd += optionPrice('Кріплення для алюмінєвих рам') * normalizeNumber(optionsData.aluminum_mount_kit, 0) * qty * discountMultiplier;
         } else if (name.includes('посилені')) {
           optionsTotalUsd += optionPrice('Петля ПВХ звичайна') * normalizeNumber(optionsData.hinge_regular_qty, 0) * qty * discountMultiplier;
           optionsTotalUsd += optionPrice('Петля з пружиною') * normalizeNumber(optionsData.hinge_spring_qty, 0) * qty * discountMultiplier;
+          optionsTotalUsd += optionPrice('Ручка пластикова до дверних') * normalizeNumber(optionsData.door_handle_qty, 0) * qty * discountMultiplier;
           optionsTotalUsd += optionPrice('Защіпка пластикова') * normalizeNumber(optionsData.latch_qty, 0) * qty * discountMultiplier;
           optionsTotalUsd += optionPrice('Магніт') * normalizeNumber(optionsData.magnet_qty, 0) * qty * discountMultiplier;
         } else if (name.includes('ролетні')) {
@@ -1320,7 +1324,7 @@
           sendToWorkModal.show();
           return;
         }
-        $('#statusActionInput').val('save');
+        $('#statusActionInput').val('save_list');
         return;
       }
       if (action === 'to_work') {

@@ -411,6 +411,16 @@
       return subtotalUsd;
     }
 
+    function applyMosquitoComponentQtyInputSettings($card) {
+      const unit = ($card.find('.mosquito-component-unit').val() || '').trim().toLowerCase();
+      const $qty = $card.find('.mosquito-component-qty');
+      $qty.attr('step', '1');
+      if (unit.includes('м.п')) {
+        const quantity = Math.max(0, Math.floor(normalizeNumber($qty.val(), 0)));
+        $qty.val(quantity);
+      }
+    }
+
     function recalcTotals() {
       let totalUsd = 0;
       $('#mosquitoComponentsContainer .mosquito-components-card').each(function () {
@@ -483,6 +493,7 @@
       if (initial?.length_mm) $card.find('.mosquito-component-length').val(initial.length_mm);
       if (initial?.quantity) $card.find('.mosquito-component-qty').val(initial.quantity);
       if (initial?.note) $card.find('.mosquito-component-note').val(initial.note);
+      applyMosquitoComponentQtyInputSettings($card);
       recalcComponentCard($card);
       recalcTotals();
     }
@@ -527,6 +538,7 @@
       fillComponentNames($card, group, null);
       $card.find('.mosquito-component-color').empty().append('<option value="">— Колір —</option>').trigger('change');
       $card.find('.mosquito-component-unit').val('');
+      applyMosquitoComponentQtyInputSettings($card);
       recalcComponentCard($card);
       recalcTotals();
     });
@@ -547,6 +559,7 @@
       } else {
         $card.find('.mosquito-component-unit').val('');
       }
+      applyMosquitoComponentQtyInputSettings($card);
       recalcComponentCard($card);
       recalcTotals();
     });
@@ -560,12 +573,16 @@
       const rows = componentRowsByName(name, $card.find('.mosquito-component-group').val());
       const row = rows.find((item) => (item.color || '') === color) || rows[0] || null;
       $card.find('.mosquito-component-unit').val(row?.unit || '');
+      applyMosquitoComponentQtyInputSettings($card);
       recalcComponentCard($card);
       recalcTotals();
     });
 
     $('#mosquitoComponentsContainer').on('change input', '.mosquito-component-length, .mosquito-component-qty', function () {
       const $card = $(this).closest('.mosquito-components-card');
+      if ($(this).hasClass('mosquito-component-qty')) {
+        applyMosquitoComponentQtyInputSettings($card);
+      }
       markFieldInvalid($(this), false);
       setFieldError($(this), '');
       recalcComponentCard($card);
@@ -636,6 +653,13 @@
           setFieldError($el, 'Вкажіть кількість.');
           $firstInvalid = $firstInvalid || $el;
         }
+        if (unit.toLowerCase().includes('м.п') && !Number.isInteger(quantity)) {
+          ok = false;
+          const $el = $card.find('.mosquito-component-qty');
+          markFieldInvalid($el, true);
+          setFieldError($el, 'Для м.п. кількість має бути цілим числом.');
+          $firstInvalid = $firstInvalid || $el;
+        }
         if (unit.toLowerCase().includes('м.п') && lengthMm <= 0) {
           ok = false;
           const $el = $card.find('.mosquito-component-length');
@@ -662,7 +686,7 @@
           sendToWorkModal.show();
           return;
         }
-        $('#statusActionInput').val('save');
+        $('#statusActionInput').val('save_list');
         return;
       }
       if (action === 'to_work') {

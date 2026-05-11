@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django import forms
-from django.db import transaction
+from django.db import transaction, DataError
 from django.db.models import Case, DecimalField, ExpressionWrapper, F, Sum, When, Max, Q, Exists, OuterRef
 from django.db.models.functions import Coalesce
 from django.contrib import messages
@@ -39,12 +39,13 @@ from django.core.files.base import ContentFile
 from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image as XLImage
+from openpyxl.utils import get_column_letter
 
 logger = logging.getLogger("app")
 from openpyxl.styles import Alignment, Border, Side, Font, PatternFill
 from django.utils import timezone
 import datetime
-from .utils_components import parse_components_from_post
+from .utils_components import parse_components_from_post, is_meter_unit
 from django.urls import reverse
 from .services_currency import (
     get_current_currency_rate,
@@ -562,6 +563,20 @@ def _excel_plain_text(value) -> str:
     return html.unescape(str(value))
 
 
+def _apply_excel_print_layout(ws, last_col=None):
+    """Apply unified print settings to a worksheet."""
+    last_col = max(int(last_col or ws.max_column or 1), 1)
+    last_col_letter = get_column_letter(last_col)
+    ws.print_area = f"A1:{last_col_letter}1048576"
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.page_margins.left = 0.25
+    ws.page_margins.right = 0.25
+    ws.page_margins.top = 0.5
+    ws.page_margins.bottom = 0.5
+
+
 def _format_qty_for_display(value) -> str:
     """Normalize qty representation for Excel labels (e.g. 2 instead of 2.0)."""
     if value in ("", None):
@@ -628,6 +643,7 @@ MOSQUITO_OPTION_LABELS = {
     "door_extra_impost_heights": "Висоти додаткових імпостів від низу, мм",
     "hinge_regular_qty": "Петлі звичайні",
     "hinge_spring_qty": "Петлі з пружиною",
+    "door_handle_qty": "Ручка пластикова",
     "latch_qty": "Защіпка пластикова",
     "magnet_qty": "Магніт",
     "aluminum_mount_kit": "Кріплення для алюмінєвих рам",
@@ -702,12 +718,14 @@ def _collect_mosquito_option_lines(item, rate: Decimal, markup_multiplier: Decim
     elif "дверні 17*25" in product_name:
         add_line("Петлі звичайні", data.get("hinge_regular_qty"), "Петля ПВХ звичайна")
         add_line("Петлі з пружиною", data.get("hinge_spring_qty"), "Петля з пружиною")
+        add_line("Ручка пластикова", data.get("door_handle_qty"), "Ручка пластикова до дверних")
         add_line("Защіпка пластикова", data.get("latch_qty"), "Защіпка пластикова")
         add_line("Магніт", data.get("magnet_qty"), "Магніт")
         add_line("Кріплення для алюмінєвих рам", data.get("aluminum_mount_kit"), "Кріплення для алюмінєвих рам")
     elif "посилені" in product_name:
         add_line("Петлі звичайні", data.get("hinge_regular_qty"), "Петля ПВХ звичайна")
         add_line("Петлі з пружиною", data.get("hinge_spring_qty"), "Петля з пружиною")
+        add_line("Ручка пластикова", data.get("door_handle_qty"), "Ручка пластикова до дверних")
         add_line("Защіпка пластикова", data.get("latch_qty"), "Защіпка пластикова")
         add_line("Магніт", data.get("magnet_qty"), "Магніт")
     elif "ролетні" in product_name:
@@ -793,6 +811,7 @@ def _collect_mosquito_option_lines(item, rate: Decimal, markup_multiplier: Decim
             "door_extra_impost_heights",
             "hinge_regular_qty",
             "hinge_spring_qty",
+            "door_handle_qty",
             "latch_qty",
             "magnet_qty",
             "aluminum_mount_kit",
@@ -1496,17 +1515,7 @@ def _build_order_workbook(
             ws.cell(row=r, column=c).border = border_horiz
         ws.cell(row=r, column=1).border = Border(left=thin, right=thin)
 
-    # For mosquito production workbook, constrain print to A:J and fit to one page.
-    # This avoids auto-spilling to a second page because of service columns K/L.
-    if mosquito_only_order:
-        ws.print_area = f"A1:J{ws.max_row}"
-        ws.sheet_properties.pageSetUpPr.fitToPage = True
-        ws.page_setup.fitToWidth = 1
-        ws.page_setup.fitToHeight = 1
-        ws.page_margins.left = 0.25
-        ws.page_margins.right = 0.25
-        ws.page_margins.top = 0.5
-        ws.page_margins.bottom = 0.5
+    _apply_excel_print_layout(ws, last_col=grid_max_col)
 
     buffer = BytesIO()
     wb.save(buffer)
@@ -1610,7 +1619,11 @@ def _prepare_to_work(order, request):
     if order.status != Order.STATUS_QUOTE:
         return True
 
-    current_rate = get_current_eur_rate()
+    current_rate = (
+        get_current_usd_rate()
+        if _order_product_category(order) in ('mosquitoes', 'mosquito_components')
+        else get_current_eur_rate()
+    )
     order.eur_rate = current_rate
     order.eur_rate_at_creation = current_rate
     order.save(update_fields=["eur_rate", "eur_rate_at_creation"])
@@ -3229,6 +3242,8 @@ def balances_excel(request):
     for col_letter in ["A", "B", "C", "D", "E"]:
         ws.column_dimensions[col_letter].width = 25
 
+    _apply_excel_print_layout(ws)
+
     output = BytesIO()
     wb.save(output)
     output.seek(0)
@@ -3387,6 +3402,8 @@ def turnover_excel(request):
     for col_letter, width in {"A": 20, "B": 14, "C": 30, "D": 22, "E": 18, "F": 16}.items():
         ws.column_dimensions[col_letter].width = width
 
+    _apply_excel_print_layout(ws)
+
     output = BytesIO()
     wb.save(output)
     output.seek(0)
@@ -3530,6 +3547,8 @@ def order_list_excel(request):
 
     for col_letter in ["A", "B", "C", "D", "E", "F", "G", "H"]:
         ws.column_dimensions[col_letter].width = 22
+
+    _apply_excel_print_layout(ws)
 
     output = BytesIO()
     wb.save(output)
@@ -3680,9 +3699,9 @@ def balances_users(request):
     }
     return render(request, "orders/balances_users.html", context)
 
-def _create_blank_order_for_builder(user, title):
+def _create_blank_order_for_builder(user, title, *, rate=None):
     _, discount_pct_val = _customer_discount_multiplier(user)
-    current_rate = get_current_eur_rate()
+    current_rate = Decimal(rate if rate is not None else get_current_eur_rate())
     return Order.objects.create(
         customer=user,
         title=title,
@@ -3870,12 +3889,14 @@ def _calculate_mosquito_options_total(product_type, quantity, options_data, opti
         add_named("Додатковий імпост для дверних сіток 17*25", count_value("door_extra_impost_qty"))
         add_named("Петля ПВХ звичайна", count_value("hinge_regular_qty"))
         add_named("Петля з пружиною", count_value("hinge_spring_qty"))
+        add_named("Ручка пластикова до дверних", count_value("door_handle_qty"))
         add_named("Защіпка пластикова", count_value("latch_qty"))
         add_named("Магніт", count_value("magnet_qty"))
         add_named("Кріплення для алюмінєвих рам", count_value("aluminum_mount_kit"))
     elif "посилені 14*40" in name or "посилені 17*40" in name:
         add_named("Петля ПВХ звичайна", count_value("hinge_regular_qty"))
         add_named("Петля з пружиною", count_value("hinge_spring_qty"))
+        add_named("Ручка пластикова до дверних", count_value("door_handle_qty"))
         add_named("Защіпка пластикова", count_value("latch_qty"))
         add_named("Магніт", count_value("magnet_qty"))
     elif "ролетні" in name:
@@ -3917,6 +3938,11 @@ def _recalculate_mosquito_items(raw_items, discount_multiplier):
         price_usd_sqm = _to_decimal(mesh_prices.get(item["mesh_type"]))
         actual_area = (Decimal(item["width_mm"]) * Decimal(item["height_mm"])) / Decimal("1000000")
         min_area = _to_decimal(product.get("min_area_sqm"), default="0")
+        if actual_area >= Decimal("1000000") or min_area >= Decimal("1000000"):
+            raise ValueError(
+                f"Завелика площа для {item['product_type']} "
+                f"({item['width_mm']}x{item['height_mm']} мм). Перевірте введені розміри."
+            )
         calc_area = actual_area if actual_area >= min_area else min_area
         base_subtotal_usd = (calc_area * price_usd_sqm * Decimal(item["quantity"]) * discount_multiplier).quantize(Decimal("0.01"))
         options_total_usd = _calculate_mosquito_options_total(
@@ -4056,36 +4082,46 @@ def order_mosquito_builder(request, pk):
                 messages.error(request, str(exc))
                 return redirect("orders:order_mosquito_builder", pk=order.pk)
 
-        OrderMosquitoItem.objects.filter(order=order).delete()
-        OrderMosquitoItem.objects.bulk_create(
-            [
-                OrderMosquitoItem(
-                    order=order,
-                    product_type=item["product_type"],
-                    profile_color=item["profile_color"],
-                    mesh_type=item["mesh_type"],
-                    width_mm=item["width_mm"],
-                    height_mm=item["height_mm"],
-                    quantity=item["quantity"],
-                    area_sqm=item["area_sqm"],
-                    min_area_sqm=item["min_area_sqm"],
-                    price_usd_sqm=item["price_usd_sqm"],
-                    options_total_usd=item.get("options_total_usd", Decimal("0")),
-                    subtotal_usd=item["subtotal_usd"],
-                    options_data=item.get("options_data") or {},
-                    sliding_side=item.get("sliding_side", ""),
-                    warning_text=item.get("warning_text", ""),
-                    note=item["note"],
+        try:
+            with transaction.atomic():
+                OrderMosquitoItem.objects.filter(order=order).delete()
+                OrderMosquitoItem.objects.bulk_create(
+                    [
+                        OrderMosquitoItem(
+                            order=order,
+                            product_type=item["product_type"],
+                            profile_color=item["profile_color"],
+                            mesh_type=item["mesh_type"],
+                            width_mm=item["width_mm"],
+                            height_mm=item["height_mm"],
+                            quantity=item["quantity"],
+                            area_sqm=item["area_sqm"],
+                            min_area_sqm=item["min_area_sqm"],
+                            price_usd_sqm=item["price_usd_sqm"],
+                            options_total_usd=item.get("options_total_usd", Decimal("0")),
+                            subtotal_usd=item["subtotal_usd"],
+                            options_data=item.get("options_data") or {},
+                            sliding_side=item.get("sliding_side", ""),
+                            warning_text=item.get("warning_text", ""),
+                            note=item["note"],
+                        )
+                        for item in recalculated_items
+                    ]
                 )
-                for item in recalculated_items
-            ]
-        )
-        order.total_eur = total_usd
-        order.eur_rate = get_current_usd_rate()
-        if not order.eur_rate_at_creation:
-            order.eur_rate_at_creation = order.eur_rate
-        order.discount_percent = discount_pct
-        order.save(update_fields=["total_eur", "eur_rate", "eur_rate_at_creation", "discount_percent"])
+                order.total_eur = total_usd
+                order.eur_rate = get_current_usd_rate()
+                if not order.eur_rate_at_creation:
+                    order.eur_rate_at_creation = order.eur_rate
+                order.discount_percent = discount_pct
+                order.save(update_fields=["total_eur", "eur_rate", "eur_rate_at_creation", "discount_percent"])
+        except DataError:
+            logger.exception(
+                "Failed to persist mosquito order %s due to numeric overflow. Items=%s",
+                order.pk,
+                recalculated_items,
+            )
+            messages.error(request, "Не вдалося зберегти замовлення: перевірте розміри та параметри позицій.")
+            return redirect("orders:order_mosquito_builder", pk=order.pk)
 
         new_status = None
         if action == "to_work":
@@ -4126,7 +4162,11 @@ def order_mosquito_builder_new(request):
                 chosen_customer = get_user_model().objects.get(pk=cust_id)
             except get_user_model().DoesNotExist:
                 chosen_customer = request.user
-    order = _create_blank_order_for_builder(chosen_customer, "Замовлення (москітні сітки)")
+    order = _create_blank_order_for_builder(
+        chosen_customer,
+        "Замовлення (москітні сітки)",
+        rate=get_current_usd_rate(),
+    )
     return redirect("orders:order_mosquito_builder", pk=order.pk)
 
 
@@ -4179,6 +4219,8 @@ def _recalculate_mosquito_component_items(raw_items, discount_multiplier):
         quantity = _to_decimal(item.get("quantity"), default="0")
         if quantity <= 0:
             raise ValueError(f"Для {item['name']} потрібно вказати кількість більше нуля.")
+        if is_meter_unit(item["unit"]) and quantity != quantity.to_integral_value():
+            raise ValueError(f"Для {item['name']} кількість у м.п. має бути цілим числом.")
         base_price_usd = _to_decimal(matched.get("price_usd"), default="0")
         price_usd = (base_price_usd * discount_multiplier).quantize(Decimal("0.0001"))
         unit_name = (item["unit"] or "").strip().lower()
@@ -4323,7 +4365,11 @@ def order_mosquito_components_builder_new(request):
                 chosen_customer = get_user_model().objects.get(pk=cust_id)
             except get_user_model().DoesNotExist:
                 chosen_customer = request.user
-    order = _create_blank_order_for_builder(chosen_customer, "Замовлення (комплектуючі до москітних сіток)")
+    order = _create_blank_order_for_builder(
+        chosen_customer,
+        "Замовлення (комплектуючі до москітних сіток)",
+        rate=get_current_usd_rate(),
+    )
     return redirect("orders:order_mosquito_components_builder", pk=order.pk)
 
 

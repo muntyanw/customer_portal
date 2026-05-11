@@ -360,7 +360,7 @@
             </div>
           </div>
           <div class="col-md-1">
-            <label class="form-label small mb-1">Кількість</label>
+            <label class="form-label small mb-1 component-qty-label">Кількість</label>
             <input type="number" min="0" step="0.001" class="form-control form-control-sm text-end component-qty" data-field="quantity" value="1" />
           </div>
           <div class="col-md-2">
@@ -612,16 +612,55 @@
       return norm === 'шт' || norm.startsWith('шт');
     }
 
+    function isMeterUnit(unit) {
+      const norm = normalizeUnit(unit).replace(/\s+/g, '');
+      return norm.includes('м.п') || norm.includes('мп');
+    }
+
     function applyQtyInputSettings($card) {
       const unit = $card.find('.component-unit').val() || '';
       const $qty = $card.find('.component-qty');
-      if (isPieceUnit(unit)) {
+      const previousMode = $qty.data('quantity-mode') || 'quantity';
+      if (isMeterUnit(unit)) {
+        if (previousMode !== 'meter') {
+          const meters = normalizeNumber($qty.val(), 0);
+          $qty.val(Math.max(0, Math.round(meters * 1000)));
+        } else {
+          const mm = Math.max(0, Math.floor(normalizeNumber($qty.val(), 0)));
+          $qty.val(mm);
+        }
+        $qty.data('quantity-mode', 'meter');
         $qty.attr('step', '1');
+        $card.find('.component-qty-label').text('Довжина, мм');
+      } else if (isPieceUnit(unit)) {
+        if (previousMode === 'meter') {
+          $qty.val('1');
+        }
+        $qty.data('quantity-mode', 'quantity');
+        $qty.attr('step', '1');
+        $card.find('.component-qty-label').text('Кількість');
         const v = Math.max(0, Math.floor(parseFloat(($qty.val() || '0').toString().replace(',', '.')) || 0));
         $qty.val(v);
       } else {
+        if (previousMode === 'meter') {
+          $qty.val('1');
+        }
+        $qty.data('quantity-mode', 'quantity');
         $qty.attr('step', '0.001');
+        $card.find('.component-qty-label').text('Кількість');
       }
+    }
+
+    function componentQuantityForCalc($card) {
+      const unit = $card.find('.component-unit').val() || '';
+      const visibleValue = normalizeNumber($card.find('.component-qty').val(), 0);
+      if (isMeterUnit(unit)) {
+        return Math.max(0, Math.floor(visibleValue)) / 1000;
+      }
+      if (isPieceUnit(unit)) {
+        return Math.max(0, Math.floor(visibleValue));
+      }
+      return Math.max(0, visibleValue);
     }
 
     function money(x) {
@@ -829,7 +868,7 @@
         color: $card.find('.component-color').val() || '',
         unit: $card.find('.component-unit').val() || '',
         price_eur: $card.find('.component-price').val() || '',
-        quantity: $card.find('.component-qty').val() || '1'
+        quantity: componentQuantityForCalc($card) || 0
       };
     }
 
@@ -850,7 +889,7 @@
       $componentsContainer.find('.component-card').each(function () {
         const $card = $(this);
         const price = normalizeNumber($card.find('.component-price').val(), 0);
-        const qty = normalizeNumber($card.find('.component-qty').val(), 0);
+        const qty = componentQuantityForCalc($card);
 
         const subtotal = price * qty;
 
@@ -961,7 +1000,7 @@
       const unit = $card.find('.component-unit').val() || '';
       let v = parseFloat((this.value || '0').toString().replace(',', '.'));
       if (isNaN(v) || v < 0) v = 0;
-      if (isPieceUnit(unit)) {
+      if (isPieceUnit(unit) || isMeterUnit(unit)) {
         v = Math.floor(v);
       }
       this.value = v;
@@ -992,7 +1031,9 @@
       $cards.each(function () {
         const $c = $(this);
         const name = $c.find('.component-name').val();
-        const qty = normalizeNumber($c.find('.component-qty').val(), 0);
+        const qty = componentQuantityForCalc($c);
+        const unit = $c.find('.component-unit').val() || '';
+        const visibleQty = normalizeNumber($c.find('.component-qty').val(), 0);
 
         if (!name || qty <= 0) {
           ok = false;
@@ -1004,6 +1045,11 @@
           }
         } else {
           $c.find('.component-name, .component-qty').removeClass('is-invalid');
+        }
+
+        if (isMeterUnit(unit) && (!Number.isInteger(visibleQty) || visibleQty <= 0)) {
+          ok = false;
+          $c.find('.component-qty').addClass('is-invalid');
         }
       });
 

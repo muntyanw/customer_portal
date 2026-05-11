@@ -6,6 +6,11 @@ from typing import List, Dict, Any
 from django.http import QueryDict
 
 
+def is_meter_unit(unit: str) -> bool:
+    norm = (unit or "").strip().lower().replace(" ", "")
+    return "м.п" in norm or "мп" in norm
+
+
 def parse_components_from_post(post: QueryDict) -> List[Dict[str, Any]]:
     """
     EN: Parse components[*][field] rows from POST data and normalize values.

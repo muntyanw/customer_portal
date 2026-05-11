@@ -3,6 +3,7 @@
 
 {% block head_extra %}
   {{ block.super }}
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
   <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 {% endblock %}
 {% block dashboard_title %}Баланси{% endblock %}
@@ -21,6 +22,9 @@
       </select>
       <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm flex-grow-1" placeholder="Пошук (ПІБ, email, телефон, компанія)">
       <button type="submit" class="btn btn-primary btn-sm">Фільтрувати</button>
+      <a href="{% url 'orders:turnover' %}{% if customer_filter %}?customer={{ customer_filter }}{% endif %}" class="btn btn-success btn-sm">
+        <i class="bi bi-download me-1"></i> Вивантаження оберту
+      </a>
       <a href="{% url 'orders:balances_users' %}" class="btn btn-outline-secondary btn-sm">Скинути</a>
     </form>
   </div>
